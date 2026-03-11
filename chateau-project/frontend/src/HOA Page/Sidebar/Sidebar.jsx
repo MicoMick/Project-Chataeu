@@ -1,30 +1,54 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react'; // Added useEffect
 import { 
   Link, 
-  useLocation 
+  useLocation,
+  useNavigate // Added useNavigate
 } from 'react-router-dom';
 import { 
-  LayoutDashboard, 
-  Users, 
-  CalendarCheck, 
-  CreditCard, 
-  Vote, 
-  Megaphone, 
-  BarChart3, 
-  ChevronLeft, 
-  Menu,
-  ChevronDown,
-  ShieldCheck,
-  UserCircle,
+  LayoutDashboard,  Users,  CalendarCheck, CreditCard, Vote, Megaphone, BarChart3, ChevronLeft, Menu, ChevronDown, ShieldCheck, UserCircle,
   Settings,
   LogOut
 } from 'lucide-react';
 import ChateauLogo from '../../assets/ChataueLogo.png';
+import { supabase } from '../supabaseAdmin'; // Added Supabase import
 
 const Sidebar = () => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [userEmail, setUserEmail] = useState('Admin'); // State for user
+  const [displayName, setDisplayName] = useState('Admin'); // Added state for Name
   const location = useLocation();
+  const navigate = useNavigate(); // For logout redirect
+
+  // --- FETCH USER DATA & SETUP LISTENER ---
+  useEffect(() => {
+    const getUserData = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        setUserEmail(user.email);
+        // Use first_name from metadata if available, else use email prefix
+        setDisplayName(user.user_metadata?.first_name || user.email.split('@')[0]);
+      }
+    };
+
+    getUserData();
+
+    // Listen for Auth changes (updates Sidebar if profile is saved elsewhere)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (session?.user) {
+        setUserEmail(session.user.email);
+        setDisplayName(session.user.user_metadata?.first_name || session.user.email.split('@')[0]);
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // --- LOGOUT HANDLER ---
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    navigate('/admin');
+  };
 
   const menuItems = [
     { icon: <LayoutDashboard size={22} />, label: "Dashboard", path: "/hoa/dashboard" },
@@ -101,7 +125,11 @@ const Sidebar = () => {
                 <UserCircle size={18} /> View Profile
               </Link>
               <div className="h-px bg-slate-100 my-2 mx-2"></div>
-              <button className="w-full flex items-center gap-3 px-3 py-2.5 text-sm font-semibold text-red-500 hover:bg-red-50 rounded-xl transition-all text-left">
+              {/* Added handleLogout here */}
+              <button 
+                onClick={handleLogout}
+                className="w-full flex items-center gap-3 px-3 py-2.5 text-sm font-semibold text-red-500 hover:bg-red-50 rounded-xl transition-all text-left"
+              >
                 <LogOut size={18} /> Sign Out
               </button>
             </div>
@@ -114,12 +142,12 @@ const Sidebar = () => {
           ${isCollapsed ? 'justify-center' : 'justify-between'}`}
         >
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-[#FFF200] to-white flex items-center justify-center text-[#006837] font-bold shadow-inner text-lg group-hover:scale-105 transition-transform">
-              M
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-[#FFF200] to-white flex items-center justify-center text-[#006837] font-bold shadow-inner text-lg group-hover:scale-105 transition-transform uppercase">
+              {displayName.charAt(0)}
             </div>
             {!isCollapsed && (
-              <div className="text-left">
-                <p className="text-white text-sm font-bold">Maria</p>
+              <div className="text-left overflow-hidden">
+                <p className="text-white text-xs font-bold truncate w-32">{displayName}</p>
                 <div className="flex items-center gap-1 text-white/60 text-[10px] uppercase font-bold tracking-tighter">
                   <ShieldCheck size={10} className="text-[#FFF200]" />
                   HOA Admin
