@@ -1,5 +1,5 @@
 import React from 'react';
-import { useNavigate } from 'react-router-dom'; // Added for routing
+import { useNavigate } from 'react-router-dom';
 import { 
   Calendar, 
   CreditCard, 
@@ -9,33 +9,38 @@ import {
   FileTerminal 
 } from 'lucide-react';
 
-// --- TEMPORARY DATA ---
+// --- SYNCED DATA FROM PAYMENTS, ANNOUNCEMENTS, AND REPORTS ---
 const mockData = {
   reservations: [
-    { id: 1, user: "Juan Dela Cruz", facility: "Clubhouse", date: "2026-03-12" },
-    { id: 2, user: "Maria Santos", facility: "Basketball Court", date: "2026-03-14" }
+    { id: 1, user: "Juan Dela Cruz", facility: "Clubhouse", date: "Feb 5, 2026", status: "Approved" },
+    { id: 2, user: "Carlos P Garcia", facility: "Clubhouse", date: "Feb 5, 2026", status: "Pending" },
+    { id: 3, user: "Jose Mang Juan", facility: "Clubhouse", date: "Feb 5, 2026", status: "Rejected" },
+    { id: 4, user: "Pedro Sanchez", facility: "Clubhouse", date: "Mar 8, 2026", status: "Approved" }
   ],
   payments: [
-    { id: 1, user: "Ricardo Gomez", amount: "₱1,500.00", type: "Monthly Dues" },
-    { id: 2, user: "Elena Reyes", amount: "₱500.00", type: "Facility Fee" }
+    { id: 1, user: "Juan Dela Cruz", amount: "₱2,500", type: "Monthly Dues", status: "Paid", date: "Jan 15, 2024" },
+    { id: 4, user: "Ana Garcia", amount: "₱2,500", type: "Monthly Dues", status: "Overdue", date: "Jan 15, 2024" }
   ],
   reports: [
-    { id: 1, subject: "Broken Streetlight", status: "Pending", priority: "Medium" },
-    { id: 2, subject: "Noise Complaint - Unit 402", status: "In Progress", priority: "High" }
+    { id: 1, resident: "Juan Cruz", category: "Maintenance", description: "Leaking Pipe", status: "Resolved", date: "Feb 2, 2026" },
+    { id: 2, resident: "Dela Cruz", category: "Maintenance", description: "Tree Cutting", status: "Resolved", date: "Feb 10, 2026" },
+    { id: 3, resident: "Jose Lito", category: "Noise", description: "Loud Cars", status: "In Progress", date: "Feb 6, 2026" },
+    { id: 4, resident: "Maria Clara", category: "Cleanliness", description: "Dog Waste", status: "Pending", date: "Feb 7, 2026" },
+    { id: 5, resident: "Sisa", category: "Other", description: "Other", status: "On Hold", date: "Feb 15, 2026" }
   ],
   announcements: [
-    { id: 1, title: "Community General Assembly", date: "March 20, 2026", type: "Event" },
-    { id: 2, title: "Water Interruption Notice", date: "March 11, 2026", type: "Urgent" }
+    { id: 1, title: "Water Interruption Notice", date: "Feb 2, 2026", type: "Maintenance" },
+    { id: 2, title: "Annual HOA Meeting Schedule", date: "Feb 2, 2026", type: "General" }
   ],
   elections: [
-    { id: 1, title: "HOA Board Election 2026", status: "Ongoing", voters: 142 }
+    { id: 1, title: "Board of Directors Election 2026", status: "Ongoing", voters: 0 }
   ]
 };
 
-const StatCard = ({ title, value, icon: Icon, iconBg, onClick }) => (
+// UPDATED: Removed onClick and cursor-pointer to make it non-clickable
+const StatCard = ({ title, value, icon: Icon, iconBg }) => (
   <div 
-    onClick={onClick}
-    className={`bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col justify-between hover:shadow-md transition-shadow ${onClick ? 'cursor-pointer' : ''}`}
+    className={`bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col justify-between transition-shadow`}
   >
     <div className="flex justify-between items-start">
       <div>
@@ -50,12 +55,13 @@ const StatCard = ({ title, value, icon: Icon, iconBg, onClick }) => (
   </div>
 );
 
+// UPDATED: Kept cursor-pointer but removed hover background and text color change
 const SectionHeader = ({ title, linkText, onClick }) => (
   <div className="flex justify-between items-center mb-4">
     <h4 className="text-lg font-bold text-slate-800">{title}</h4>
     <button 
       onClick={onClick} 
-      className="text-blue-600 text-sm font-semibold hover:underline focus:outline-none"
+      className="text-blue-600 text-sm font-semibold hover:underline focus:outline-none cursor-pointer"
     >
       {linkText}
     </button>
@@ -65,9 +71,8 @@ const SectionHeader = ({ title, linkText, onClick }) => (
 const HoaDashboard = () => {
   const navigate = useNavigate();
 
-  // Navigation Logic updated for all routes
   const handleNavigate = (path) => {
-    navigate(`${path}`);
+    navigate(`/hoa/${path}`);
   };
 
   return (
@@ -81,32 +86,28 @@ const HoaDashboard = () => {
       {/* Top Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
         <StatCard 
-          title="Pending Reservations" 
-          value={mockData.reservations.length} 
+          title="Total Reservations" 
+          value="4" 
           icon={Calendar} 
           iconBg="bg-blue-50"
-          onClick={() => handleNavigate('reservations')}
         />
         <StatCard 
-          title="Pending Payments" 
-          value={mockData.payments.length} 
+          title="Overdue Payments" 
+          value="1" 
           icon={CreditCard} 
-          iconBg="bg-green-50"
-          onClick={() => handleNavigate('payments')}
+          iconBg="bg-red-50"
         />
         <StatCard 
           title="Active Elections" 
           value={mockData.elections.length} 
           icon={Vote} 
           iconBg="bg-orange-50"
-          onClick={() => handleNavigate('elections')}
         />
         <StatCard 
           title="Active Residents" 
           value="154" 
           icon={Users} 
           iconBg="bg-purple-50"
-          onClick={() => handleNavigate('residents')}
         />
       </div>
 
@@ -117,18 +118,23 @@ const HoaDashboard = () => {
         <div className="space-y-8">
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
             <SectionHeader 
-              title="Pending Reservations" 
+              title="Recent Reservations" 
               linkText="View All" 
               onClick={() => handleNavigate('reservations')} 
             />
-            <div className="space-y-3">
+            <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
               {mockData.reservations.map((item) => (
                 <div key={item.id} className="flex justify-between items-center p-3 border border-slate-50 rounded-xl hover:bg-slate-50 transition-colors">
                   <div>
                     <p className="text-sm font-semibold text-slate-800">{item.user}</p>
                     <p className="text-xs text-slate-500">{item.facility} • {item.date}</p>
                   </div>
-                  <span className="px-3 py-1 bg-blue-50 text-blue-600 text-xs font-bold rounded-full">Pending</span>
+                  <span className={`px-3 py-1 text-[10px] font-bold uppercase rounded-full ${
+                    item.status === 'Approved' ? 'bg-green-50 text-green-600' : 
+                    item.status === 'Pending' ? 'bg-blue-50 text-blue-600' : 'bg-red-50 text-red-600'
+                  }`}>
+                    {item.status}
+                  </span>
                 </div>
               ))}
             </div>
@@ -136,18 +142,24 @@ const HoaDashboard = () => {
 
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
             <SectionHeader 
-              title="Pending Payments" 
+              title="Recent Payments" 
               linkText="View All" 
               onClick={() => handleNavigate('payments')} 
             />
-            <div className="space-y-3">
+            <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
               {mockData.payments.map((item) => (
                 <div key={item.id} className="flex justify-between items-center p-3 border border-slate-50 rounded-xl hover:bg-slate-50 transition-colors">
                   <div>
                     <p className="text-sm font-semibold text-slate-800">{item.user}</p>
-                    <p className="text-xs text-slate-500">{item.type}</p>
+                    <p className="text-xs text-slate-500">{item.type} • {item.date}</p>
                   </div>
-                  <p className="text-sm font-bold text-slate-900">{item.amount}</p>
+                  <div className="text-right">
+                    <p className="text-sm font-bold text-slate-900">{item.amount}</p>
+                    <p className={`text-[10px] font-bold uppercase ${
+                      item.status === 'Overdue' ? 'text-red-500' : 
+                      item.status === 'Paid' ? 'text-green-500' : 'text-orange-500'
+                    }`}>{item.status}</p>
+                  </div>
                 </div>
               ))}
             </div>
@@ -159,15 +171,19 @@ const HoaDashboard = () => {
               linkText="View All" 
               onClick={() => handleNavigate('reports')} 
             />
-            <div className="space-y-3">
+            <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
               {mockData.reports.map((item) => (
                 <div key={item.id} className="flex justify-between items-center p-3 border border-slate-50 rounded-xl hover:bg-slate-50 transition-colors">
                   <div>
-                    <p className="text-sm font-semibold text-slate-800">{item.subject}</p>
-                    <p className="text-xs text-slate-500">Status: {item.status}</p>
+                    <p className="text-sm font-semibold text-slate-800">{item.description}</p>
+                    <p className="text-xs text-slate-500">{item.resident} • {item.date}</p>
                   </div>
-                  <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${item.priority === 'High' ? 'bg-red-50 text-red-600' : 'bg-slate-100 text-slate-600'}`}>
-                    {item.priority}
+                  <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${
+                    item.status === 'Resolved' ? 'bg-green-50 text-green-600' : 
+                    item.status === 'Pending' ? 'bg-red-50 text-red-600' : 
+                    item.status === 'In Progress' ? 'bg-orange-50 text-orange-600' : 'bg-slate-100 text-slate-600'
+                  }`}>
+                    {item.status}
                   </span>
                 </div>
               ))}
@@ -183,7 +199,7 @@ const HoaDashboard = () => {
               linkText="View All" 
               onClick={() => handleNavigate('announcements')} 
             />
-            <div className="space-y-4">
+            <div className="space-y-4 max-h-[350px] overflow-y-auto pr-2 custom-scrollbar">
               {mockData.announcements.map((item) => (
                 <div key={item.id} className="p-4 border border-slate-50 rounded-xl bg-slate-50/50">
                   <div className="flex justify-between items-start mb-1">
@@ -202,7 +218,7 @@ const HoaDashboard = () => {
               linkText="View All" 
               onClick={() => handleNavigate('elections')} 
             />
-            <div className="space-y-3">
+            <div className="space-y-3 max-h-[250px] overflow-y-auto pr-2 custom-scrollbar">
               {mockData.elections.map((item) => (
                 <div key={item.id} className="p-4 border-2 border-orange-100 rounded-xl bg-orange-50/30">
                   <p className="text-sm font-bold text-slate-900 mb-1">{item.title}</p>

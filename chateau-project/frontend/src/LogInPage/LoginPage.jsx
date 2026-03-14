@@ -129,11 +129,7 @@ const LoginPage = () => {
               )}
             </div>
 
-            <div className="flex justify-end">
-              <button type="button" className="text-sm font-semibold text-[#006837] hover:underline">
-                Forgot password?
-              </button>
-            </div>
+            {/* REMOVED FORGOT PASSWORD BUTTON SECTION */}
 
             <button 
               type="submit"
