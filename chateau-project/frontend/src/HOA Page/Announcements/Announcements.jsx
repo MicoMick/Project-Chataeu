@@ -1,10 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react'; // Added useRef
 import { 
   Megaphone, Clock, FileEdit, Eye, Plus, 
   Search, ChevronDown, MoreVertical, Pin, 
   AlertTriangle, MessageSquare, X, Paperclip, 
-  Calendar, Trash2, Share2, Send, CheckCircle2
+  Calendar, Trash2, Share2, Send, CheckCircle2,
+  FileIcon, Loader2 // Added icons
 } from 'lucide-react';
+import { supabase } from '../supabaseAdmin';
 
 const Announcements = () => {
   const [activeCategory, setActiveCategory] = useState('All Categories');
@@ -13,13 +15,15 @@ const Announcements = () => {
   const [showModal, setShowModal] = useState(false);
   const [openMenuId, setOpenMenuId] = useState(null);
 
-  // --- NEW STATES FOR OVERLAYS AND LOGIC ---
   const [selectedAnnouncement, setSelectedAnnouncement] = useState(null);
   const [showDetailsOverlay, setShowDetailsOverlay] = useState(false);
   const [showCommentsOverlay, setShowCommentsOverlay] = useState(false);
   const [showEditOverlay, setShowEditOverlay] = useState(false);
+  
+  // New state for custom confirmation modal
+  const [showPublishConfirm, setShowPublishConfirm] = useState(false);
+  const [pendingPublishItem, setPendingPublishItem] = useState(null);
 
-  // --- TOAST STATE ---
   const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
 
   const showToast = (message, type = 'success') => {
@@ -27,78 +31,135 @@ const Announcements = () => {
     setTimeout(() => setToast({ show: false, message: '', type: 'success' }), 3000);
   };
 
-  // --- FORM STATES ---
   const [newTitle, setNewTitle] = useState('');
   const [newCategory, setNewCategory] = useState('General');
   const [newContent, setNewContent] = useState('');
   const [isEmergency, setIsEmergency] = useState(false);
   const [newComment, setNewComment] = useState('');
+  
+  const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
+  const [endDate, setEndDate] = useState('');
+  
+  // --- ATTACHMENT LOGIC STATES ---
+  const [attachmentUrl, setAttachmentUrl] = useState('');
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef(null);
 
-  const [announcements, setAnnouncements] = useState([
-    {
-      id: 1,
-      title: "Water Interruption Notice",
-      content: "There will be a scheduled water interruption on February 10, 2026 from 8:00 AM to 5:00 PM for maintenance...",
-      date: "Feb 2, 2026, 9:00 AM",
-      author: "Maria Santos",
-      views: 342,
-      comments: [
-        { id: 1, user: "Resident User", text: "This is very helpful, thank you!", time: "2h ago" }
-      ],
-      category: "Maintenance",
-      isPinned: true,
-      isAlert: true,
-      status: "published"
-    },
-    {
-      id: 2,
-      title: "Annual HOA Meeting Schedule",
-      content: "Annual community meeting regarding upcoming projects and budget approvals.",
-      date: "Feb 2, 2026, 9:00 AM",
-      author: "Maria Santos",
-      views: 342,
-      comments: [],
-      category: "General",
-      status: "published"
-    }
-  ]);
+  const [announcements, setAnnouncements] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  // --- DELETE LOGIC ---
-  const handleDelete = (id) => {
-    if (window.confirm("Are you sure you want to delete this announcement?")) {
-      setAnnouncements(announcements.filter(ann => ann.id !== id));
-      setOpenMenuId(null);
-      showToast("Announcement deleted successfully", "error");
+  // --- FILE UPLOAD HANDLER ---
+  const handleFileUpload = async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    try {
+      setIsUploading(true);
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${Math.random()}.${fileExt}`;
+      const filePath = `attachments/${fileName}`;
+
+      // Upload to Supabase Storage
+      const { error: uploadError } = await supabase.storage
+        .from('announcements')
+        .upload(filePath, file);
+
+      if (uploadError) throw uploadError;
+
+      // Get Public URL
+      const { data } = supabase.storage
+        .from('announcements')
+        .getPublicUrl(filePath);
+
+      setAttachmentUrl(data.publicUrl);
+      showToast("File uploaded successfully");
+    } catch (error) {
+      showToast(error.message, "error");
+    } finally {
+      setIsUploading(false);
     }
   };
 
-  // --- EDIT LOGIC ---
+  const fetchAnnouncements = async () => {
+    try {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('announcements')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      setAnnouncements(data || []);
+    } catch (error) {
+      showToast(error.message, "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchAnnouncements();
+  }, []);
+
+  const handleDelete = async (id) => {
+    if (window.confirm("Are you sure you want to delete this announcement?")) {
+      try {
+        const { error } = await supabase.from('announcements').delete().eq('id', id);
+        if (error) throw error;
+        setAnnouncements(announcements.filter(ann => ann.id !== id));
+        setOpenMenuId(null);
+        showToast("Announcement deleted successfully", "error");
+      } catch (error) {
+        showToast(error.message, "error");
+      }
+    }
+  };
+
   const handleOpenEdit = (ann) => {
     setSelectedAnnouncement(ann);
     setNewTitle(ann.title);
     setNewCategory(ann.category);
     setNewContent(ann.content);
-    setIsEmergency(ann.isAlert);
+    setIsEmergency(ann.is_emergency);
+    setStartDate(ann.start_date);
+    setEndDate(ann.end_date);
+    setAttachmentUrl(ann.attachment_url || ''); // Set existing attachment
     setShowEditOverlay(true);
     setOpenMenuId(null);
   };
 
-  const handleUpdateAnnouncement = (status) => {
+  const handleUpdateAnnouncement = async (status) => {
     if (!newTitle || !newContent) {
       showToast("Please fill in all required fields", "error");
       return;
     }
-    setAnnouncements(announcements.map(ann => 
-      ann.id === selectedAnnouncement.id 
-        ? { ...ann, title: newTitle, content: newContent, category: newCategory, isAlert: isEmergency, status: status }
-        : ann
-    ));
-    setShowEditOverlay(false);
-    resetForm();
-    showToast(`Announcement updated as ${status}`);
+    
+    try {
+      const { error } = await supabase
+        .from('announcements')
+        .update({
+          title: newTitle,
+          content: newContent,
+          category: newCategory,
+          is_emergency: isEmergency,
+          status: status,
+          start_date: startDate,
+          end_date: endDate,
+          attachment_url: attachmentUrl // Include attachment
+        })
+        .eq('id', selectedAnnouncement.id);
+
+      if (error) throw error;
+
+      fetchAnnouncements();
+      setShowEditOverlay(false);
+      resetForm();
+      showToast(`Announcement updated as ${status}`);
+    } catch (error) {
+      showToast(error.message, "error");
+    }
   };
 
-  // --- COMMENT LOGIC ---
   const handleAddComment = () => {
     if (!newComment.trim()) return;
     const commentObj = {
@@ -109,23 +170,21 @@ const Announcements = () => {
     };
     setAnnouncements(announcements.map(ann => 
       ann.id === selectedAnnouncement.id 
-        ? { ...ann, comments: [...ann.comments, commentObj] }
+        ? { ...ann, comments: [...(ann.comments || []), commentObj] }
         : ann
     ));
-    setSelectedAnnouncement(prev => ({...prev, comments: [...prev.comments, commentObj]}));
+    setSelectedAnnouncement(prev => ({...prev, comments: [...(prev.comments || []), commentObj]}));
     setNewComment('');
     showToast("Comment added");
   };
 
   const handleDeleteComment = (commentId) => {
     if (!window.confirm("Delete this comment?")) return;
-
     setAnnouncements(announcements.map(ann => 
       ann.id === selectedAnnouncement.id 
         ? { ...ann, comments: ann.comments.filter(c => c.id !== commentId) }
         : ann
     ));
-    
     setSelectedAnnouncement(prev => ({
       ...prev,
       comments: prev.comments.filter(c => c.id !== commentId)
@@ -138,32 +197,73 @@ const Announcements = () => {
     setNewContent('');
     setNewCategory('General');
     setIsEmergency(false);
+    setStartDate(new Date().toISOString().split('T')[0]);
+    setEndDate('');
+    setAttachmentUrl(''); // Reset attachment
     setSelectedAnnouncement(null);
   };
 
-  const handleAddAnnouncement = (status) => {
+  const handleAddAnnouncement = async (status) => {
     if (!newTitle || !newContent) {
       showToast("Title and Content are required", "error");
       return;
     }
 
-    const newEntry = {
-      id: Date.now(),
-      title: newTitle,
-      content: newContent,
-      date: new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }),
-      author: "Admin User",
-      views: 0,
-      comments: [],
-      category: newCategory,
-      isPinned: false,
-      isAlert: isEmergency,
-      status: status
-    };
-    setAnnouncements([newEntry, ...announcements]);
-    setShowModal(false);
-    resetForm();
-    showToast(`Announcement ${status} successfully`);
+    try {
+      const { data, error } = await supabase
+        .from('announcements')
+        .insert([{
+          title: newTitle,
+          content: newContent,
+          category: newCategory,
+          is_emergency: isEmergency,
+          status: status,
+          start_date: startDate,
+          end_date: endDate,
+          author_name: "Admin User",
+          attachment_url: attachmentUrl // Include attachment
+        }])
+        .select();
+
+      if (error) throw error;
+
+      if (status === 'published') {
+        const { error: notifError } = await supabase
+          .from('notifications')
+          .insert([{
+            title: isEmergency ? `🚨 EMERGENCY: ${newTitle}` : `New Announcement: ${newTitle}`,
+            message: newContent.substring(0, 100) + "...",
+            is_read: false
+          }]);
+        if (notifError) console.error("Notification Error:", notifError);
+      }
+
+      fetchAnnouncements();
+      setShowModal(false);
+      resetForm();
+      showToast(`Announcement ${status} successfully`);
+    } catch (error) {
+      showToast(error.message, "error");
+    }
+  };
+
+  // Logic for the custom publish confirmation
+  const handleConfirmPublish = async () => {
+    if (!pendingPublishItem) return;
+    
+    setSelectedAnnouncement(pendingPublishItem);
+    setNewTitle(pendingPublishItem.title);
+    setNewContent(pendingPublishItem.content);
+    setNewCategory(pendingPublishItem.category);
+    setIsEmergency(pendingPublishItem.is_emergency);
+    setStartDate(pendingPublishItem.start_date);
+    setEndDate(pendingPublishItem.end_date);
+    setAttachmentUrl(pendingPublishItem.attachment_url); 
+    
+    await handleUpdateAnnouncement('published');
+    
+    setShowPublishConfirm(false);
+    setPendingPublishItem(null);
   };
 
   const handleTogglePin = (id) => {
@@ -178,7 +278,7 @@ const Announcements = () => {
     { label: 'Published', count: announcements.filter(a => a.status === 'published').length, icon: Megaphone, color: 'text-indigo-600', bg: 'bg-indigo-50' },
     { label: 'Scheduled', count: 0, icon: Clock, color: 'text-blue-600', bg: 'bg-blue-50' },
     { label: 'Drafts', count: announcements.filter(a => a.status === 'draft').length, icon: FileEdit, color: 'text-slate-600', bg: 'bg-slate-50' },
-    { label: 'Total Views', count: announcements.reduce((acc, curr) => acc + (curr.views || 0), 0), icon: Eye, color: 'text-cyan-600', bg: 'bg-cyan-50' },
+    { label: 'Total Views', count: announcements.reduce((acc, curr) => acc + (curr.views_count || 0), 0), icon: Eye, color: 'text-cyan-600', bg: 'bg-cyan-50' },
   ];
 
   const filteredAnnouncements = announcements
@@ -202,7 +302,6 @@ const Announcements = () => {
         }
       `}</style>
 
-      {/* --- TOAST NOTIFICATION --- */}
       {toast.show && (
         <div className="fixed top-8 left-1/2 -translate-x-1/2 z-[100] animate-in fade-in slide-in-from-top-4 duration-300">
           <div className={`flex items-center gap-3 px-6 py-3 rounded-2xl shadow-2xl border ${
@@ -228,7 +327,7 @@ const Announcements = () => {
         </div>
         <button 
           onClick={() => { resetForm(); setShowModal(true); }}
-          className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all"
+          className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all cursor-pointer"
         >
           <Plus size={18} /> New Announcement
         </button>
@@ -261,12 +360,12 @@ const Announcements = () => {
           />
         </div>
         <div className="flex gap-3">
-          <select value={activeStatus} onChange={(e) => setActiveStatus(e.target.value)} className="pl-4 pr-10 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-medium focus:outline-none appearance-none relative">
+          <select value={activeStatus} onChange={(e) => setActiveStatus(e.target.value)} className="pl-4 pr-10 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-medium focus:outline-none appearance-none relative cursor-pointer">
             <option>All Status</option>
             <option>Published</option>
             <option>Drafts</option>
           </select>
-          <select value={activeCategory} onChange={(e) => setActiveCategory(e.target.value)} className="pl-4 pr-10 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-medium focus:outline-none appearance-none">
+          <select value={activeCategory} onChange={(e) => setActiveCategory(e.target.value)} className="pl-4 pr-10 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-medium focus:outline-none appearance-none cursor-pointer">
             <option>All Categories</option>
             <option>Maintenance</option>
             <option>General</option>
@@ -277,19 +376,21 @@ const Announcements = () => {
 
       {/* List */}
       <div className="space-y-4">
-        {activeStatus === 'Drafts' && filteredAnnouncements.length === 0 ? (
+        {loading ? (
+           <div className="text-center py-20 text-slate-400 font-medium">Loading Announcements...</div>
+        ) : filteredAnnouncements.length === 0 ? (
           <div className="bg-white p-12 rounded-[24px] border border-dashed border-slate-200 text-center">
             <FileEdit size={48} className="mx-auto text-slate-300 mb-4" />
-            <p className="text-slate-500 font-medium text-lg">There is no Drafts Yet</p>
+            <p className="text-slate-500 font-medium text-lg">No Announcements Found</p>
           </div>
         ) : (
           filteredAnnouncements.map((item) => (
-            <div key={item.id} className={`bg-white p-6 rounded-[24px] border ${item.isAlert ? 'border-red-100' : 'border-slate-100'} shadow-sm relative group transition-all hover:shadow-md`}>
+            <div key={item.id} className={`bg-white p-6 rounded-[24px] border ${item.is_emergency ? 'border-red-100 bg-red-50/10' : 'border-slate-100'} shadow-sm relative group transition-all hover:shadow-md`}>
               <div className="flex justify-between items-start">
                 <div className="flex-1">
                   <div className="flex items-center gap-3 mb-2">
                     {item.isPinned && <Pin size={16} className="text-indigo-600 fill-indigo-600 rotate-45" />}
-                    {item.isAlert && <AlertTriangle size={16} className="text-red-500" />}
+                    {item.is_emergency && <AlertTriangle size={16} className="text-red-500" />}
                     <h3 className="font-bold text-slate-900 text-lg">{item.title}</h3>
                     <span className={`px-2.5 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider ${item.status === 'draft' ? 'bg-slate-100 text-slate-600' : 'bg-green-100 text-green-600'}`}>
                       {item.status}
@@ -297,28 +398,42 @@ const Announcements = () => {
                   </div>
                   <p className="text-slate-500 text-sm mb-4 leading-relaxed max-w-4xl">{item.content}</p>
                   <div className="flex items-center gap-6 text-slate-400 text-xs font-medium">
-                    <span className="flex items-center gap-1.5"><Clock size={14} /> {item.date}</span>
-                    <span>By {item.author}</span>
-                    <span className="flex items-center gap-1.5"><Eye size={14} /> {item.views} views</span>
+                    <span className="flex items-center gap-1.5"><Clock size={14} /> {new Date(item.created_at).toLocaleDateString()}</span>
+                    <span>By {item.author_name}</span>
+                    <span className="flex items-center gap-1.5"><Eye size={14} /> {item.views_count} views</span>
                     <span className="flex items-center gap-1.5"><MessageSquare size={14} /> {item.comments?.length || 0}</span>
                     <span className="px-2 py-1 bg-slate-100 rounded text-slate-600">{item.category}</span>
+                    {/* SHOW ATTACHMENT ICON IF EXISTS */}
+                    {item.attachment_url && <span className="flex items-center gap-1.5 text-indigo-600"><Paperclip size={14} /> Attachment</span>}
                   </div>
                 </div>
 
                 <div className="relative">
-                  <button onClick={() => setOpenMenuId(openMenuId === item.id ? null : item.id)} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded-lg">
+                  <button onClick={() => setOpenMenuId(openMenuId === item.id ? null : item.id)} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded-lg cursor-pointer">
                     <MoreVertical size={20} />
                   </button>
                   {openMenuId === item.id && (
                     <>
                       <div className="fixed inset-0 z-10" onClick={() => setOpenMenuId(null)}></div>
                       <div className="absolute right-0 mt-2 w-48 bg-white rounded-2xl shadow-xl border border-slate-100 py-2 z-20">
-                        <button onClick={() => { setSelectedAnnouncement(item); setShowDetailsOverlay(true); setOpenMenuId(null); }} className="w-full flex items-center px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50">View Details</button>
-                        <button onClick={() => { setSelectedAnnouncement(item); setShowCommentsOverlay(true); setOpenMenuId(null); }} className="w-full flex items-center px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50">View Comments</button>
-                        <button onClick={() => handleOpenEdit(item)} className="w-full flex items-center px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50">Edit Announcement</button>
-                        <button onClick={() => handleTogglePin(item.id)} className="w-full flex items-center px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50">{item.isPinned ? 'Unpin' : 'Pin to Top'}</button>
+                        <button onClick={() => { setSelectedAnnouncement(item); setShowDetailsOverlay(true); setOpenMenuId(null); }} className="w-full flex items-center px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 cursor-pointer">View Details</button>
+                        <button onClick={() => { setSelectedAnnouncement(item); setShowCommentsOverlay(true); setOpenMenuId(null); }} className="w-full flex items-center px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 cursor-pointer">View Comments</button>
+                        <button onClick={() => handleOpenEdit(item)} className="w-full flex items-center px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 cursor-pointer">Edit Announcement</button>
+                        {item.status === 'draft' && (
+                          <button 
+                            onClick={() => {
+                              setPendingPublishItem(item);
+                              setShowPublishConfirm(true);
+                              setOpenMenuId(null);
+                            }} 
+                            className="w-full flex items-center px-4 py-2.5 text-sm text-indigo-600 hover:bg-indigo-50 font-medium cursor-pointer"
+                          >
+                            <Send size={16} className="mr-2"/> Publish Now
+                          </button>
+                        )}
+                        <button onClick={() => handleTogglePin(item.id)} className="w-full flex items-center px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 cursor-pointer">{item.isPinned ? 'Unpin' : 'Pin to Top'}</button>
                         <div className="my-1 border-t border-slate-50"></div>
-                        <button onClick={() => handleDelete(item.id)} className="w-full flex items-center px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 font-medium"><Trash2 size={16} className="mr-2"/> Delete</button>
+                        <button onClick={() => handleDelete(item.id)} className="w-full flex items-center px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 font-medium cursor-pointer"><Trash2 size={16} className="mr-2"/> Delete</button>
                       </div>
                     </>
                   )}
@@ -329,6 +444,38 @@ const Announcements = () => {
         )}
       </div>
 
+      {/* --- CUSTOM PUBLISH CONFIRMATION MODAL --- */}
+      {showPublishConfirm && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-sm rounded-[32px] shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
+             <div className="p-8 text-center">
+                <div className="w-16 h-16 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                  <Megaphone size={32} />
+                </div>
+                <h3 className="text-xl font-bold text-slate-900 mb-2">Publish Announcement?</h3>
+                <p className="text-slate-500 text-sm mb-8 leading-relaxed">
+                  Would you like me to also implement a custom styled modal for this confirmation instead of the default browser alert? 
+                  This will make the announcement visible to all residents.
+                </p>
+                <div className="flex flex-col gap-3">
+                  <button 
+                    onClick={handleConfirmPublish}
+                    className="w-full py-3 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 shadow-lg shadow-indigo-100 cursor-pointer"
+                  >
+                    Yes, Publish Now
+                  </button>
+                  <button 
+                    onClick={() => { setShowPublishConfirm(false); setPendingPublishItem(null); }}
+                    className="w-full py-3 bg-white border border-slate-200 text-slate-600 rounded-xl text-sm font-bold hover:bg-slate-50 cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                </div>
+             </div>
+          </div>
+        </div>
+      )}
+
       {/* --- EDIT / CREATE MODAL --- */}
       {(showModal || showEditOverlay) && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -338,12 +485,21 @@ const Announcements = () => {
                 <h2 className="text-xl font-bold text-slate-900">{showEditOverlay ? 'Edit Announcement' : 'Create Announcement'}</h2>
                 <p className="text-slate-500 text-sm">Post a new announcement to residents.</p>
               </div>
-              <button onClick={() => { setShowModal(false); setShowEditOverlay(false); }} className="p-2 hover:bg-slate-50 rounded-full text-slate-400">
+              <button onClick={() => { setShowModal(false); setShowEditOverlay(false); }} className="p-2 hover:bg-slate-50 rounded-full text-slate-400 cursor-pointer">
                 <X size={20} />
               </button>
             </div>
 
             <div className="p-6 space-y-5 max-h-[70vh] overflow-y-auto">
+              {/* HIDDEN FILE INPUT */}
+              <input 
+                type="file" 
+                ref={fileInputRef} 
+                className="hidden" 
+                onChange={handleFileUpload}
+                accept="image/*,application/pdf"
+              />
+
               <div>
                 <label className="block text-sm font-bold text-slate-700 mb-2">Title</label>
                 <input type="text" value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="Enter Announcement Title" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20" />
@@ -351,7 +507,7 @@ const Announcements = () => {
 
               <div>
                 <label className="block text-sm font-bold text-slate-700 mb-2">Category</label>
-                <select value={newCategory} onChange={(e) => setNewCategory(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none">
+                <select value={newCategory} onChange={(e) => setNewCategory(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none cursor-pointer">
                   <option>Maintenance</option><option>General</option><option>Financial</option><option>Election</option><option>Security</option>
                 </select>
               </div>
@@ -361,12 +517,28 @@ const Announcements = () => {
                 <textarea value={newContent} onChange={(e) => setNewContent(e.target.value)} placeholder="Write your announcement here..." rows={4} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none resize-none" />
               </div>
 
+              {/* UPDATED ATTACHMENT BOX */}
               <div>
                 <label className="block text-sm font-bold text-slate-700 mb-2">Attachments</label>
-                <div className="border-2 border-dashed border-slate-200 rounded-2xl p-8 flex flex-col items-center justify-center gap-2 hover:bg-slate-50 cursor-pointer">
-                  <Paperclip className="text-slate-400" size={24} />
-                  <span className="text-sm text-slate-500">Click to attach images or PDF files</span>
-                </div>
+                {attachmentUrl ? (
+                  <div className="flex items-center justify-between p-4 bg-indigo-50 border border-indigo-100 rounded-2xl">
+                    <div className="flex items-center gap-3 overflow-hidden">
+                      <div className="p-2 bg-indigo-600 text-white rounded-lg">
+                        <FileIcon size={20} />
+                      </div>
+                      <span className="text-sm font-medium text-indigo-900 truncate max-w-[200px]">File Attached</span>
+                    </div>
+                    <button onClick={() => setAttachmentUrl('')} className="text-xs font-bold text-red-500 hover:text-red-600 uppercase tracking-wider">Remove</button>
+                  </div>
+                ) : (
+                  <div 
+                    onClick={() => fileInputRef.current.click()}
+                    className="border-2 border-dashed border-slate-200 rounded-2xl p-8 flex flex-col items-center justify-center gap-2 hover:bg-slate-50 cursor-pointer transition-colors"
+                  >
+                    {isUploading ? <Loader2 className="text-indigo-500 animate-spin" size={24} /> : <Paperclip className="text-slate-400" size={24} />}
+                    <span className="text-sm text-slate-500">{isUploading ? 'Uploading file...' : 'Click to attach images or PDF files'}</span>
+                  </div>
+                )}
               </div>
 
               <div className="flex items-center justify-between p-4 bg-red-50 rounded-2xl border border-red-100">
@@ -387,14 +559,24 @@ const Announcements = () => {
                 <div>
                   <label className="block text-sm font-bold text-slate-700 mb-2">Start Date</label>
                   <div className="relative">
-                    <input type="date" className="w-full pl-4 pr-10 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none" />
+                    <input 
+                      type="date" 
+                      value={startDate} 
+                      onChange={(e) => setStartDate(e.target.value)} 
+                      className="w-full pl-4 pr-10 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none cursor-pointer" 
+                    />
                     <Calendar size={20} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                   </div>
                 </div>
                 <div>
                   <label className="block text-sm font-bold text-slate-700 mb-2">End Date</label>
                   <div className="relative">
-                    <input type="date" className="w-full pl-4 pr-10 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none" />
+                    <input 
+                      type="date" 
+                      value={endDate} 
+                      onChange={(e) => setEndDate(e.target.value)} 
+                      className="w-full pl-4 pr-10 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none cursor-pointer" 
+                    />
                     <Calendar size={20} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                   </div>
                 </div>
@@ -402,10 +584,10 @@ const Announcements = () => {
             </div>
 
             <div className="p-6 bg-slate-50 flex justify-end gap-3">
-              <button onClick={() => showEditOverlay ? handleUpdateAnnouncement('draft') : handleAddAnnouncement('draft')} className="px-6 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-xl text-sm font-bold hover:bg-slate-100">
+              <button disabled={isUploading} onClick={() => showEditOverlay ? handleUpdateAnnouncement('draft') : handleAddAnnouncement('draft')} className="px-6 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-xl text-sm font-bold hover:bg-slate-100 cursor-pointer disabled:opacity-50">
                 Save as Draft
               </button>
-              <button onClick={() => showEditOverlay ? handleUpdateAnnouncement('published') : handleAddAnnouncement('published')} className="px-6 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 shadow-lg shadow-indigo-100">
+              <button disabled={isUploading} onClick={() => showEditOverlay ? handleUpdateAnnouncement('published') : handleAddAnnouncement('published')} className="px-6 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 shadow-lg shadow-indigo-100 cursor-pointer disabled:opacity-50">
                 {showEditOverlay ? 'Update Now' : 'Publish Now'}
               </button>
             </div>
@@ -422,13 +604,13 @@ const Announcements = () => {
                 <h2 className="text-xl font-bold text-slate-900">Comments</h2>
                 <p className="text-slate-500 text-sm">{selectedAnnouncement?.title}</p>
               </div>
-              <button onClick={() => { setShowCommentsOverlay(false); setSelectedAnnouncement(null); }} className="p-2 hover:bg-slate-50 rounded-full text-slate-400">
+              <button onClick={() => { setShowCommentsOverlay(false); setSelectedAnnouncement(null); }} className="p-2 hover:bg-slate-50 rounded-full text-slate-400 cursor-pointer">
                 <X size={20} />
               </button>
             </div>
 
             <div className="p-6 h-[400px] overflow-y-auto bg-slate-50/50 space-y-4">
-              {selectedAnnouncement?.comments.length > 0 ? (
+              {selectedAnnouncement?.comments?.length > 0 ? (
                 selectedAnnouncement.comments.map((c) => (
                   <div key={c.id} className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex justify-between items-start">
                     <div className="flex-1">
@@ -440,7 +622,7 @@ const Announcements = () => {
                     </div>
                     <button 
                       onClick={() => handleDeleteComment(c.id)}
-                      className="ml-4 p-2 text-slate-400 hover:text-red-500 transition-colors"
+                      className="ml-4 p-2 text-slate-400 hover:text-red-500 transition-colors cursor-pointer"
                       title="Delete Comment"
                     >
                       <Trash2 size={16} />
@@ -466,7 +648,7 @@ const Announcements = () => {
               />
               <button 
                 onClick={handleAddComment}
-                className="p-3 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 shadow-lg shadow-indigo-100 transition-all"
+                className="p-3 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 shadow-lg shadow-indigo-100 transition-all cursor-pointer"
               >
                 <Send size={18} />
               </button>
@@ -481,25 +663,52 @@ const Announcements = () => {
           <div className="bg-white w-full max-w-2xl rounded-[32px] shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
             <div className="p-8">
               <div className="flex justify-between items-start mb-6">
-                <div className={`px-3 py-1 rounded-lg text-xs font-bold uppercase ${selectedAnnouncement?.isAlert ? 'bg-red-100 text-red-600' : 'bg-indigo-100 text-indigo-600'}`}>
+                <div className={`px-3 py-1 rounded-lg text-xs font-bold uppercase ${selectedAnnouncement?.is_emergency ? 'bg-red-100 text-red-600' : 'bg-indigo-100 text-indigo-600'}`}>
                   {selectedAnnouncement?.category}
                 </div>
-                <button onClick={() => setShowDetailsOverlay(false)} className="p-2 hover:bg-slate-50 rounded-full text-slate-400">
+                <button onClick={() => setShowDetailsOverlay(false)} className="p-2 hover:bg-slate-50 rounded-full text-slate-400 cursor-pointer">
                   <X size={20} />
                 </button>
               </div>
               <h2 className="text-2xl font-bold text-slate-900 mb-4">{selectedAnnouncement?.title}</h2>
               <div className="flex items-center gap-4 text-slate-500 text-xs mb-8 pb-6 border-b border-slate-100">
-                <span className="flex items-center gap-1.5"><Clock size={14} /> {selectedAnnouncement?.date}</span>
-                <span>By {selectedAnnouncement?.author}</span>
-                <span className="flex items-center gap-1.5"><Eye size={14} /> {selectedAnnouncement?.views} views</span>
+                <span className="flex items-center gap-1.5"><Clock size={14} /> {new Date(selectedAnnouncement?.created_at).toLocaleDateString()}</span>
+                <span>By {selectedAnnouncement?.author_name}</span>
+                <span className="flex items-center gap-1.5"><Eye size={14} /> {selectedAnnouncement?.views_count} views</span>
               </div>
               <p className="text-slate-600 leading-relaxed mb-8">{selectedAnnouncement?.content}</p>
-              <div className="flex justify-end">
-                <button onClick={() => setShowDetailsOverlay(false)} className="px-6 py-2.5 bg-slate-900 text-white rounded-xl text-sm font-bold hover:bg-slate-800 transition-all">
+              
+              {/* DATE RANGE AND ATTACHMENT PREVIEW IN DETAILS */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+                {(selectedAnnouncement?.start_date || selectedAnnouncement?.end_date) && (
+                  <div className="bg-slate-50 p-4 rounded-2xl flex flex-col gap-2 text-sm font-medium text-slate-600">
+                    <div className="flex items-center gap-2 text-xs text-slate-400 uppercase font-bold">Timeline</div>
+                    <div>{selectedAnnouncement.start_date} to {selectedAnnouncement.end_date || 'Ongoing'}</div>
+                  </div>
+                )}
+                {selectedAnnouncement?.attachment_url && (
+                  <a 
+                    href={selectedAnnouncement.attachment_url} 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="bg-indigo-50 p-4 rounded-2xl flex items-center gap-3 border border-indigo-100 hover:bg-indigo-100 transition-colors"
+                  >
+                    <div className="p-2 bg-indigo-600 text-white rounded-lg">
+                      <FileIcon size={20} />
+                    </div>
+                    <div className="flex-1 overflow-hidden">
+                      <div className="text-xs text-indigo-400 uppercase font-bold">Attachment</div>
+                      <div className="text-sm font-bold text-indigo-900 truncate">View File</div>
+                    </div>
+                    <Share2 size={18} className="text-indigo-400" />
+                  </a>
+                )}
+              </div>
+            </div>
+            <div className="p-6 bg-slate-50 flex justify-end">
+                <button onClick={() => setShowDetailsOverlay(false)} className="px-8 py-3 bg-white border border-slate-200 text-slate-600 rounded-xl text-sm font-bold hover:bg-slate-100 cursor-pointer">
                   Close Preview
                 </button>
-              </div>
             </div>
           </div>
         </div>

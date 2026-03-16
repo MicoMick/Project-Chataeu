@@ -1,21 +1,26 @@
 import React, { useState, useEffect } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
+import CoverdCourt from '../../assets/CoverdCourt.jpg';
+import ModelHouse1 from '../../assets/ModelHouse1.jpg';
+import House2 from '../../assets/House2.jpg';
 
 const AboutUs = () => {
   const [currentSlide, setCurrentSlide] = useState(0);
 
   const slides = [
     {
-      url: "https://images.unsplash.com/photo-1580587771525-78b9dba3b914?auto=format&fit=crop&q=80&w=800",
-      caption: "Serene Residential Streets"
+
+      url: CoverdCourt,
+      caption: "Covered Basketball Court"
     },
     {
-      url: "https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&q=80&w=800",
-      caption: "Modern Clubhouse & Facilities"
+      
+      url: ModelHouse1,
+      caption: "Modern Home Interior" 
     },
     {
-      url: "https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&q=80&w=800",
-      caption: "Lush Green Parks"
+      url: House2,
+      caption: "Beautiful Home Exterior"
     }
   ];
 
@@ -54,7 +59,7 @@ const AboutUs = () => {
               
               <p>
                 The CHATAEU App is your key to a seamless lifestyle. By joining our digital platform, 
-                you're not just paying dues—you're gaining instant access to facility bookings, real-time 
+                you're not just paying dues you're gaining instant access to facility bookings, real-time 
                 community updates, and a direct line to your HOA board. It’s about empowering you
                 to shape the neighborhood you love.
               </p>
