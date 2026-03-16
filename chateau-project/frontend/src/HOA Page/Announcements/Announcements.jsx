@@ -20,9 +20,13 @@ const Announcements = () => {
   const [showCommentsOverlay, setShowCommentsOverlay] = useState(false);
   const [showEditOverlay, setShowEditOverlay] = useState(false);
   
-  // New state for custom confirmation modal
+  // Custom confirmation states
   const [showPublishConfirm, setShowPublishConfirm] = useState(false);
   const [pendingPublishItem, setPendingPublishItem] = useState(null);
+
+  // Added state for custom delete confirmation
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [pendingDeleteItem, setPendingDeleteItem] = useState(null);
 
   const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
 
@@ -102,16 +106,14 @@ const Announcements = () => {
   }, []);
 
   const handleDelete = async (id) => {
-    if (window.confirm("Are you sure you want to delete this announcement?")) {
-      try {
-        const { error } = await supabase.from('announcements').delete().eq('id', id);
-        if (error) throw error;
-        setAnnouncements(announcements.filter(ann => ann.id !== id));
-        setOpenMenuId(null);
-        showToast("Announcement deleted successfully", "error");
-      } catch (error) {
-        showToast(error.message, "error");
-      }
+    try {
+      const { error } = await supabase.from('announcements').delete().eq('id', id);
+      if (error) throw error;
+      setAnnouncements(announcements.filter(ann => ann.id !== id));
+      setOpenMenuId(null);
+      showToast("Announcement deleted successfully", "error");
+    } catch (error) {
+      showToast(error.message, "error");
     }
   };
 
@@ -123,7 +125,7 @@ const Announcements = () => {
     setIsEmergency(ann.is_emergency);
     setStartDate(ann.start_date);
     setEndDate(ann.end_date);
-    setAttachmentUrl(ann.attachment_url || ''); // Set existing attachment
+    setAttachmentUrl(ann.attachment_url || ''); 
     setShowEditOverlay(true);
     setOpenMenuId(null);
   };
@@ -145,11 +147,23 @@ const Announcements = () => {
           status: status,
           start_date: startDate,
           end_date: endDate,
-          attachment_url: attachmentUrl // Include attachment
+          attachment_url: attachmentUrl 
         })
         .eq('id', selectedAnnouncement.id);
 
       if (error) throw error;
+
+      if (status === 'published') {
+        const { error: notifError } = await supabase
+          .from('notifications')
+          .insert([{
+            title: isEmergency ? `🚨 EMERGENCY: ${newTitle}` : `New Announcement: ${newTitle}`,
+            message: newContent.substring(0, 100) + "...",
+            is_read: false,
+            created_at: new Date().toISOString()
+          }]);
+        if (notifError) console.error("Notification Error:", notifError);
+      }
 
       fetchAnnouncements();
       setShowEditOverlay(false);
@@ -199,7 +213,7 @@ const Announcements = () => {
     setIsEmergency(false);
     setStartDate(new Date().toISOString().split('T')[0]);
     setEndDate('');
-    setAttachmentUrl(''); // Reset attachment
+    setAttachmentUrl(''); 
     setSelectedAnnouncement(null);
   };
 
@@ -221,7 +235,7 @@ const Announcements = () => {
           start_date: startDate,
           end_date: endDate,
           author_name: "Admin User",
-          attachment_url: attachmentUrl // Include attachment
+          attachment_url: attachmentUrl 
         }])
         .select();
 
@@ -231,9 +245,10 @@ const Announcements = () => {
         const { error: notifError } = await supabase
           .from('notifications')
           .insert([{
-            title: isEmergency ? `🚨 EMERGENCY: ${newTitle}` : `New Announcement: ${newTitle}`,
+            title: isEmergency ? `🚨 EMERGENCY: ${newTitle}` : `Announcement: ${newTitle}`,
             message: newContent.substring(0, 100) + "...",
-            is_read: false
+            is_read: false,
+            created_at: new Date().toISOString()
           }]);
         if (notifError) console.error("Notification Error:", notifError);
       }
@@ -247,7 +262,6 @@ const Announcements = () => {
     }
   };
 
-  // Logic for the custom publish confirmation
   const handleConfirmPublish = async () => {
     if (!pendingPublishItem) return;
     
@@ -403,7 +417,6 @@ const Announcements = () => {
                     <span className="flex items-center gap-1.5"><Eye size={14} /> {item.views_count} views</span>
                     <span className="flex items-center gap-1.5"><MessageSquare size={14} /> {item.comments?.length || 0}</span>
                     <span className="px-2 py-1 bg-slate-100 rounded text-slate-600">{item.category}</span>
-                    {/* SHOW ATTACHMENT ICON IF EXISTS */}
                     {item.attachment_url && <span className="flex items-center gap-1.5 text-indigo-600"><Paperclip size={14} /> Attachment</span>}
                   </div>
                 </div>
@@ -433,7 +446,16 @@ const Announcements = () => {
                         )}
                         <button onClick={() => handleTogglePin(item.id)} className="w-full flex items-center px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 cursor-pointer">{item.isPinned ? 'Unpin' : 'Pin to Top'}</button>
                         <div className="my-1 border-t border-slate-50"></div>
-                        <button onClick={() => handleDelete(item.id)} className="w-full flex items-center px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 font-medium cursor-pointer"><Trash2 size={16} className="mr-2"/> Delete</button>
+                        <button 
+                          onClick={() => { 
+                            setPendingDeleteItem(item.id); 
+                            setShowDeleteConfirm(true); 
+                            setOpenMenuId(null); 
+                          }} 
+                          className="w-full flex items-center px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 font-medium cursor-pointer"
+                        >
+                          <Trash2 size={16} className="mr-2"/> Delete
+                        </button>
                       </div>
                     </>
                   )}
@@ -443,6 +465,81 @@ const Announcements = () => {
           ))
         )}
       </div>
+
+      {/* --- RESTORED VIEW DETAILS OVERLAY --- */}
+      {showDetailsOverlay && selectedAnnouncement && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-2xl rounded-[32px] shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center">
+              <h2 className="text-xl font-bold text-slate-900">Announcement Details</h2>
+              <button onClick={() => { setShowDetailsOverlay(false); setSelectedAnnouncement(null); }} className="p-2 hover:bg-slate-50 rounded-full text-slate-400 cursor-pointer">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-8 max-h-[70vh] overflow-y-auto">
+              <div className="flex items-center gap-3 mb-6">
+                <span className="px-3 py-1 bg-indigo-50 text-indigo-600 rounded-full text-xs font-bold uppercase tracking-wider">{selectedAnnouncement.category}</span>
+                {selectedAnnouncement.is_emergency && <span className="px-3 py-1 bg-red-50 text-red-600 rounded-full text-xs font-bold uppercase tracking-wider flex items-center gap-1.5"><AlertTriangle size={12}/> Emergency</span>}
+              </div>
+              <h1 className="text-3xl font-bold text-slate-900 mb-4">{selectedAnnouncement.title}</h1>
+              <div className="flex items-center gap-6 text-slate-400 text-sm mb-8 pb-8 border-b border-slate-100">
+                <span className="flex items-center gap-2"><Clock size={16} /> {new Date(selectedAnnouncement.created_at).toLocaleDateString()}</span>
+                <span>By {selectedAnnouncement.author_name}</span>
+                <span className="flex items-center gap-2"><Eye size={16} /> {selectedAnnouncement.views_count} views</span>
+              </div>
+              <div className="prose prose-slate max-w-none text-slate-600 leading-relaxed mb-8">
+                {selectedAnnouncement.content}
+              </div>
+              {selectedAnnouncement.attachment_url && (
+                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-white rounded-lg shadow-sm text-indigo-600"><FileIcon size={20} /></div>
+                    <div>
+                      <p className="text-sm font-bold text-slate-900">Attached Document</p>
+                      <p className="text-xs text-slate-500">Official Announcement Attachment</p>
+                    </div>
+                  </div>
+                  <a href={selectedAnnouncement.attachment_url} target="_blank" rel="noopener noreferrer" className="px-4 py-2 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-50 transition-all">View File</a>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- CUSTOM DELETE CONFIRMATION MODAL --- */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-sm rounded-[32px] shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
+             <div className="p-8 text-center">
+                <div className="w-16 h-16 bg-red-50 text-red-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                  <Trash2 size={32} />
+                </div>
+                <h3 className="text-xl font-bold text-slate-900 mb-2">Delete Announcement?</h3>
+                <p className="text-slate-500 text-sm mb-8 leading-relaxed">
+                  Are you sure you want to delete this? This action cannot be undone.
+                </p>
+                <div className="flex flex-col gap-3">
+                  <button 
+                    onClick={() => {
+                      handleDelete(pendingDeleteItem);
+                      setShowDeleteConfirm(false);
+                    }}
+                    className="w-full py-3 bg-red-600 text-white rounded-xl text-sm font-bold hover:bg-red-700 shadow-lg shadow-red-100 cursor-pointer"
+                  >
+                    Yes, Delete
+                  </button>
+                  <button 
+                    onClick={() => { setShowDeleteConfirm(false); setPendingDeleteItem(null); }}
+                    className="w-full py-3 bg-white border border-slate-200 text-slate-600 rounded-xl text-sm font-bold hover:bg-slate-50 cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                </div>
+             </div>
+          </div>
+        </div>
+      )}
 
       {/* --- CUSTOM PUBLISH CONFIRMATION MODAL --- */}
       {showPublishConfirm && (
@@ -454,8 +551,7 @@ const Announcements = () => {
                 </div>
                 <h3 className="text-xl font-bold text-slate-900 mb-2">Publish Announcement?</h3>
                 <p className="text-slate-500 text-sm mb-8 leading-relaxed">
-                  Would you like me to also implement a custom styled modal for this confirmation instead of the default browser alert? 
-                  This will make the announcement visible to all residents.
+                  This will make the announcement visible to all residents and send a notification.
                 </p>
                 <div className="flex flex-col gap-3">
                   <button 
@@ -489,58 +585,39 @@ const Announcements = () => {
                 <X size={20} />
               </button>
             </div>
-
             <div className="p-6 space-y-5 max-h-[70vh] overflow-y-auto">
-              {/* HIDDEN FILE INPUT */}
-              <input 
-                type="file" 
-                ref={fileInputRef} 
-                className="hidden" 
-                onChange={handleFileUpload}
-                accept="image/*,application/pdf"
-              />
-
+              <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileUpload} accept="image/*,application/pdf" />
               <div>
                 <label className="block text-sm font-bold text-slate-700 mb-2">Title</label>
                 <input type="text" value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="Enter Announcement Title" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20" />
               </div>
-
               <div>
                 <label className="block text-sm font-bold text-slate-700 mb-2">Category</label>
                 <select value={newCategory} onChange={(e) => setNewCategory(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none cursor-pointer">
                   <option>Maintenance</option><option>General</option><option>Financial</option><option>Election</option><option>Security</option>
                 </select>
               </div>
-
               <div>
                 <label className="block text-sm font-bold text-slate-700 mb-2">Content</label>
                 <textarea value={newContent} onChange={(e) => setNewContent(e.target.value)} placeholder="Write your announcement here..." rows={4} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none resize-none" />
               </div>
-
-              {/* UPDATED ATTACHMENT BOX */}
               <div>
                 <label className="block text-sm font-bold text-slate-700 mb-2">Attachments</label>
                 {attachmentUrl ? (
                   <div className="flex items-center justify-between p-4 bg-indigo-50 border border-indigo-100 rounded-2xl">
                     <div className="flex items-center gap-3 overflow-hidden">
-                      <div className="p-2 bg-indigo-600 text-white rounded-lg">
-                        <FileIcon size={20} />
-                      </div>
+                      <div className="p-2 bg-indigo-600 text-white rounded-lg"><FileIcon size={20} /></div>
                       <span className="text-sm font-medium text-indigo-900 truncate max-w-[200px]">File Attached</span>
                     </div>
                     <button onClick={() => setAttachmentUrl('')} className="text-xs font-bold text-red-500 hover:text-red-600 uppercase tracking-wider">Remove</button>
                   </div>
                 ) : (
-                  <div 
-                    onClick={() => fileInputRef.current.click()}
-                    className="border-2 border-dashed border-slate-200 rounded-2xl p-8 flex flex-col items-center justify-center gap-2 hover:bg-slate-50 cursor-pointer transition-colors"
-                  >
+                  <div onClick={() => fileInputRef.current.click()} className="border-2 border-dashed border-slate-200 rounded-2xl p-8 flex flex-col items-center justify-center gap-2 hover:bg-slate-50 cursor-pointer transition-colors">
                     {isUploading ? <Loader2 className="text-indigo-500 animate-spin" size={24} /> : <Paperclip className="text-slate-400" size={24} />}
                     <span className="text-sm text-slate-500">{isUploading ? 'Uploading file...' : 'Click to attach images or PDF files'}</span>
                   </div>
                 )}
               </div>
-
               <div className="flex items-center justify-between p-4 bg-red-50 rounded-2xl border border-red-100">
                 <div className="flex gap-3">
                   <AlertTriangle className="text-red-500" size={20} />
@@ -554,42 +631,26 @@ const Announcements = () => {
                   <div className="w-11 h-6 bg-slate-200 rounded-full peer peer-checked:bg-red-500 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-full"></div>
                 </label>
               </div>
-
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-bold text-slate-700 mb-2">Start Date</label>
                   <div className="relative">
-                    <input 
-                      type="date" 
-                      value={startDate} 
-                      onChange={(e) => setStartDate(e.target.value)} 
-                      className="w-full pl-4 pr-10 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none cursor-pointer" 
-                    />
+                    <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-full pl-4 pr-10 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none cursor-pointer" />
                     <Calendar size={20} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                   </div>
                 </div>
                 <div>
                   <label className="block text-sm font-bold text-slate-700 mb-2">End Date</label>
                   <div className="relative">
-                    <input 
-                      type="date" 
-                      value={endDate} 
-                      onChange={(e) => setEndDate(e.target.value)} 
-                      className="w-full pl-4 pr-10 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none cursor-pointer" 
-                    />
+                    <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="w-full pl-4 pr-10 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none cursor-pointer" />
                     <Calendar size={20} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                   </div>
                 </div>
               </div>
             </div>
-
             <div className="p-6 bg-slate-50 flex justify-end gap-3">
-              <button disabled={isUploading} onClick={() => showEditOverlay ? handleUpdateAnnouncement('draft') : handleAddAnnouncement('draft')} className="px-6 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-xl text-sm font-bold hover:bg-slate-100 cursor-pointer disabled:opacity-50">
-                Save as Draft
-              </button>
-              <button disabled={isUploading} onClick={() => showEditOverlay ? handleUpdateAnnouncement('published') : handleAddAnnouncement('published')} className="px-6 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 shadow-lg shadow-indigo-100 cursor-pointer disabled:opacity-50">
-                {showEditOverlay ? 'Update Now' : 'Publish Now'}
-              </button>
+              <button disabled={isUploading} onClick={() => showEditOverlay ? handleUpdateAnnouncement('draft') : handleAddAnnouncement('draft')} className="px-6 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-xl text-sm font-bold hover:bg-slate-100 cursor-pointer disabled:opacity-50">Save as Draft</button>
+              <button disabled={isUploading} onClick={() => showEditOverlay ? handleUpdateAnnouncement('published') : handleAddAnnouncement('published')} className="px-6 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 shadow-lg shadow-indigo-100 cursor-pointer disabled:opacity-50">{showEditOverlay ? 'Update Now' : 'Publish Now'}</button>
             </div>
           </div>
         </div>
@@ -608,7 +669,6 @@ const Announcements = () => {
                 <X size={20} />
               </button>
             </div>
-
             <div className="p-6 h-[400px] overflow-y-auto bg-slate-50/50 space-y-4">
               {selectedAnnouncement?.comments?.length > 0 ? (
                 selectedAnnouncement.comments.map((c) => (
@@ -620,13 +680,7 @@ const Announcements = () => {
                       </div>
                       <p className="text-slate-600 text-sm leading-relaxed">{c.text}</p>
                     </div>
-                    <button 
-                      onClick={() => handleDeleteComment(c.id)}
-                      className="ml-4 p-2 text-slate-400 hover:text-red-500 transition-colors cursor-pointer"
-                      title="Delete Comment"
-                    >
-                      <Trash2 size={16} />
-                    </button>
+                    <button onClick={() => handleDeleteComment(c.id)} className="ml-4 p-2 text-slate-400 hover:text-red-500 transition-colors cursor-pointer" title="Delete Comment"><Trash2 size={16} /></button>
                   </div>
                 ))
               ) : (
@@ -636,79 +690,9 @@ const Announcements = () => {
                 </div>
               )}
             </div>
-
             <div className="p-6 border-t border-slate-100 flex gap-3 items-center">
-              <input 
-                type="text" 
-                value={newComment} 
-                onChange={(e) => setNewComment(e.target.value)}
-                placeholder="Write a comment..." 
-                className="flex-1 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                onKeyPress={(e) => e.key === 'Enter' && handleAddComment()}
-              />
-              <button 
-                onClick={handleAddComment}
-                className="p-3 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 shadow-lg shadow-indigo-100 transition-all cursor-pointer"
-              >
-                <Send size={18} />
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* --- VIEW DETAILS MODAL --- */}
-      {showDetailsOverlay && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-2xl rounded-[32px] shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
-            <div className="p-8">
-              <div className="flex justify-between items-start mb-6">
-                <div className={`px-3 py-1 rounded-lg text-xs font-bold uppercase ${selectedAnnouncement?.is_emergency ? 'bg-red-100 text-red-600' : 'bg-indigo-100 text-indigo-600'}`}>
-                  {selectedAnnouncement?.category}
-                </div>
-                <button onClick={() => setShowDetailsOverlay(false)} className="p-2 hover:bg-slate-50 rounded-full text-slate-400 cursor-pointer">
-                  <X size={20} />
-                </button>
-              </div>
-              <h2 className="text-2xl font-bold text-slate-900 mb-4">{selectedAnnouncement?.title}</h2>
-              <div className="flex items-center gap-4 text-slate-500 text-xs mb-8 pb-6 border-b border-slate-100">
-                <span className="flex items-center gap-1.5"><Clock size={14} /> {new Date(selectedAnnouncement?.created_at).toLocaleDateString()}</span>
-                <span>By {selectedAnnouncement?.author_name}</span>
-                <span className="flex items-center gap-1.5"><Eye size={14} /> {selectedAnnouncement?.views_count} views</span>
-              </div>
-              <p className="text-slate-600 leading-relaxed mb-8">{selectedAnnouncement?.content}</p>
-              
-              {/* DATE RANGE AND ATTACHMENT PREVIEW IN DETAILS */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
-                {(selectedAnnouncement?.start_date || selectedAnnouncement?.end_date) && (
-                  <div className="bg-slate-50 p-4 rounded-2xl flex flex-col gap-2 text-sm font-medium text-slate-600">
-                    <div className="flex items-center gap-2 text-xs text-slate-400 uppercase font-bold">Timeline</div>
-                    <div>{selectedAnnouncement.start_date} to {selectedAnnouncement.end_date || 'Ongoing'}</div>
-                  </div>
-                )}
-                {selectedAnnouncement?.attachment_url && (
-                  <a 
-                    href={selectedAnnouncement.attachment_url} 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="bg-indigo-50 p-4 rounded-2xl flex items-center gap-3 border border-indigo-100 hover:bg-indigo-100 transition-colors"
-                  >
-                    <div className="p-2 bg-indigo-600 text-white rounded-lg">
-                      <FileIcon size={20} />
-                    </div>
-                    <div className="flex-1 overflow-hidden">
-                      <div className="text-xs text-indigo-400 uppercase font-bold">Attachment</div>
-                      <div className="text-sm font-bold text-indigo-900 truncate">View File</div>
-                    </div>
-                    <Share2 size={18} className="text-indigo-400" />
-                  </a>
-                )}
-              </div>
-            </div>
-            <div className="p-6 bg-slate-50 flex justify-end">
-                <button onClick={() => setShowDetailsOverlay(false)} className="px-8 py-3 bg-white border border-slate-200 text-slate-600 rounded-xl text-sm font-bold hover:bg-slate-100 cursor-pointer">
-                  Close Preview
-                </button>
+              <input type="text" value={newComment} onChange={(e) => setNewComment(e.target.value)} placeholder="Write a comment..." className="flex-1 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20" />
+              <button onClick={handleAddComment} className="p-3 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-colors cursor-pointer"><Send size={18} /></button>
             </div>
           </div>
         </div>
