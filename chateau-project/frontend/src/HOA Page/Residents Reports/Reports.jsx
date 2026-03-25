@@ -167,12 +167,22 @@ const Reports = () => {
   const handleDeleteReport = async () => {
     const id = deleteConfirmation.id;
     try {
+      // 1. Burahin muna ang lahat ng notifications na naka-link sa report_id na ito
+      const { error: notifError } = await supabase
+        .from('notifications')
+        .delete()
+        .eq('report_id', id);
+
+      if (notifError) throw notifError;
+
+      // 2. Ngayon, pwede na nating burahin ang mismong report record
       const { error } = await supabase
         .from('reports')
         .delete()
         .eq('id', id);
 
       if (error) throw error;
+      
       setOpenMenuId(null);
       setDeleteConfirmation({ show: false, id: null });
       showToast("Report deleted successfully", "success");

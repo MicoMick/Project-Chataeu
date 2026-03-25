@@ -115,7 +115,7 @@ const Reservation = () => {
           <StatCard title="Total Reservations" value="4" icon={Calendar} iconColor="text-indigo-600" bgColor="bg-indigo-50" />
           <StatCard title="Pending Approval" value="1" icon={Clock} iconColor="text-blue-600" bgColor="bg-blue-50" />
           <StatCard title="Approved" value="2" icon={CheckCircle2} iconColor="text-green-600" bgColor="bg-green-50" />
-          <StatCard title="Rejected" value="1" icon={XCircle} iconColor="text-red-600" bgColor="bg-red-50" />
+          <StatCard title="Rejected" value="1" icon={XCircle} iconColor="text-red-500" bgColor="bg-red-50" />
         </div>
 
         <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-visible">
@@ -156,26 +156,37 @@ const Reservation = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {filteredReservations.map((res) => (
-                    <tr key={res.id} className="hover:bg-slate-50/50 transition-colors">
-                      <td className="px-6 py-4 text-sm font-bold text-slate-800">{res.name}</td>
-                      <td className="px-6 py-4 text-sm text-slate-600">{res.facility}</td>
-                      <td className="px-6 py-4 text-sm text-slate-600">{res.date}</td>
-                      <td className="px-6 py-4">
-                        <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase ${getStatusStyle(res.status)}`}>
-                          {res.status}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <button 
-                          onClick={(e) => handleToggleMenu(e, res.id)} 
-                          className="text-slate-400 hover:text-slate-600 p-1"
-                        >
-                          <MoreHorizontal size={18} />
-                        </button>
+                  {filteredReservations.length > 0 ? (
+                    filteredReservations.map((res) => (
+                      <tr key={res.id} className="hover:bg-slate-50/50 transition-colors">
+                        <td className="px-6 py-4 text-sm font-bold text-slate-800">{res.name}</td>
+                        <td className="px-6 py-4 text-sm text-slate-600">{res.facility}</td>
+                        <td className="px-6 py-4 text-sm text-slate-600">{res.date}</td>
+                        <td className="px-6 py-4">
+                          <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase ${getStatusStyle(res.status)}`}>
+                            {res.status}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          <button 
+                            onClick={(e) => handleToggleMenu(e, res.id)} 
+                            className="text-slate-400 hover:text-slate-600 p-1"
+                          >
+                            <MoreHorizontal size={18} />
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan="5" className="px-6 py-12 text-center">
+                        <div className="flex flex-col items-center justify-center gap-2">
+                          <Search size={32} className="text-slate-200" />
+                          <p className="text-sm font-bold text-slate-400">No reservations found for "{reservationSearch}"</p>
+                        </div>
                       </td>
                     </tr>
-                  ))}
+                  )}
                 </tbody>
              </table>
           </div>
@@ -296,6 +307,7 @@ const Reservation = () => {
                   const dayString = `${currentDate.toLocaleString('default', { month: 'short' })} ${dateObj.day}`;
                   const dayReservations = reservations.filter(r => r.date.includes(dayString));
                   const hasReservation = dayReservations.length > 0;
+                  const isToday = dateObj.day === new Date().getDate() && currentDate.getMonth() === new Date().getMonth();
 
                   return (
                     <div 
@@ -304,13 +316,14 @@ const Reservation = () => {
                       onMouseEnter={() => hasReservation && setHoveredDateReservations(dayReservations)}
                       onMouseLeave={() => setHoveredDateReservations(null)}
                       className={`min-h-[80px] p-2 flex flex-col items-center justify-start rounded-2xl text-lg font-bold relative transition-all
-                        ${dateObj.day ? 'hover:bg-indigo-50 cursor-pointer text-slate-700 border border-transparent hover:border-indigo-100' : ''}
-                        ${dateObj.day === new Date().getDate() && currentDate.getMonth() === new Date().getMonth() ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-100' : ''}
+                        ${dateObj.day ? 'hover:bg-indigo-50 cursor-pointer border border-transparent hover:border-indigo-100' : ''}
+                        ${hasReservation && !isToday ? 'bg-yellow-100 text-yellow-700' : 'text-slate-700'}
+                        ${isToday ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-100' : ''}
                       `}
                     >
                       {dateObj.day}
                       {hasReservation && (
-                        <div className={`mt-2 w-2 h-2 rounded-full ${dateObj.day === new Date().getDate() ? 'bg-white' : 'bg-orange-500'}`}></div>
+                        <div className={`mt-2 w-2 h-2 rounded-full ${isToday ? 'bg-white' : 'bg-orange-500'}`}></div>
                       )}
 
                       {/* HOVER TOOLTIP */}
@@ -357,8 +370,8 @@ const Reservation = () => {
                             {item.status}
                          </span>
                          <button 
-                           onClick={() => { setSelectedReservation(item); setSelectedDateDetails(null); }}
-                           className="p-2 bg-white border border-slate-200 rounded-xl hover:bg-indigo-50 hover:text-indigo-600 transition-all shadow-sm"
+                            onClick={() => { setSelectedReservation(item); setSelectedDateDetails(null); }}
+                            className="p-2 bg-white border border-slate-200 rounded-xl hover:bg-indigo-50 hover:text-indigo-600 transition-all shadow-sm"
                          >
                             <Eye size={18} />
                          </button>
