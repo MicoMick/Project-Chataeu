@@ -21,7 +21,7 @@ const Footer = () => {
               <img 
                 src={ChateauLogo} 
                 alt="Chateau Real Logo" 
-                className="h-16 md:h-20 w-auto object-contain" 
+                className="h-25 md:h-25 w-auto object-contain" 
               />
             </div>
             <p className="text-white/60 text-xs tracking-[0.2em] uppercase font-bold pl-1">

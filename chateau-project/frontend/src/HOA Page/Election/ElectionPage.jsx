@@ -1,837 +1,454 @@
-import React, { useState } from 'react';
-import { 
-  Plus, Bell, Users, Calendar, CheckSquare, 
-  ChevronDown, Search, MoreHorizontal, FileText,
-  Trophy, UserPlus, Info, X, Eye, Edit2, Trash2, AlertTriangle, CheckCircle
-} from 'lucide-react';
+import React, { useState, useEffect } from "react";
+import { supabase } from "../supabaseAdmin"; 
+import { Plus, Send, BarChart2, Users, Calendar, X, Info, CheckCircle, Bell, Pencil, Trash2, SearchX, ArrowLeft, AlertCircle, LayoutDashboard, UserPlus } from "lucide-react";
+import CandidateManager from "./CandidateManager.jsx"; 
+// 1. ADDED: Import your CandidatesPage component
+import CandidatesPage from "./CandidatesPage.jsx"; 
 
 const ElectionPage = () => {
-  const [activeTab, setActiveTab] = useState('all'); // 'all', 'candidates', 'results'
+  const [elections, setElections] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isCandidateModalOpen, setIsCandidateModalOpen] = useState(false);
-  
-  // New State for Viewing Candidate Details
-  const [selectedCandidateForView, setSelectedCandidateForView] = useState(null);
-  
-  // Logic for dynamic positions
-  const [positions, setPositions] = useState([]);
-  const [currentPosition, setCurrentPosition] = useState('');
-  
-  // Logic for filtering candidates
-  const [selectedPosition, setSelectedPosition] = useState('All Positions');
+  const [activeTab, setActiveTab] = useState("all"); 
+  const [isEditing, setIsEditing] = useState(false); 
+  const [selectedElectionId, setSelectedElectionId] = useState(null);
+  const [electionTab, setElectionTab] = useState("overview");
 
-  // --- NEW TOAST NOTIFICATION STATE ---
-  const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
+  // --- MODAL STATES ---
+  const [notification, setNotification] = useState({ show: false, title: "", message: "", type: "success" });
+  const [deleteConfirm, setDeleteConfirm] = useState({ show: false, id: null });
 
-  const showToast = (message, type = 'success') => {
-    setToast({ show: true, message, type });
-    setTimeout(() => setToast({ show: false, message: '', type: 'success' }), 3000);
+  // Form State
+  const [newElection, setNewElection] = useState({
+    title: "",
+    description: "",
+    start_date: "",
+    end_date: "",
+    status: "active"
+  });
+
+  useEffect(() => {
+    fetchElections();
+  }, []);
+
+  // ADDED: Function to automatically close expired elections
+  const checkAndCloseExpiredElections = async (electionList) => {
+    const today = new Date().toISOString().split('T')[0];
+    
+    // Find elections that are 'active' but their end_date is strictly before today
+    const expiredElections = electionList.filter(el => 
+      el.status === "active" && el.end_date < today
+    );
+
+    if (expiredElections.length > 0) {
+      for (const election of expiredElections) {
+        try {
+          await supabase
+            .from("elections")
+            .update({ status: "closed" })
+            .eq("id", election.id);
+        } catch (err) {
+          console.error("Auto-close error:", err);
+        }
+      }
+      // Re-fetch to show the updated "closed" status
+      fetchElections();
+    }
   };
 
-  // --- NEW LOGIC FOR CANDIDATES ---
-  const [candidates, setCandidates] = useState([]);
-  const [candidateName, setCandidateName] = useState('');
-  const [candidatePosition, setCandidatePosition] = useState('President');
-  const [candidateBio, setCandidateBio] = useState('');
-  const [candidateError, setCandidateError] = useState(''); // Added Error State
+  const fetchElections = async () => {
+    try {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from("elections")
+        .select("*")
+        .order("created_at", { ascending: false });
 
-  // State to track which election we are looking at in Candidates/Results tabs
-  const [selectedElectionId, setSelectedElectionId] = useState(1);
+      if (error) throw error;
+      setElections(data || []);
+      
+      // ADDED: Trigger the expiration check whenever we get fresh data
+      if (data) checkAndCloseExpiredElections(data);
 
-  // --- EDIT/DELETE LOGIC FOR ELECTIONS ---
-  const [editingElectionId, setEditingElectionId] = useState(null);
-  const [openMenuId, setOpenMenuId] = useState(null);
-  const [electionToDelete, setElectionToDelete] = useState(null); // State for Confirmation Prompt
+    } catch (error) {
+      console.error("Error:", error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  // --- NEW LOGIC FOR CANDIDATE EDIT/DELETE ---
-  const [editingCandidateId, setEditingCandidateId] = useState(null);
-  const [candidateToDelete, setCandidateToDelete] = useState(null);
-  const [openCandidateMenuId, setOpenCandidateMenuId] = useState(null);
+  const formatDate = (dateString) => {
+    if (!dateString) return "";
+    return dateString.split('T')[0];
+  };
 
-  const handleConfirmCandidate = () => {
-    if (candidateName.trim() === '' || candidateBio.trim() === '') {
-      setCandidateError('Please fill in both the candidate name and bio.');
+  const handleCreateElection = async (e) => {
+    e.preventDefault();
+    
+    // Validation for single active election
+    if (newElection.status === "active" && elections.some(el => el.status === "active")) {
+      setNotification({
+        show: true,
+        title: "Action Restricted",
+        message: "Only one election can be opened at a time. Please close the current active election first.",
+        type: "error"
+      });
       return;
     }
 
-    if (editingCandidateId) {
-      // Update existing candidate
-      setCandidates(candidates.map(c => 
-        c.id === editingCandidateId 
-          ? { ...c, name: candidateName, position: candidatePosition, bio: candidateBio }
-          : c
-      ));
-    } else {
-      // Create new candidate
-      const newCandidate = {
-        id: Date.now(),
-        electionId: selectedElectionId, 
-        name: candidateName,
-        position: candidatePosition,
-        bio: candidateBio,
-        votes: 0 
-      };
-      setCandidates([...candidates, newCandidate]);
-    }
-    
-    // Reset and close
-    closeCandidateModal();
-  };
+    try {
+      const { data, error } = await supabase
+        .from("elections")
+        .insert([newElection])
+        .select();
 
-  const closeCandidateModal = () => {
-    setCandidateName('');
-    setCandidateBio('');
-    setCandidateError('');
-    setEditingCandidateId(null);
-    setIsCandidateModalOpen(false);
-  };
-
-  const openEditCandidateModal = (candidate) => {
-    setEditingCandidateId(candidate.id);
-    setCandidateName(candidate.name);
-    setCandidatePosition(candidate.position);
-    setCandidateBio(candidate.bio);
-    setIsCandidateModalOpen(true);
-    setOpenCandidateMenuId(null);
-  };
-
-  const confirmDeleteCandidate = () => {
-    if (candidateToDelete) {
-      setCandidates(candidates.filter(c => c.id !== candidateToDelete.id));
-      setCandidateToDelete(null);
-      setOpenCandidateMenuId(null);
+      if (error) throw error;
+      
+      setElections([data[0], ...elections]);
+      closeModal();
+      setNotification({
+        show: true,
+        title: "Success!",
+        message: "The election has been created and residents have been notified.",
+        type: "success"
+      });
+    } catch (error) {
+      setNotification({
+        show: true,
+        title: "Error",
+        message: error.message,
+        type: "error"
+      });
     }
   };
 
-  // Filter by both Election and Position
-  const filteredCandidates = candidates.filter(c => 
-    c.electionId === selectedElectionId && 
-    (selectedPosition === 'All Positions' || c.position === selectedPosition)
-  );
-  // --------------------------------
+  const handleUpdateElection = async (e) => {
+    e.preventDefault();
 
-  // --- NEW LOGIC FOR ELECTIONS ---
-  const [electionCards, setElectionCards] = useState([
-    { id: 1, title: "Board of Directors Election 2026", range: "2026-02-01 - 2026-02-15", voters: `0 / 156 votes`, status: "active", buttonText: "Manage", availablePositions: ['President', 'Vice President', 'Secretary', 'Treasurer'] },
-  ]);
-  const [newElectionTitle, setNewElectionTitle] = useState('');
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
-  const [electionError, setElectionError] = useState(''); // Added Error State
+    // Validation for single active election during update
+    if (newElection.status === "active" && elections.some(el => el.status === "active" && el.id !== newElection.id)) {
+        setNotification({
+          show: true,
+          title: "Action Restricted",
+          message: "Only one election can be opened at a time. Please close the current active election first.",
+          type: "error"
+        });
+        return;
+      }
 
-  const handleCreateElection = () => {
-    if (newElectionTitle.trim() === '' || startDate === '' || endDate === '') {
-      setElectionError('Please provide a title and both start/end dates.');
-      return;
-    }
+    try {
+      const { error } = await supabase
+        .from("elections")
+        .update(newElection)
+        .eq("id", newElection.id);
 
-    if (editingElectionId) {
-      // Update existing election
-      setElectionCards(electionCards.map(card => 
-        card.id === editingElectionId 
-          ? { 
-              ...card, 
-              title: newElectionTitle, 
-              range: `${startDate} - ${endDate}`,
-              availablePositions: positions.length > 0 ? positions : card.availablePositions 
-            }
-          : card
-      ));
-      showToast('Election updated successfully!'); // TRIGGER TOAST
-    } else {
-      // Create new election
-      const newElection = {
-        id: Date.now(),
-        title: newElectionTitle,
-        range: `${startDate} - ${endDate}`,
-        voters: "0 / 156 votes",
-        status: "upcoming",
-        buttonText: "Manage",
-        availablePositions: positions.length > 0 ? positions : ['President', 'Vice President', 'Secretary', 'Treasurer']
-      };
-      setElectionCards([...electionCards, newElection]);
-      showToast('Election created successfully!'); // TRIGGER TOAST
-    }
-    
-    // Reset and close
-    closeElectionModal();
-  };
+      if (error) throw error;
 
-  const confirmDeleteElection = () => {
-    if (electionToDelete) {
-      setElectionCards(electionCards.filter(card => card.id !== electionToDelete.id));
-      setCandidates(candidates.filter(c => c.electionId !== electionToDelete.id));
-      setElectionToDelete(null);
-      setOpenMenuId(null);
-      showToast('Election deleted successfully!'); // TRIGGER TOAST
+      setElections(elections.map(el => el.id === newElection.id ? newElection : el));
+      closeModal();
+      setNotification({
+        show: true,
+        title: "Updated",
+        message: "Election details have been successfully saved.",
+        type: "success"
+      });
+    } catch (error) {
+      setNotification({
+        show: true,
+        title: "Update Failed",
+        message: error.message,
+        type: "error"
+      });
     }
   };
 
-  const openEditModal = (election) => {
-    setEditingElectionId(election.id);
-    setNewElectionTitle(election.title);
-    const dates = election.range.split(' - ');
-    setStartDate(dates[0]);
-    setEndDate(dates[1]);
-    setPositions(election.availablePositions);
+  const handleDeleteElection = async () => {
+    const id = deleteConfirm.id;
+    try {
+      const { error } = await supabase.from("elections").delete().eq("id", id);
+      if (error) throw error;
+      setElections(elections.filter(el => el.id !== id));
+      setDeleteConfirm({ show: false, id: null });
+      setNotification({
+        show: true,
+        title: "Deleted",
+        message: "The election record has been removed.",
+        type: "success"
+      });
+    } catch (error) {
+      setNotification({
+        show: true,
+        title: "Error",
+        message: error.message,
+        type: "error"
+      });
+    }
+  };
+
+  const handleEditClick = (election) => {
+    setNewElection(election);
+    setIsEditing(true);
     setIsModalOpen(true);
-    setOpenMenuId(null);
   };
 
-  const closeElectionModal = () => {
-    setNewElectionTitle('');
-    setStartDate('');
-    setEndDate('');
-    setPositions([]);
-    setElectionError('');
-    setEditingElectionId(null);
+  const closeModal = () => {
     setIsModalOpen(false);
+    setIsEditing(false);
+    setNewElection({ 
+      title: "", 
+      description: "", 
+      start_date: "", 
+      end_date: "", 
+      status: "active" 
+    });
   };
 
-  const handleAddPosition = () => {
-    if (currentPosition.trim() !== '') {
-      setPositions([...positions, currentPosition.trim()]);
-      setCurrentPosition(''); // Clear input for next entry
-    }
-  };
+  // Logic to find the strictly active election
+  const activeElection = elections.find(e => e.status === 'active');
 
-  const removePosition = (indexToRemove) => {
-    setPositions(positions.filter((_, index) => index !== indexToRemove));
-  };
+  // 2. ADDED: Logic to show CandidatesPage when the main tab is clicked
+  if (activeTab === "candidates") {
+    return <CandidatesPage onBack={() => setActiveTab("all")} />;
+  }
 
-  // Stats and Active Election Info - UPDATED TO BE DYNAMIC
-  const totalEligible = 156;
-  const totalVotes = candidates.reduce((sum, c) => sum + c.votes, 0);
-  
-  const electionStats = {
-    title: electionCards.find(e => e.id === selectedElectionId)?.title || electionCards[0]?.title || "No Active Election",
-    ends: (electionCards.find(e => e.id === selectedElectionId)?.range || electionCards[0]?.range || " - ").split('-')[1],
-    participation: ((totalVotes / totalEligible) * 100).toFixed(2),
-    votesCast: totalVotes,
-    eligibleVoters: totalEligible
-  };
+  if (selectedElectionId) {
+    const currentElection = elections.find(e => e.id === selectedElectionId);
+    return (
+      <div className="p-6 bg-gray-50 min-h-screen font-sans animate-in fade-in duration-500">
+        <button 
+          onClick={() => { setSelectedElectionId(null); setElectionTab("overview"); }}
+          className="flex items-center gap-2 text-gray-500 hover:text-indigo-600 font-bold mb-6 transition-colors group cursor-pointer"
+        >
+          <ArrowLeft size={20} className="group-hover:-translate-x-1 transition-transform" />
+          Back to Elections
+        </button>
 
-  // Helper to get positions for the currently selected election in the dropdowns
-  const currentElectionPositions = electionCards.find(e => e.id === selectedElectionId)?.availablePositions || [];
+        <div className="mb-8">
+          <h1 className="text-3xl font-black text-gray-900 leading-tight">
+            {currentElection?.title}
+          </h1>
+          <p className="text-gray-500 font-medium">{currentElection?.description || "Manage and review candidates for this election."}</p>
+        </div>
+
+        <div className="flex gap-4 mb-6 border-b border-gray-200 pb-px">
+            <button 
+                onClick={() => setElectionTab("overview")}
+                className={`flex items-center gap-2 px-4 py-2 text-sm font-bold transition-all cursor-pointer relative ${
+                    electionTab === "overview" ? "text-indigo-600" : "text-gray-500 hover:text-gray-800"
+                }`}
+            >
+                <LayoutDashboard size={18} />
+                Overview
+                {electionTab === "overview" && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600 rounded-full" />}
+            </button>
+            <button 
+                onClick={() => setElectionTab("candidates")}
+                className={`flex items-center gap-2 px-4 py-2 text-sm font-bold transition-all cursor-pointer relative ${
+                    electionTab === "candidates" ? "text-indigo-600" : "text-gray-500 hover:text-gray-800"
+                }`}
+            >
+                <UserPlus size={18} />
+                Candidates
+                {electionTab === "candidates" && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600 rounded-full" />}
+            </button>
+        </div>
+
+        {electionTab === "overview" ? (
+            <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-8 animate-in fade-in slide-in-from-bottom-2">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <div>
+                        <h3 className="text-gray-400 uppercase text-[10px] font-black tracking-widest mb-4">Election Details</h3>
+                        <div className="space-y-4">
+                            <div className="flex items-center gap-3">
+                                <Calendar className="text-indigo-600" size={20} />
+                                <div>
+                                    <p className="text-xs text-gray-500 font-bold uppercase">Timeline</p>
+                                    <p className="text-sm font-bold text-gray-800">{formatDate(currentElection?.start_date)} to {formatDate(currentElection?.end_date)}</p>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-3">
+                                <Users className="text-indigo-600" size={20} />
+                                <div>
+                                    <p className="text-xs text-gray-500 font-bold uppercase">Participation</p>
+                                    <p className="text-sm font-bold text-gray-800">{currentElection?.votes_count || 0} Votes Cast</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div className="bg-indigo-50 rounded-2xl p-6 flex items-center justify-center text-center">
+                        <div>
+                            <p className="text-indigo-600 font-black text-4xl mb-1">{currentElection?.votes_count || 0}</p>
+                            <p className="text-indigo-400 text-xs font-bold uppercase tracking-wider">Total Ballots</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        ) : (
+            <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-2 animate-in fade-in slide-in-from-bottom-2">
+                <CandidateManager electionId={selectedElectionId} />
+            </div>
+        )}
+      </div>
+    );
+  }
 
   return (
-    <div className="p-8 bg-slate-50 min-h-screen relative">
-      {/* Header */}
-      <div className="flex justify-between items-start mb-8">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">Election Management</h1>
-          <p className="text-slate-500 text-sm">Create and manage HOA elections and view results.</p>
+    <div className="p-6 bg-gray-50 min-h-screen font-sans relative overflow-x-hidden">
+      {notification.show && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl text-center border border-gray-100">
+            <div className={`w-16 h-16 rounded-full mx-auto flex items-center justify-center mb-4 ${notification.type === 'success' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
+              {notification.type === 'success' ? <CheckCircle size={32} /> : <AlertCircle size={32} />}
+            </div>
+            <h3 className="text-xl font-black text-gray-900 mb-2">{notification.title}</h3>
+            <p className="text-gray-500 font-medium mb-6">{notification.message}</p>
+            <button 
+              onClick={() => setNotification({ ...notification, show: false })}
+              className="w-full py-3 bg-gray-900 text-white rounded-xl font-bold hover:bg-gray-800 transition-all shadow-lg cursor-pointer"
+            >
+              Close
+            </button>
+          </div>
         </div>
-        <button 
-          onClick={() => {
-            setElectionError('');
-            setIsModalOpen(true);
-          }}
-          className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all"
-        >
+      )}
+
+      {deleteConfirm.show && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl border border-gray-100">
+            <div className="w-16 h-16 rounded-full bg-red-100 text-red-600 flex items-center justify-center mb-4 mx-auto">
+              <Trash2 size={32} />
+            </div>
+            <h3 className="text-xl font-black text-gray-900 mb-2 text-center">Are you sure?</h3>
+            <p className="text-gray-500 font-medium mb-6 text-center">This action cannot be undone. This election and its data will be permanently removed.</p>
+            <div className="flex gap-3">
+              <button onClick={() => setDeleteConfirm({ show: false, id: null })} className="flex-1 py-3 bg-gray-100 text-gray-700 rounded-xl font-bold hover:bg-gray-200 transition-all cursor-pointer">Cancel</button>
+              <button onClick={handleDeleteElection} className="flex-1 py-3 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 transition-all shadow-lg shadow-red-100 cursor-pointer">Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Header */}
+      <div className="flex justify-between items-center mb-8">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-800 tracking-tight">Election Management</h1>
+          <p className="text-gray-500 text-sm">Create and manage HOA elections and view results.</p>
+        </div>
+        <button onClick={() => setIsModalOpen(true)} className="flex items-center gap-2 bg-indigo-600 text-white px-5 py-2.5 rounded-lg hover:bg-indigo-700 shadow-md transition font-bold cursor-pointer">
           <Plus size={18} /> Create Election
         </button>
       </div>
 
-      {/* Main Participation Banner */}
-      <div className="bg-indigo-50 border border-indigo-100 rounded-[32px] p-8 mb-8 flex items-center justify-between">
-        <div className="flex items-center gap-6">
-          <div className="w-16 h-16 bg-indigo-600 rounded-2xl flex items-center justify-center text-white">
-            <CheckSquare size={32} />
-          </div>
-          <div>
-            <h2 className="text-2xl font-bold text-slate-900">{electionStats.title}</h2>
-            <p className="text-slate-500 text-sm mt-1 flex items-center gap-2">
-              Voting ends: {electionStats.ends} 
-              <span className="w-1 h-1 bg-slate-300 rounded-full"></span> 
-              {electionStats.votesCast} votes cast
-            </p>
-          </div>
-        </div>
-        
-        <div className="flex items-center gap-12">
-          <button className="flex items-center gap-2 px-5 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700 hover:bg-slate-50 transition-all">
-            <Bell size={18} /> Send Reminder
-          </button>
-          <div className="text-right">
-            <div className="text-3xl font-black text-indigo-600">{electionStats.participation}%</div>
-            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Participation</p>
-            <p className="text-[10px] text-slate-400 mt-1">{electionStats.eligibleVoters} eligible voters</p>
-          </div>
-        </div>
-      </div>
-
-      {/* Navigation Tabs */}
-      <div className="flex gap-4 mb-8">
-        {['All Elections', 'Candidates', 'Results'].map((tab) => (
-          <button 
-            key={tab}
-            onClick={() => {
-              if (tab === 'All Elections') setActiveTab('all');
-              else setActiveTab(tab.toLowerCase());
-            }}
-            className={`px-6 py-2 rounded-xl text-sm font-bold transition-all ${
-              activeTab === (tab === 'All Elections' ? 'all' : tab.toLowerCase())
-                ? 'bg-white shadow-sm border border-slate-200 text-slate-900' 
-                : 'text-slate-500 hover:text-slate-700'
-            }`}
-          >
-            {tab}
-          </button>
-        ))}
-      </div>
-
-      {/* Conditional Content Rendering */}
-      {activeTab === 'all' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {electionCards.map((card) => (
-            <div key={card.id} className="bg-white p-6 rounded-[32px] border border-slate-100 shadow-sm relative overflow-visible group">
-              <div className="flex justify-between items-start mb-6">
-                <div className="p-3 bg-indigo-50 rounded-xl text-indigo-600">
-                  <CheckSquare size={20} />
+      {/* Stats Card with Conditional Logic for OPEN/CLOSED/PENDING */}
+      {activeElection ? (
+        <div className="mb-8 bg-indigo-50 border border-indigo-100 rounded-2xl p-6 flex flex-col md:flex-row justify-between items-center gap-6 animate-in slide-in-from-top-2 duration-300">
+            <div className="flex items-center gap-4">
+                <div className="w-14 h-14 bg-indigo-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-indigo-200">
+                    <CheckCircle size={28} />
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className={`px-3 py-1 rounded-lg text-[10px] font-bold uppercase ${
-                    card.status === 'active' ? 'bg-green-100 text-green-600' : 
-                    card.status === 'upcoming' ? 'bg-orange-100 text-orange-600' : 
-                    'bg-slate-100 text-slate-400'
-                  }`}>
-                    {card.status}
-                  </span>
-                  
-                  {/* Actions Dropdown */}
-                  <div className="relative">
-                    <button 
-                      onClick={() => setOpenMenuId(openMenuId === card.id ? null : card.id)}
-                      className="p-1 hover:bg-slate-100 rounded-lg text-slate-400"
-                    >
-                      <MoreHorizontal size={18} />
-                    </button>
-                    
-                    {openMenuId === card.id && (
-                      <div className="absolute right-0 mt-2 w-36 bg-white border border-slate-100 shadow-xl rounded-xl z-10 py-2">
-                        <button 
-                          onClick={() => openEditModal(card)}
-                          className="w-full flex items-center gap-2 px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50"
-                        >
-                          <Edit2 size={14} /> Edit
-                        </button>
-                        <button 
-                          onClick={() => setElectionToDelete(card)}
-                          className="w-full flex items-center gap-2 px-4 py-2 text-xs font-bold text-red-500 hover:bg-red-50"
-                        >
-                          <Trash2 size={14} /> Delete
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-              <h3 className="font-bold text-slate-900 mb-2">{card.title}</h3>
-              <div className="space-y-3 mb-8">
-                <p className="text-xs text-slate-500 flex items-center gap-2"><Calendar size={14} /> {card.range}</p>
-                <p className="text-xs text-slate-500 flex items-center gap-2"><Users size={14} /> {card.voters}</p>
-              </div>
-              <button 
-                onClick={() => {
-                  setSelectedElectionId(card.id);
-                  setActiveTab('candidates');
-                }}
-                className="w-full py-3 bg-slate-100 group-hover:bg-slate-200 rounded-xl text-xs font-bold text-slate-600 transition-all"
-              >
-                {card.buttonText}
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {activeTab === 'candidates' && (
-        <div className="bg-white rounded-[32px] border border-slate-100 p-12 flex flex-col items-center justify-center text-center">
-          <div className="flex gap-4 mb-6">
-            <div className="relative">
-              <select 
-                value={selectedElectionId}
-                onChange={(e) => setSelectedElectionId(Number(e.target.value))}
-                className="appearance-none pl-4 pr-10 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:outline-none"
-              >
-                {electionCards.map(election => (
-                   <option key={election.id} value={election.id}>{election.title}</option>
-                ))}
-              </select>
-              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-            </div>
-            <div className="relative">
-              <select 
-                value={selectedPosition}
-                onChange={(e) => setSelectedPosition(e.target.value)}
-                className="appearance-none pl-4 pr-10 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:outline-none min-w-[140px]"
-              >
-                <option>All Positions</option>
-                {currentElectionPositions.map(pos => (
-                  <option key={pos} value={pos}>{pos}</option>
-                ))}
-              </select>
-              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-            </div>
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-              <input className="pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none w-64" placeholder="Search Candidates..." />
-            </div>
-          </div>
-
-          {/* DYNAMIC CANDIDATE LIST */}
-          {filteredCandidates.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 w-full mt-8 text-left">
-               {filteredCandidates.map(candidate => (
-                 <div key={candidate.id} className="bg-slate-50 p-6 rounded-2xl border border-slate-200 group relative">
-                    <div className="flex items-center justify-between mb-4">
-                      <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 bg-indigo-100 rounded-full flex items-center justify-center text-indigo-600 font-bold">
-                          {candidate.name.charAt(0)}
-                        </div>
-                        <div>
-                          <h4 className="font-bold text-slate-900">{candidate.name}</h4>
-                          <p className="text-xs text-indigo-600 font-semibold">{candidate.position}</p>
-                        </div>
-                      </div>
-                      
-                      {/* Candidate Actions Menu */}
-                      <div className="relative">
-                        <button 
-                          onClick={() => setOpenCandidateMenuId(openCandidateMenuId === candidate.id ? null : candidate.id)}
-                          className="p-1 hover:bg-white rounded-lg text-slate-400"
-                        >
-                          <MoreHorizontal size={18} />
-                        </button>
-                        {openCandidateMenuId === candidate.id && (
-                          <div className="absolute right-0 mt-2 w-36 bg-white border border-slate-100 shadow-xl rounded-xl z-10 py-2">
-                            <button 
-                              onClick={() => openEditCandidateModal(candidate)}
-                              className="w-full flex items-center gap-2 px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50"
-                            >
-                              <Edit2 size={14} /> Edit
-                            </button>
-                            <button 
-                              onClick={() => setCandidateToDelete(candidate)}
-                              className="w-full flex items-center gap-2 px-4 py-2 text-xs font-bold text-red-500 hover:bg-red-50"
-                            >
-                              <Trash2 size={14} /> Delete
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                    <p className="text-sm text-slate-500 line-clamp-2 mb-4">{candidate.bio}</p>
-                    <button 
-                      onClick={() => setSelectedCandidateForView(candidate)}
-                      className="flex items-center justify-center gap-2 w-full py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-600 hover:bg-indigo-50 hover:border-indigo-100 hover:text-indigo-600 transition-all"
-                    >
-                      <Eye size={14} /> View Details
-                    </button>
-                 </div>
-               ))}
-            </div>
-          ) : (
-            <p className="text-slate-400 text-sm mb-6 mt-12">No Candidates Found for {selectedPosition}....</p>
-          )}
-
-          <button 
-            onClick={() => {
-              setCandidateError('');
-              if (currentElectionPositions.length > 0) setCandidatePosition(currentElectionPositions[0]);
-              setIsCandidateModalOpen(true);
-            }}
-            className="mt-8 flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all"
-          >
-            <Plus size={18} /> Add Candidates
-          </button>
-        </div>
-      )}
-
-      {activeTab === 'results' && (
-        <div className="space-y-6">
-          <div className="flex justify-between items-center mb-4">
-              <div className="flex gap-4">
-                <div className="relative">
-                  <select 
-                    value={selectedElectionId}
-                    onChange={(e) => setSelectedElectionId(Number(e.target.value))}
-                    className="appearance-none pl-4 pr-10 py-2 bg-white border border-slate-200 rounded-xl text-sm font-medium focus:outline-none"
-                  >
-                    {electionCards.map(election => (
-                      <option key={election.id} value={election.id}>{election.title}</option>
-                    ))}
-                  </select>
-                  <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                </div>
-                <button className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700">
-                  <FileText size={18} /> Generate Official Report
-                </button>
-              </div>
-          </div>
-          
-          {candidates.filter(c => c.electionId === selectedElectionId).length > 0 ? (
-            <div className="grid grid-cols-1 gap-4">
-              {candidates.filter(c => c.electionId === selectedElectionId).map(candidate => (
-                <div key={candidate.id} className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between">
-                  <div className="flex items-center gap-4">
-                    <div className="w-10 h-10 bg-indigo-50 rounded-full flex items-center justify-center text-indigo-600 font-bold">
-                      {candidate.name.charAt(0)}
-                    </div>
-                    <div>
-                      <h4 className="font-bold text-slate-900">{candidate.name}</h4>
-                      <p className="text-xs text-slate-400">{candidate.position}</p>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-lg font-bold text-indigo-600">{candidate.votes} votes</div>
-                    <div className="w-32 h-2 bg-slate-100 rounded-full mt-2 overflow-hidden">
-                      <div 
-                        className="h-full bg-indigo-500" 
-                        style={{ width: `${totalVotes > 0 ? (candidate.votes / totalVotes) * 100 : 0}%` }}
-                      ></div>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="bg-white rounded-[32px] border border-slate-100 p-12 flex flex-col items-center justify-center text-center">
-              <div className="p-4 bg-slate-50 rounded-2xl text-slate-400 mb-4">
-                <Trophy size={32} />
-              </div>
-              <p className="text-slate-400 text-sm">No results available yet. Results will appear here once candidates are added and voting begins.</p>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Delete Candidate Confirmation Overlay */}
-      {candidateToDelete && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
-          <div className="bg-white rounded-[40px] w-full max-w-sm shadow-2xl overflow-hidden p-10 animate-in fade-in zoom-in duration-300">
-            <div className="flex flex-col items-center text-center">
-              <div className="w-20 h-20 bg-red-50 rounded-3xl flex items-center justify-center text-red-500 mb-6">
-                <AlertTriangle size={40} />
-              </div>
-              <h2 className="text-2xl font-black text-slate-900 mb-2">Remove Candidate?</h2>
-              <p className="text-slate-500 text-sm mb-8">
-                Are you sure you want to remove <span className="font-bold text-slate-700">{candidateToDelete.name}</span>? This action cannot be undone.
-              </p>
-              <div className="flex flex-col w-full gap-3">
-                <button 
-                  onClick={confirmDeleteCandidate}
-                  className="w-full py-4 bg-red-600 text-white rounded-2xl text-sm font-bold hover:bg-red-700 transition-all shadow-lg shadow-red-100"
-                >
-                  Yes, Remove Candidate
-                </button>
-                <button 
-                  onClick={() => setCandidateToDelete(null)}
-                  className="w-full py-4 bg-slate-100 text-slate-600 rounded-2xl text-sm font-bold hover:bg-slate-200 transition-all"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Delete Confirmation Overlay (Election) */}
-      {electionToDelete && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
-          <div className="bg-white rounded-[40px] w-full max-w-sm shadow-2xl overflow-hidden p-10 animate-in fade-in zoom-in duration-300">
-            <div className="flex flex-col items-center text-center">
-              <div className="w-20 h-20 bg-red-50 rounded-3xl flex items-center justify-center text-red-500 mb-6">
-                <AlertTriangle size={40} />
-              </div>
-              <h2 className="text-2xl font-black text-slate-900 mb-2">Are you sure?</h2>
-              <p className="text-slate-500 text-sm mb-8">
-                You are about to delete <span className="font-bold text-slate-700">"{electionToDelete.title}"</span>. This will also remove all candidate entries and results.
-              </p>
-              <div className="flex flex-col w-full gap-3">
-                <button 
-                  onClick={confirmDeleteElection}
-                  className="w-full py-4 bg-red-600 text-white rounded-2xl text-sm font-bold hover:bg-red-700 transition-all shadow-lg shadow-red-100"
-                >
-                  Yes, Delete Election
-                </button>
-                <button 
-                  onClick={() => setElectionToDelete(null)}
-                  className="w-full py-4 bg-slate-100 text-slate-600 rounded-2xl text-sm font-bold hover:bg-slate-200 transition-all"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* View Candidate Details Overlay */}
-      {selectedCandidateForView && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-[32px] w-full max-w-md shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
-            <div className="relative p-8">
-              <button 
-                onClick={() => setSelectedCandidateForView(null)}
-                className="absolute right-6 top-6 p-2 hover:bg-slate-100 rounded-full transition-colors"
-              >
-                <X size={20} className="text-slate-400" />
-              </button>
-
-              <div className="flex flex-col items-center text-center mb-8">
-                <div className="w-24 h-24 bg-indigo-600 rounded-3xl flex items-center justify-center text-white text-3xl font-black mb-4 shadow-xl shadow-indigo-100">
-                  {selectedCandidateForView.name.charAt(0)}
-                </div>
-                <h2 className="text-2xl font-bold text-slate-900">{selectedCandidateForView.name}</h2>
-                <p className="text-indigo-600 font-bold text-sm tracking-wide uppercase mt-1">{selectedCandidateForView.position}</p>
-              </div>
-
-              <div className="space-y-6">
                 <div>
-                  <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3">Biography & Manifesto</h3>
-                  <div className="bg-slate-50 rounded-2xl p-5 border border-slate-100">
-                    <p className="text-slate-600 text-sm leading-relaxed whitespace-pre-wrap">
-                      {selectedCandidateForView.bio}
-                    </p>
-                  </div>
+                    <h2 className="text-xl font-extrabold text-gray-900">{activeElection.title}</h2>
+                    <p className="text-sm text-gray-600 font-medium italic">Voting ends: {formatDate(activeElection.end_date)}</p>
+                    <p className="text-xs text-indigo-600 font-bold mt-2 bg-indigo-100/50 inline-block px-2 py-0.5 rounded italic">{activeElection.votes_count || 0} votes cast</p>
                 </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                   <div className="bg-indigo-50 rounded-2xl p-4 border border-indigo-100">
-                      <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider mb-1">Current Votes</p>
-                      <p className="text-xl font-black text-indigo-600">{selectedCandidateForView.votes}</p>
-                   </div>
-                   <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100">
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Status</p>
-                      <p className="text-sm font-bold text-slate-700">Verified Candidate</p>
-                   </div>
-                </div>
-              </div>
-
-              <button 
-                onClick={() => setSelectedCandidateForView(null)}
-                className="w-full mt-8 py-4 bg-slate-900 text-white rounded-2xl text-sm font-bold hover:bg-slate-800 transition-all shadow-lg shadow-slate-200"
-              >
-                Close Details
-              </button>
             </div>
-          </div>
+            <div className="flex items-center gap-8">
+                <div className="text-right">
+                    <p className="text-3xl font-black text-indigo-600">{activeElection.total_eligible > 0 ? ((activeElection.votes_count / activeElection.total_eligible) * 100).toFixed(2) : "0.00"}%</p>
+                    <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Participation</p>
+                </div>
+            </div>
+        </div>
+      ) : (
+        <div className="mb-8 bg-gray-100 border border-gray-200 rounded-2xl p-6 flex flex-col md:flex-row items-center gap-4 animate-in slide-in-from-top-2 duration-300">
+            <div className="w-14 h-14 bg-gray-300 rounded-xl flex items-center justify-center text-gray-500">
+                <Info size={28} />
+            </div>
+            <div>
+                <h2 className="text-xl font-extrabold text-gray-400 italic">No election is opened for now.</h2>
+                <p className="text-xs text-gray-400 font-bold uppercase tracking-widest mt-1">Pending activation of next cycle</p>
+            </div>
         </div>
       )}
 
-      {/* Create/Edit Election Overlay */}
+      {/* Tab Selection */}
+      {elections.length > 0 && (
+        <div className="flex gap-2 mb-6">
+            {["all", "results", "candidates"].map((tab) => (
+                <button
+                  key={tab}
+                  onClick={() => setActiveTab(tab)}
+                  className={`px-5 py-1.5 rounded-lg text-sm font-bold capitalize transition-all cursor-pointer ${
+                      activeTab === tab 
+                      ? "bg-white text-gray-900 shadow-sm border border-gray-100" 
+                      : "text-gray-500 hover:text-gray-800"
+                  }`}
+                >
+                    {tab === "all" ? "All Elections" : tab}
+                </button>
+            ))}
+        </div>
+      )}
+
+      {/* Election Grid */}
+      <div className="mb-10">
+        {loading ? (
+          <p className="text-center text-gray-500">Loading...</p>
+        ) : elections.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {elections.map((election) => (
+              <div key={election.id} className="bg-white border p-5 rounded-2xl shadow-sm transition-all relative flex flex-col h-full border-gray-100 hover:shadow-md hover:border-indigo-100">
+                <div className="flex justify-between items-start mb-4">
+                    <div className={`p-2.5 rounded-xl border ${election.status === 'active' ? 'bg-indigo-50 text-indigo-600 border-indigo-100' : 'bg-gray-50 text-gray-400 border-gray-100'}`}>
+                        <CheckCircle size={22} />
+                    </div>
+                    <div className="flex gap-2">
+                        <button onClick={() => handleEditClick(election)} className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer"><Pencil size={16} /></button>
+                        {/* CHANGED show: false TO show: true BELOW */}
+                        <button onClick={() => setDeleteConfirm({ show: true, id: election.id })} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"><Trash2 size={16} /></button>
+                        <span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider ${election.status === 'active' ? 'bg-green-100 text-green-700' : election.status === 'pending' ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-600'}`}>{election.status}</span>
+                    </div>
+                </div>
+                <h4 className="text-lg font-bold text-gray-900 mb-1 leading-tight">{election.title}</h4>
+                <div className="flex items-center gap-1.5 text-gray-500 mb-4"><Calendar size={14} /><p className="text-sm font-bold tracking-tight">{formatDate(election.start_date)} - {formatDate(election.end_date)}</p></div>
+                <button onClick={() => setSelectedElectionId(election.id)} className="mt-auto w-full py-2.5 bg-gray-100 hover:bg-indigo-600 hover:text-white text-gray-700 text-xs font-black rounded-lg transition-all uppercase tracking-widest shadow-sm cursor-pointer">{election.status === 'closed' ? 'View Results' : 'Manage Election'}</button>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center py-20 px-4 bg-white border-2 border-dashed border-gray-200 rounded-3xl">
+            <SearchX size={40} className="text-gray-300 mb-6" />
+            <h3 className="text-xl font-bold text-gray-800 mb-2">No Elections Found</h3>
+            <button onClick={() => setIsModalOpen(true)} className="flex items-center gap-2 bg-indigo-50 text-indigo-600 px-6 py-2.5 rounded-xl hover:bg-indigo-100 transition font-bold cursor-pointer"><Plus size={18} /> Create your first election</button>
+          </div>
+        )}
+      </div>
+
+      {/* CREATE/EDIT ELECTION OVERLAY */}
       {isModalOpen && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-[32px] w-full max-w-lg shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
-            <div className="p-8 max-h-[90vh] overflow-y-auto custom-scrollbar">
-              <div className="flex justify-between items-start mb-6">
-                <div>
-                  <h2 className="text-xl font-bold text-slate-900">{editingElectionId ? 'Edit Election' : 'Create New Election'}</h2>
-                  <p className="text-slate-500 text-xs">Set up or modify an election for the community.</p>
-                </div>
-                <button 
-                  onClick={closeElectionModal}
-                  className="p-2 hover:bg-slate-100 rounded-full transition-colors"
-                >
-                  <X size={20} className="text-slate-400" />
-                </button>
-              </div>
-
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1.5 ml-1">Election Title</label>
-                  <input 
-                    type="text" 
-                    value={newElectionTitle}
-                    onChange={(e) => setNewElectionTitle(e.target.value)}
-                    placeholder="e.g. Board of Directors Election 2026"
-                    className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1.5 ml-1">Description</label>
-                  <textarea 
-                    rows={4}
-                    className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 resize-none"
-                  />
-                </div>
-
+        <div className="fixed inset-0 z-50 flex justify-end">
+          <div className="absolute inset-0 bg-black/30 backdrop-blur-sm transition-opacity cursor-pointer" onClick={closeModal} />
+          <div className="relative w-full max-w-md bg-white h-full shadow-2xl flex flex-col animate-in slide-in-from-right duration-300">
+            <div className="flex justify-between items-center p-6 border-b">
+              <h2 className="text-xl font-bold text-gray-900">{isEditing ? "Edit Election" : "Create Election"}</h2>
+              <button onClick={closeModal} className="p-2 hover:bg-gray-100 rounded-full text-gray-500 cursor-pointer"><X size={20} /></button>
+            </div>
+            <form onSubmit={isEditing ? handleUpdateElection : handleCreateElection} className="flex-1 flex flex-col p-6 overflow-y-auto">
+              <div className="space-y-5 flex-1">
+                <div><label className="block text-sm font-semibold text-gray-700 mb-1">Election Title</label><input type="text" required className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" value={newElection.title} onChange={(e) => setNewElection({...newElection, title: e.target.value})} /></div>
+                <div><label className="block text-sm font-semibold text-gray-700 mb-1">Description</label><textarea rows="3" className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 resize-none" value={newElection.description} onChange={(e) => setNewElection({...newElection, description: e.target.value})} /></div>
                 <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1.5 ml-1">Start Date</label>
-                    <div className="relative">
-                      <input 
-                        type="date" 
-                        value={startDate}
-                        onChange={(e) => setStartDate(e.target.value)}
-                        className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-xl text-sm focus:outline-none"
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1.5 ml-1">End Date</label>
-                    <div className="relative">
-                      <input 
-                        type="date" 
-                        value={endDate}
-                        onChange={(e) => setEndDate(e.target.value)}
-                        className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-xl text-sm focus:outline-none"
-                      />
-                    </div>
-                  </div>
+                  <div><label className="block text-sm font-semibold text-gray-700 mb-1">Start Date</label><input type="date" required className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl text-sm" value={formatDate(newElection.start_date)} onChange={(e) => setNewElection({...newElection, start_date: e.target.value})} /></div>
+                  <div><label className="block text-sm font-semibold text-gray-700 mb-1">End Date</label><input type="date" required className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl text-sm" value={formatDate(newElection.end_date)} onChange={(e) => setNewElection({...newElection, end_date: e.target.value})} /></div>
                 </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1.5 ml-1">Position Being Contested</label>
-                  <div className="flex gap-2 mb-2">
-                    <input 
-                      type="text" 
-                      value={currentPosition}
-                      onChange={(e) => setCurrentPosition(e.target.value)}
-                      onKeyPress={(e) => e.key === 'Enter' && handleAddPosition()}
-                      placeholder="e.g. President"
-                      className="flex-1 px-4 py-3 bg-slate-50 border border-slate-100 rounded-xl text-sm focus:outline-none"
-                    />
-                    <button 
-                      onClick={handleAddPosition}
-                      className="p-3 bg-indigo-50 border border-indigo-100 rounded-xl text-indigo-600 hover:bg-indigo-100 transition-colors"
-                    >
-                      <Plus size={20} />
-                    </button>
-                  </div>
-                  
-                  {/* List of Added Positions */}
-                  <div className="flex flex-wrap gap-2">
-                    {positions.map((pos, index) => (
-                      <span key={index} className="flex items-center gap-1 px-3 py-1 bg-slate-100 text-slate-700 text-xs font-bold rounded-lg border border-slate-200 group">
-                        {pos}
-                        <button onClick={() => removePosition(index)} className="hover:text-red-500 transition-colors">
-                          <X size={12} />
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Error message for Election */}
-                {electionError && (
-                  <p className="text-red-500 text-xs font-bold ml-1 animate-pulse">{electionError}</p>
-                )}
+                <div><label className="block text-sm font-semibold text-gray-700 mb-1">Status</label><select className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 appearance-none cursor-pointer" value={newElection.status} onChange={(e) => setNewElection({...newElection, status: e.target.value})}><option value="active">Active</option><option value="pending">Pending</option><option value="closed">Closed</option></select></div>
               </div>
-
-              <div className="mt-8 flex gap-3">
-                <button 
-                  onClick={closeElectionModal}
-                  className="flex-1 py-3 bg-slate-100 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-200 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button 
-                  onClick={handleCreateElection}
-                  className="flex-1 py-3 bg-indigo-600 rounded-xl text-sm font-bold text-white hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all"
-                >
-                  {editingElectionId ? 'Save Changes' : 'Create Election'}
-                </button>
+              <div className="pt-8 border-t mt-auto flex gap-3">
+                <button type="button" onClick={closeModal} className="flex-1 px-4 py-3 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 font-semibold cursor-pointer">Discard</button>
+                <button type="submit" className="flex-1 px-4 py-3 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 font-bold shadow-lg cursor-pointer">{isEditing ? "Update Changes" : "Save Election"}</button>
               </div>
-            </div>
+            </form>
           </div>
-        </div>
-      )}
-
-      {/* Add/Edit Candidate Overlay */}
-      {isCandidateModalOpen && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-[32px] w-full max-w-lg shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
-            <div className="p-8">
-              <div className="flex justify-between items-start mb-6">
-                <div>
-                  <h2 className="text-xl font-bold text-slate-900">{editingCandidateId ? 'Edit Candidate' : 'Add New Candidate'}</h2>
-                  <p className="text-slate-500 text-xs">Enter candidate details for the election.</p>
-                </div>
-                <button 
-                  onClick={closeCandidateModal}
-                  className="p-2 hover:bg-slate-100 rounded-full transition-colors"
-                >
-                  <X size={20} className="text-slate-400" />
-                </button>
-              </div>
-
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1.5 ml-1">Full Name</label>
-                  <div className="relative">
-                    <UserPlus className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                    <input 
-                      type="text" 
-                      value={candidateName}
-                      onChange={(e) => setCandidateName(e.target.value)}
-                      placeholder="e.g. Juan Dela Cruz"
-                      className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-100 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1.5 ml-1">Running For Position</label>
-                  <div className="relative">
-                    <select 
-                      value={candidatePosition}
-                      onChange={(e) => setCandidatePosition(e.target.value)}
-                      className="w-full appearance-none px-4 py-3 bg-slate-50 border border-slate-100 rounded-xl text-sm focus:outline-none"
-                    >
-                      {currentElectionPositions.map(pos => (
-                        <option key={pos} value={pos}>{pos}</option>
-                      ))}
-                    </select>
-                    <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={16} />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1.5 ml-1">Candidate Bio / Manifesto</label>
-                  <textarea 
-                    rows={4}
-                    value={candidateBio}
-                    onChange={(e) => setCandidateBio(e.target.value)}
-                    placeholder="Briefly describe the candidate's goals..."
-                    className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 resize-none"
-                  />
-                </div>
-
-                {/* Error message for Candidate */}
-                {candidateError && (
-                  <p className="text-red-500 text-xs font-bold ml-1 animate-pulse">{candidateError}</p>
-                )}
-              </div>
-
-              <div className="mt-8 flex gap-3">
-                <button 
-                  onClick={closeCandidateModal}
-                  className="flex-1 py-3 bg-slate-100 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-200 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button 
-                  onClick={handleConfirmCandidate}
-                  className="flex-1 py-3 bg-indigo-600 rounded-xl text-sm font-bold text-white hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all"
-                >
-                  {editingCandidateId ? 'Save Changes' : 'Confirm Candidate'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Alert Toast Notification */}
-      {toast.show && (
-        <div className={`fixed bottom-8 right-8 flex items-center gap-3 px-6 py-4 rounded-2xl shadow-2xl z-[200] animate-in slide-in-from-bottom-5 fade-in duration-300 text-white font-bold text-sm ${toast.type === 'error' ? 'bg-red-600' : 'bg-slate-900'}`}>
-          {toast.type === 'error' ? <AlertTriangle size={20} /> : <CheckCircle size={20} className="text-emerald-400" />}
-          {toast.message}
         </div>
       )}
     </div>

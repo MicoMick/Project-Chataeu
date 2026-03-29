@@ -37,7 +37,7 @@ const Header = () => {
               <img 
                 src={ChateauLogo} 
                 alt="Chateau Real Logo" 
-                className="h-10 md:h-12 w-auto object-contain hover:scale-105 transition-transform duration-300" 
+                className="h-20 md:h-20 w-auto object-contain hover:scale-105 transition-transform duration-300" 
               />
             </a>
           </div>
