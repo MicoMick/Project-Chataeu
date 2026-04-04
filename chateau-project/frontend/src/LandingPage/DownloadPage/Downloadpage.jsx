@@ -40,8 +40,8 @@ const Downloadpage = () => {
               ))}
             </ul>
 
-            {/* Blue Hover Button */}
-            <button className="flex items-center gap-3 bg-white text-[#006837] px-9 py-4 rounded-xl font-bold hover:bg-blue-600 hover:text-white transition-all shadow-xl shadow-green-950/30 active:scale-95 group">
+            {/* Blue Hover Button with cursor-pointer added */}
+            <button className="flex items-center gap-3 bg-white text-[#006837] px-9 py-4 rounded-xl font-bold hover:bg-blue-600 hover:text-white transition-all shadow-xl shadow-green-950/30 active:scale-95 group cursor-pointer">
               <Download size={20} className="group-hover:translate-y-0.5 transition-transform" />
               Download Now
             </button>

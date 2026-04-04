@@ -1,63 +1,47 @@
-import React, { useState, useEffect } from 'react'; // Added useEffect
+import React, { useState, useEffect } from 'react';
 import { 
   Link, 
   useLocation,
-  useNavigate // Added useNavigate
+  useNavigate 
 } from 'react-router-dom';
 import { 
-  LayoutDashboard,  Users,  CalendarCheck, CreditCard, Vote, Megaphone, BarChart3, ChevronLeft, Menu, ChevronDown, ShieldCheck, UserCircle,
-  Settings,
-  LogOut
+  LayoutDashboard, Users, ShieldCheck, UserCircle, Globe, Settings, LogOut, 
+  Menu, ChevronLeft, ChevronDown, Activity, ShieldAlert
 } from 'lucide-react';
 import ChateauLogo from '../../assets/ChataueLogo.png';
-import { supabase } from '../supabaseAdmin'; // Added Supabase import
+import { supabase } from '../supabaseAdmin'; 
 
-const Sidebar = () => {
+const SidebarSuperAdmin = () => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
-  const [userEmail, setUserEmail] = useState('Admin'); // State for user
-  const [displayName, setDisplayName] = useState('Admin'); // Added state for Name
+  const [displayName, setDisplayName] = useState('President Super'); 
   const location = useLocation();
-  const navigate = useNavigate(); // For logout redirect
+  const navigate = useNavigate();
 
-  // --- FETCH USER DATA & SETUP LISTENER ---
   useEffect(() => {
     const getUserData = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
-        setUserEmail(user.email);
-        // Use first_name from metadata if available, else use email prefix
-        setDisplayName(user.user_metadata?.first_name || user.email.split('@')[0]);
+        // Specifically for you, we can default to your title
+        setDisplayName(user.user_metadata?.full_name || "President Super");
       }
     };
-
     getUserData();
-
-    // Listen for Auth changes (updates Sidebar if profile is saved elsewhere)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (session?.user) {
-        setUserEmail(session.user.email);
-        setDisplayName(session.user.user_metadata?.first_name || session.user.email.split('@')[0]);
-      }
-    });
-
-    return () => subscription.unsubscribe();
   }, []);
 
-  // --- LOGOUT HANDLER ---
   const handleLogout = async () => {
     await supabase.auth.signOut();
-    navigate('/admin');
+    navigate('/admin'); // Redirects back to your login page
   };
 
+  // --- UPDATED SUPER ADMIN MENU ITEMS ---
   const menuItems = [
-    { icon: <LayoutDashboard size={22} />, label: "Dashboard", path: "/hoa/dashboard" },
-    { icon: <Users size={22} />, label: "Resident Management", path: "/hoa/residents" }, 
-    { icon: <CalendarCheck size={22} />, label: "Reservations", path: "/hoa/reservations" },
-    { icon: <CreditCard size={22} />, label: "Payments", path: "/hoa/payments" },
-    { icon: <Vote size={22} />, label: "Elections", path: "/hoa/elections" },
-    { icon: <Megaphone size={22} />, label: "Announcements", path: "/hoa/announcements" },
-    { icon: <BarChart3 size={22} />, label: "Residents Report", path: "/hoa/reports" },
+    { icon: <LayoutDashboard size={22} />, label: "Master Dashboard", path: "/super-admin/dashboard" },
+    { icon: <Globe size={22} />, label: "HOA Management", path: "/super-admin/hoas" }, 
+    { icon: <ShieldAlert size={22} />, label: "Admin Control", path: "/super-admin/admins" },
+    { icon: <Users size={22} />, label: "All Residents", path: "/super-admin/residents" },
+    { icon: <Activity size={22} />, label: "System Logs", path: "/super-admin/logs" },
+    { icon: <Settings size={22} />, label: "Global Settings", path: "/super-admin/settings" },
   ];
 
   return (
@@ -83,7 +67,7 @@ const Sidebar = () => {
           alt="Chateau Logo" 
           className="w-20 h-auto mb-4 drop-shadow-lg" 
         />
-        <h1 className="text-white font-black tracking-[0.2em] text-xl uppercase">CHATEAU</h1>
+        <h1 className="text-white font-black tracking-[0.2em] text-xl uppercase text-center">CHATEAU CONTROL</h1>
         <div className="h-px w-full bg-white/20 mt-6"></div>
       </div>
 
@@ -114,18 +98,17 @@ const Sidebar = () => {
 
       {/* User Profile Footer */}
       <div className="absolute bottom-8 left-0 w-full px-3">
-        {/* Profile Dropdown Modal */}
         {isProfileOpen && !isCollapsed && (
           <div className="absolute bottom-24 left-3 right-3 bg-white rounded-2xl shadow-2xl border border-slate-100 overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-200">
             <div className="p-4 border-b border-slate-50 bg-slate-50/50">
-              <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Account</p>
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Master Account</p>
             </div>
             <div className="p-2">
-              <Link to="/hoa/profile" onClick={() => setIsProfileOpen(false)} className="flex items-center gap-3 px-3 py-2.5 text-sm font-semibold text-slate-600 hover:bg-indigo-50 hover:text-indigo-600 rounded-xl transition-all">
-                <UserCircle size={18} /> View Profile
+              {/* This link directs to /super-admin/profile */}
+              <Link to="/super-admin/profile" onClick={() => setIsProfileOpen(false)} className="flex items-center gap-3 px-3 py-2.5 text-sm font-semibold text-slate-600 hover:bg-green-50 hover:text-green-600 rounded-xl transition-all">
+                <UserCircle size={18} /> System Profile
               </Link>
               <div className="h-px bg-slate-100 my-2 mx-2"></div>
-              {/* Added handleLogout here */}
               <button 
                 onClick={handleLogout}
                 className="w-full flex items-center gap-3 px-3 py-2.5 text-sm font-semibold text-red-500 hover:bg-red-50 rounded-xl transition-all text-left"
@@ -150,7 +133,7 @@ const Sidebar = () => {
                 <p className="text-white text-xs font-bold truncate w-32">{displayName}</p>
                 <div className="flex items-center gap-1 text-white/60 text-[10px] uppercase font-bold tracking-tighter">
                   <ShieldCheck size={10} className="text-[#FFF200]" />
-                  HOA Admin
+                  Super Administrator
                 </div>
               </div>
             )}
@@ -167,4 +150,4 @@ const Sidebar = () => {
   );
 };
 
-export default Sidebar;
+export default SidebarSuperAdmin;

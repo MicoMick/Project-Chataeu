@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Search, Download, Plus, MoreHorizontal, 
   CreditCard, AlertCircle, CheckCircle2, DollarSign,
-  Edit2, Trash2, Bell, FileText, Upload, XCircle, X
+  Edit2, Trash2, Bell, FileText, Upload, XCircle, X, Filter // Added Filter icon
 } from 'lucide-react';
 
 const StatCard = ({ title, value, icon: Icon, iconColor, bgColor }) => (
@@ -20,6 +20,7 @@ const StatCard = ({ title, value, icon: Icon, iconColor, bgColor }) => (
 const Payment = () => {
   const [activeTab, setActiveTab] = useState('all-payments');
   const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState('All'); // Added statusFilter state
   const [openMenuId, setOpenMenuId] = useState(null);
   const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
   
@@ -65,10 +66,12 @@ const Payment = () => {
     { id: 4, name: "Ana Garcia", address: "Blk 12 Lot 5 Jasmine St. Phase 2", type: "Monthly Dues", amount: "₱2,500", dueDate: "Jan 15, 2024", status: "Overdue", paidDate: "Jan 15, 2024" },
   ];
 
-  // Logic added to filter payments based on name
-  const filteredPayments = payments.filter(p => 
-    p.name.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  // Logic updated to filter based on name AND status
+  const filteredPayments = payments.filter(p => {
+    const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesStatus = statusFilter === 'All' || p.status === statusFilter;
+    return matchesSearch && matchesStatus;
+  });
 
   const getStatusStyle = (status) => {
     switch (status) {
@@ -283,17 +286,36 @@ const Payment = () => {
       <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
         {activeTab === 'all-payments' ? (
           <>
-            <div className="p-6 border-b border-slate-50 flex justify-between items-center gap-4">
-              <div className="relative max-w-md w-full">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                <input 
-                  type="text" 
-                  placeholder="Search Payments..." 
-                  className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                />
+            <div className="p-6 border-b border-slate-50 flex flex-wrap justify-between items-center gap-4">
+              <div className="flex items-center gap-4 flex-1 min-w-[300px]">
+                {/* Search Bar */}
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                  <input 
+                    type="text" 
+                    placeholder="Search Payments..." 
+                    className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                  />
+                </div>
+                
+                {/* Status Sort Dropdown */}
+                <div className="relative">
+                  <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={16} />
+                  <select 
+                    className="pl-9 pr-8 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 appearance-none cursor-pointer hover:bg-slate-50 transition-all shadow-sm"
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value)}
+                  >
+                    <option value="All">All Status</option>
+                    <option value="Paid">Paid</option>
+                    <option value="Pending">Pending</option>
+                    <option value="Overdue">Overdue</option>
+                  </select>
+                </div>
               </div>
+
               <button className="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700 hover:bg-slate-50 shadow-sm transition-all">
                 <Download size={18} /> Export CSV
               </button>
@@ -314,7 +336,6 @@ const Payment = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {/* Updated to map over filteredPayments */}
                   {filteredPayments.map((p) => (
                     <tr key={p.id} className="hover:bg-slate-50/50 transition-colors group">
                       <td className="px-6 py-4 text-sm font-bold text-slate-900">{p.name}</td>
@@ -340,6 +361,11 @@ const Payment = () => {
                   ))}
                 </tbody>
               </table>
+              {filteredPayments.length === 0 && (
+                <div className="p-12 text-center">
+                  <p className="text-slate-500 font-medium">No payments found matching your criteria.</p>
+                </div>
+              )}
             </div>
 
             {openMenuId && (
