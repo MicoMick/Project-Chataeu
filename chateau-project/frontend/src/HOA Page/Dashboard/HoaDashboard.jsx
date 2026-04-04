@@ -42,10 +42,12 @@ const HoaDashboard = () => {
   const navigate = useNavigate();
   const [liveReports, setLiveReports] = useState([]);
   const [liveAnnouncements, setLiveAnnouncements] = useState([]); // Added state for live announcements
+  const [liveElections, setLiveElections] = useState([]); // ADDED: State for live elections
 
   useEffect(() => {
     fetchLiveReports();
     fetchLiveAnnouncements(); // Initialize fetch
+    fetchLiveElections(); // ADDED: Initialize fetch for elections
   }, []);
 
   const fetchLiveReports = async () => {
@@ -80,6 +82,22 @@ const HoaDashboard = () => {
     }
   };
 
+  // --- ADDED FETCH FUNCTION FOR ACTIVE ELECTIONS ---
+  const fetchLiveElections = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('elections')
+        .select('*')
+        .eq('status', 'active') // Fetch only active elections
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      setLiveElections(data || []);
+    } catch (error) {
+      console.error("Error fetching dashboard elections:", error.message);
+    }
+  };
+
   const handleNavigate = (path) => {
     navigate(`/hoa/${path}`);
   };
@@ -94,9 +112,6 @@ const HoaDashboard = () => {
     payments: [
       { id: 1, user: "Juan Dela Cruz", amount: "₱2,500", type: "Monthly Dues", status: "Paid", date: "Jan 15, 2024" },
       { id: 4, user: "Ana Garcia", amount: "₱2,500", type: "Monthly Dues", status: "Overdue", date: "Jan 15, 2024" }
-    ],
-    elections: [
-      { id: 1, title: "Board of Directors Election 2026", status: "Ongoing", voters: 0 }
     ]
   };
 
@@ -110,7 +125,8 @@ const HoaDashboard = () => {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
         <StatCard title="Total Reservations" value="4" icon={Calendar} iconBg="bg-blue-50" />
         <StatCard title="Overdue Payments" value="1" icon={CreditCard} iconBg="bg-red-50" />
-        <StatCard title="Active Elections" value={mockData.elections.length} icon={Vote} iconBg="bg-orange-50" />
+        {/* UPDATED: Stat card now uses liveElections length */}
+        <StatCard title="Active Elections" value={liveElections.length} icon={Vote} iconBg="bg-orange-50" />
         <StatCard title="Active Residents" value="154" icon={Users} iconBg="bg-purple-50" />
       </div>
 
@@ -207,15 +223,20 @@ const HoaDashboard = () => {
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
             <SectionHeader title="Active Elections" linkText="View All" onClick={() => handleNavigate('elections')} />
             <div className="space-y-3 max-h-[250px] overflow-y-auto pr-2 custom-scrollbar">
-              {mockData.elections.map((item) => (
-                <div key={item.id} className="p-4 border-2 border-orange-100 rounded-xl bg-orange-50/30">
-                  <p className="text-sm font-bold text-slate-900 mb-1">{item.title}</p>
-                  <div className="flex justify-between items-center">
-                    <p className="text-xs text-orange-600 font-medium">{item.voters} Residents Voted</p>
-                    <span className="text-xs font-bold text-orange-700 bg-orange-100 px-2 py-0.5 rounded">LIVE</span>
+              {/* UPDATED: Now uses liveElections state instead of mockData */}
+              {liveElections.length > 0 ? (
+                liveElections.map((item) => (
+                  <div key={item.id} className="p-4 border-2 border-orange-100 rounded-xl bg-orange-50/30">
+                    <p className="text-sm font-bold text-slate-900 mb-1">{item.title}</p>
+                    <div className="flex justify-between items-center">
+                      <p className="text-xs text-orange-600 font-medium">{item.votes_count || 0} Residents Voted</p>
+                      <span className="text-xs font-bold text-orange-700 bg-orange-100 px-2 py-0.5 rounded uppercase tracking-tighter">LIVE</span>
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))
+              ) : (
+                <p className="text-sm text-slate-400 text-center py-4 italic">No active elections at the moment.</p>
+              )}
             </div>
           </div>
         </div>

@@ -38,7 +38,32 @@ const LoginPage = () => {
       setLoading(false);
     } else {
       console.log("Logged in successfully:", data);
-      navigate('/hoa/dashboard');
+      
+      // --- START OF ROLE-BASED REDIRECTION ---
+      try {
+        const { data: adminData, error: roleError } = await supabase
+          .from('admins')
+          .select('role')
+          .eq('id', data.user.id)
+          .single();
+
+        if (roleError || !adminData) {
+          // If not found in admins table, check if they are a regular resident/user
+          navigate('/resident/home'); 
+        } else if (adminData.role === 'super_admin') {
+          // President Super goes here
+          navigate('/super-admin/dashboard');
+        } else if (adminData.role === 'admin') {
+          // Regular HOA Admins go here
+          navigate('/hoa/dashboard');
+        }
+      } catch (err) {
+        console.error("Redirection error:", err);
+        navigate('/hoa/dashboard'); // Fallback to your original route
+      } finally {
+        setLoading(false);
+      }
+      // --- END OF ROLE-BASED REDIRECTION ---
     }
   };
 
@@ -128,8 +153,6 @@ const LoginPage = () => {
                 </p>
               )}
             </div>
-
-            {/* REMOVED FORGOT PASSWORD BUTTON SECTION */}
 
             <button 
               type="submit"

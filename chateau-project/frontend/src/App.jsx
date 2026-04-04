@@ -18,6 +18,12 @@ import Announcements from './HOA Page/Announcements/Announcements.jsx';
 import Reports from './HOA Page/Residents Reports/Reports.jsx';
 import ProfileManage from './HOA Page/HOA Profile/ProfileManage.jsx';
 
+// --- ADDED SUPER ADMIN IMPORTS ---
+import SuperAdminLayout from './HOA Page/SuperAdmin/SuperAdminLayout';
+import SuperAdmin from './HOA Page/SuperAdmin/SuperAdmin';
+import SuperAdProfile from './HOA Page/SuperAdmin/SuperAdProfile'; // ADDED THIS IMPORT
+
+
 // --- SUPABASE IMPORT ---
 import { supabase } from './HOA Page/supabaseAdmin'; 
 
@@ -82,6 +88,30 @@ function App() {
       <Routes>
         <Route path="/" element={<LandingPage />} />
         <Route path="/admin" element={<LoginPage />} />
+
+        {/* --- ADDED SUPER ADMIN ROUTE --- */}
+        <Route 
+          path="/super-admin/dashboard" 
+          element={
+            <ProtectedRoute>
+              <SuperAdminLayout>
+                <SuperAdmin />
+              </SuperAdminLayout>
+            </ProtectedRoute>
+          } 
+        />
+
+        {/* --- ADDED SYSTEM PROFILE ROUTE --- */}
+        <Route 
+          path="/super-admin/profile" 
+          element={
+            <ProtectedRoute>
+              <SuperAdminLayout>
+                <SuperAdProfile />
+              </SuperAdminLayout>
+            </ProtectedRoute>
+          } 
+        />
 
         {/* HOA Admin Routes - WRAPPED IN PROTECTED ROUTE */}
         <Route 
