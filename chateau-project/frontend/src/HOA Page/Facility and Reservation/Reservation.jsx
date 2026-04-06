@@ -1,12 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
-  Calendar, Clock, CheckCircle2, XCircle, Search, MoreHorizontal, Plus, Users, Trash2, Edit, Eye, ChevronDown, ChevronLeft, ChevronRight, X, MapPin,
-  Upload,
-  Mail,
+  Calendar, Clock, CheckCircle2, XCircle, Search, MoreHorizontal, Plus, Users, Trash2, Edit, Eye, ChevronDown, ChevronLeft, ChevronRight, X, MapPin, Upload, Mail,
   User
 } from 'lucide-react';
-// IMPORT THE NEW COMPONENT
 import Facility from './Facility'; 
+import { supabase } from '../supabaseAdmin'; 
 
 const StatCard = ({ title, value, icon: Icon, iconColor, bgColor }) => (
   <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center justify-between">
@@ -24,21 +22,46 @@ const Reservation = () => {
   const [reservationSearch, setReservationSearch] = useState('');
   const [filterTab, setFilterTab] = useState('all');
   const [activeMenuId, setActiveMenuId] = useState(null);
-  const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 }); // Track coordinates
+  const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 }); 
   const [selectedReservation, setSelectedReservation] = useState(null);
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [hoveredDateReservations, setHoveredDateReservations] = useState(null); // For Calendar Hover
-  const [selectedDateDetails, setSelectedDateDetails] = useState(null); // NEW STATE FOR CLICKED DAY
+  const [hoveredDateReservations, setHoveredDateReservations] = useState(null); 
+  const [selectedDateDetails, setSelectedDateDetails] = useState(null); 
   
   const menuRef = useRef(null);
 
-  const [reservations] = useState([
-    { id: 1, name: "Juan Dela Cruz", email: "juandelacruz@gmail.com", facility: "Clubhouse", date: "Feb 5, 2026", time: "2:00 PM - 5:00 PM", status: "Approved", requested: "Feb 10, 2026" },
-    { id: 2, name: "Carlos P Garcia", email: "carlospgarcia@gmail.com", facility: "Clubhouse", date: "Feb 5, 2026", time: "2:00 PM - 6:00 PM", status: "Pending", requested: "Jan 15, 2024" },
-    { id: 3, name: "Jose Mang Juan", email: "josemangjuan@gmail.com", facility: "Clubhouse", date: "Feb 5, 2026", time: "2:00 PM - 6:00 PM", status: "Rejected", requested: "Jan 15, 2024" },
-    { id: 4, name: "Pedro Sanchez", email: "pedrosanchez@gmail.com", facility: "Clubhouse", date: "Mar 8, 2026", time: "2:00 PM - 6:00 PM", status: "Approved", requested: "Jan 15, 2024" },
-  ]);
+  // UPDATED STATE FOR DATABASE DATA
+  const [reservations, setReservations] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+// FETCH DATA FROM SUPABASE
+useEffect(() => {
+  const fetchReservations = async () => {
+    setLoading(true);
+    const { data, error } = await supabase
+    .from('reservations')
+    .select(`
+      *,
+      facilities (
+        name
+      ),
+      profiles!user_id (  
+        full_name,
+        username
+      )
+    `);
+
+      if (error) {
+        console.error('Error fetching:', error);
+      } else {
+        setReservations(data || []);
+      }
+      setLoading(false);
+    };
+
+    fetchReservations();
+  }, []);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -49,6 +72,14 @@ const Reservation = () => {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  // STAT CALCULATIONS BASED ON FETCHED DATA
+  const stats = {
+    total: reservations.length,
+    pending: reservations.filter(r => r.status === 'Pending').length,
+    approved: reservations.filter(r => r.status === 'Approved').length,
+    rejected: reservations.filter(r => r.status === 'Rejected').length,
+  };
 
   const daysInMonth = (year, month) => new Date(year, month + 1, 0).getDate();
   const firstDayOfMonth = (year, month) => new Date(year, month, 1).getDay();
@@ -74,9 +105,10 @@ const Reservation = () => {
   };
 
   const filteredReservations = reservations.filter((res) => {
-    const matchesSearch = res.name.toLowerCase().includes(reservationSearch.toLowerCase()) || 
-                          res.facility.toLowerCase().includes(reservationSearch.toLowerCase());
-    let matchesTab = filterTab === 'all' || (filterTab === 'pending' && res.status === 'Pending');
+    const name = res.profiles?.full_name || 'Unknown User';
+    const matchesSearch = name.toLowerCase().includes(reservationSearch.toLowerCase()) || 
+                          (res.facilities?.name?.toLowerCase().includes(reservationSearch.toLowerCase()));
+    let matchesTab = filterTab === 'all' || (res.status && res.status.toLowerCase() === filterTab.toLowerCase());
     return matchesSearch && matchesTab;
   });
 
@@ -104,7 +136,6 @@ const Reservation = () => {
 
   return (
     <div className="h-screen overflow-y-auto bg-slate-50 p-8 text-slate-900 custom-scrollbar relative">
-      
       <section className="mb-12">
         <div className="mb-8">
           <h1 className="text-2xl font-bold text-slate-900">Reservation Management</h1>
@@ -112,10 +143,10 @@ const Reservation = () => {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          <StatCard title="Total Reservations" value="4" icon={Calendar} iconColor="text-indigo-600" bgColor="bg-indigo-50" />
-          <StatCard title="Pending Approval" value="1" icon={Clock} iconColor="text-blue-600" bgColor="bg-blue-50" />
-          <StatCard title="Approved" value="2" icon={CheckCircle2} iconColor="text-green-600" bgColor="bg-green-50" />
-          <StatCard title="Rejected" value="1" icon={XCircle} iconColor="text-red-500" bgColor="bg-red-50" />
+          <StatCard title="Total Reservations" value={stats.total} icon={Calendar} iconColor="text-indigo-600" bgColor="bg-indigo-50" />
+          <StatCard title="Pending Approval" value={stats.pending} icon={Clock} iconColor="text-blue-600" bgColor="bg-blue-50" />
+          <StatCard title="Approved" value={stats.approved} icon={CheckCircle2} iconColor="text-green-600" bgColor="bg-green-50" />
+          <StatCard title="Rejected" value={stats.rejected} icon={XCircle} iconColor="text-red-500" bgColor="bg-red-50" />
         </div>
 
         <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-visible">
@@ -132,12 +163,22 @@ const Reservation = () => {
             </div>
             <div className="flex items-center gap-2">
               <div className="flex bg-slate-50 p-1 rounded-xl border border-slate-200">
-                <button onClick={() => setFilterTab('all')} className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all ${filterTab === 'all' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500'}`}>All</button>
-                <button onClick={() => setFilterTab('pending')} className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all ${filterTab === 'pending' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500'}`}>Pendings</button>
+                <button
+                  onClick={() => setFilterTab('all')}
+                  className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all ${filterTab === 'all' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500'} cursor-pointer`}
+                >
+                  All
+                </button>
+                <button
+                  onClick={() => setFilterTab('pending')}
+                  className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all ${filterTab === 'pending' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500'} cursor-pointer`}
+                >
+                  Pendings
+                </button>
               </div>
-              <button 
+              <button
                 onClick={() => setIsCalendarOpen(true)}
-                className="text-sm font-bold text-slate-900 px-4 hover:text-indigo-600 transition-colors"
+                className="text-sm font-bold text-slate-900 px-4 hover:text-indigo-600 transition-colors cursor-pointer"
               >
                 Calendar View
               </button>
@@ -145,41 +186,51 @@ const Reservation = () => {
           </div>
 
           <div className="overflow-x-auto">
-             <table className="w-full text-left">
+              <table className="w-full text-left">
                 <thead>
                   <tr className="text-slate-400 text-[11px] uppercase tracking-widest font-bold border-b border-slate-50">
                     <th className="px-6 py-4">Name</th>
-                    <th className="px-6 py-4">Amenity</th>
+                    <th className="px-6 py-4">Facility</th>
                     <th className="px-6 py-4">Date</th>
+                    <th className="px-6 py-4">Start Time</th>
+                    <th className="px-6 py-4">End Time</th>
                     <th className="px-6 py-4">Status</th>
+                    <th className="px-6 py-4">Created At</th>
                     <th className="px-6 py-4"></th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {filteredReservations.length > 0 ? (
+                  {loading ? (
+                    <tr><td colSpan="8" className="px-6 py-8 text-center text-slate-400">Loading reservations...</td></tr>
+                  ) : filteredReservations.length > 0 ? (
                     filteredReservations.map((res) => (
                       <tr key={res.id} className="hover:bg-slate-50/50 transition-colors">
-                        <td className="px-6 py-4 text-sm font-bold text-slate-800">{res.name}</td>
-                        <td className="px-6 py-4 text-sm text-slate-600">{res.facility}</td>
+                        <td className="px-6 py-4 text-sm font-bold text-slate-800">{res.profiles?.full_name || 'No Name'}</td>
+                        <td className="px-6 py-4 text-sm text-slate-600">{res.facilities?.name || 'Unknown Facility'}</td>
                         <td className="px-6 py-4 text-sm text-slate-600">{res.date}</td>
+                        <td className="px-6 py-4 text-sm text-slate-600">{res.start_time}</td>
+                        <td className="px-6 py-4 text-sm text-slate-600">{res.end_time}</td>
                         <td className="px-6 py-4">
                           <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase ${getStatusStyle(res.status)}`}>
                             {res.status}
                           </span>
                         </td>
+                        <td className="px-6 py-4 text-sm text-slate-400">
+                          {res.created_at ? new Date(res.created_at).toLocaleDateString() : 'N/A'}
+                        </td>
                         <td className="px-6 py-4 text-right">
                           <button 
                             onClick={(e) => handleToggleMenu(e, res.id)} 
-                            className="text-slate-400 hover:text-slate-600 p-1"
+                            className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
                           >
-                            <MoreHorizontal size={18} />
+                            < MoreHorizontal size={18} />
                           </button>
                         </td>
                       </tr>
                     ))
                   ) : (
                     <tr>
-                      <td colSpan="5" className="px-6 py-12 text-center">
+                      <td colSpan="8" className="px-6 py-12 text-center">
                         <div className="flex flex-col items-center justify-center gap-2">
                           <Search size={32} className="text-slate-200" />
                           <p className="text-sm font-bold text-slate-400">No reservations found for "{reservationSearch}"</p>
@@ -188,7 +239,7 @@ const Reservation = () => {
                     </tr>
                   )}
                 </tbody>
-             </table>
+              </table>
           </div>
         </div>
       </section>
@@ -197,25 +248,22 @@ const Reservation = () => {
         <div 
           ref={menuRef} 
           className="fixed w-48 bg-white rounded-2xl shadow-2xl border border-slate-100 z-[9999] py-2 animate-in fade-in slide-in-from-top-2 duration-200"
-          style={{ 
-            top: `${menuPosition.top}px`, 
-            left: `${menuPosition.left}px` 
-          }}
+          style={{ top: `${menuPosition.top}px`, left: `${menuPosition.left}px` }}
         >
           {(() => {
             const res = reservations.find(r => r.id === activeMenuId);
             return (
               <>
-                <button onClick={() => { setSelectedReservation(res); setActiveMenuId(null); }} className="w-full px-4 py-2.5 text-left text-xs font-bold text-slate-600 hover:bg-slate-50 flex items-center gap-3">
-                  View Profile
+                <button onClick={() => { setSelectedReservation(res); setActiveMenuId(null); }} className="w-full px-4 py-2.5 text-left text-xs font-bold text-slate-600 hover:bg-slate-50 flex items-center gap-3 cursor-pointer">
+                  View Details
                 </button>
-                <button className="w-full px-4 py-2.5 text-left text-xs font-bold text-green-600 hover:bg-green-50 flex items-center gap-3 border-t border-slate-50">
+                <button className="w-full px-4 py-2.5 text-left text-xs font-bold text-green-600 hover:bg-green-50 flex items-center gap-3 border-t border-slate-50 cursor-pointer">
                   Approve
                 </button>
-                <button className="w-full px-4 py-2.5 text-left text-xs font-bold text-orange-600 hover:bg-orange-50 flex items-center gap-3">
+                <button className="w-full px-4 py-2.5 text-left text-xs font-bold text-orange-600 hover:bg-orange-50 flex items-center gap-3 cursor-pointer">
                   Reject
                 </button>
-                <button className="w-full px-4 py-2.5 text-left text-xs font-bold text-red-600 hover:bg-red-50 flex items-center gap-3 border-t border-slate-50">
+                <button className="w-full px-4 py-2.5 text-left text-xs font-bold text-red-600 hover:bg-red-50 flex items-center gap-3 border-t border-slate-50 cursor-pointer">
                   Delete
                 </button>
               </>
@@ -234,53 +282,53 @@ const Reservation = () => {
                     <User size={40} />
                   </div>
                   <div>
-                    <h2 className="text-2xl font-bold text-slate-900">{selectedReservation.name}</h2>
+                    <h2 className="text-2xl font-bold text-slate-900">{selectedReservation.profiles?.full_name}</h2>
                     <span className={`inline-block mt-1 px-3 py-1 rounded-full text-[10px] font-bold uppercase ${getStatusStyle(selectedReservation.status)}`}>
                       {selectedReservation.status}
                     </span>
                   </div>
                </div>
-               <button onClick={() => setSelectedReservation(null)} className="p-2 hover:bg-slate-100 rounded-full text-slate-400 transition-all"><X size={24} /></button>
+               <button onClick={() => setSelectedReservation(null)} className="p-2 hover:bg-slate-100 rounded-full text-slate-400 transition-all cursor-pointer"><X size={24} /></button>
             </div>
             <div className="px-8 pb-10">
               <div className="space-y-6">
                 <div className="grid grid-cols-2 gap-4">
                    <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Email Address</p>
-                      <p className="text-sm font-bold text-slate-700 flex items-center gap-2 truncate"><Mail size={14} className="text-indigo-500 shrink-0" /> {selectedReservation.email}</p>
+                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Email Address</p>
+                     <p className="text-sm font-bold text-slate-700 flex items-center gap-2 truncate"><Mail size={14} className="text-indigo-500 shrink-0" /> {selectedReservation.profiles?.email || 'N/A'}</p>
                    </div>
                    <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Requested On</p>
-                      <p className="text-sm font-bold text-slate-700 flex items-center gap-2"><Clock size={14} className="text-indigo-500 shrink-0" /> {selectedReservation.requested}</p>
+                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Requested On</p>
+                     <p className="text-sm font-bold text-slate-700 flex items-center gap-2"><Clock size={14} className="text-indigo-500 shrink-0" /> {selectedReservation.created_at ? new Date(selectedReservation.created_at).toLocaleDateString() : 'N/A'}</p>
                    </div>
                 </div>
                 <div className="p-6 bg-slate-50 rounded-3xl border border-slate-100">
                    <h4 className="text-xs font-black text-slate-900 uppercase tracking-widest mb-4">Reservation Details</h4>
                    <div className="space-y-4">
-                      <div className="flex justify-between items-center text-sm font-medium border-b border-slate-200 pb-2">
-                        <span className="text-slate-500">Facility / Item:</span>
-                        <span className="text-slate-900 font-bold">{selectedReservation.facility}</span>
-                      </div>
-                      <div className="flex justify-between items-center text-sm font-medium border-b border-slate-200 pb-2">
-                        <span className="text-slate-500">Scheduled Date:</span>
-                        <span className="text-slate-900 font-bold">{selectedReservation.date}</span>
-                      </div>
-                      <div className="flex justify-between items-center text-sm font-medium">
-                        <span className="text-slate-500">Time Slot:</span>
-                        <span className="text-slate-900 font-bold">{selectedReservation.time}</span>
-                      </div>
+                     <div className="flex justify-between items-center text-sm font-medium border-b border-slate-200 pb-2">
+                       <span className="text-slate-500">Facility / Item:</span>
+                       <span className="text-slate-900 font-bold">{selectedReservation.facilities?.name || 'Unknown Facility'}</span>
+                     </div>
+                     <div className="flex justify-between items-center text-sm font-medium border-b border-slate-200 pb-2">
+                       <span className="text-slate-500">Scheduled Date:</span>
+                       <span className="text-slate-900 font-bold">{selectedReservation.date}</span>
+                     </div>
+                     <div className="flex justify-between items-center text-sm font-medium">
+                       <span className="text-slate-500">Time Slot:</span>
+                       <span className="text-slate-900 font-bold">{selectedReservation.start_time} - {selectedReservation.end_time}</span>
+                     </div>
                    </div>
                 </div>
               </div>
               <div className="mt-8">
-                <button onClick={() => setSelectedReservation(null)} className="w-full py-4 bg-slate-900 text-white font-bold rounded-2xl hover:bg-slate-800 transition-all shadow-xl">Close</button>
+                <button onClick={() => setSelectedReservation(null)} className="w-full py-4 bg-slate-900 text-white font-bold rounded-2xl hover:bg-slate-800 transition-all shadow-xl cursor-pointer">Close</button>
               </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* CALENDAR MODAL */}
+      {/* CALENDAR MODAL WITH UPDATED MAPPING LOGIC */}
       {isCalendarOpen && (
         <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setIsCalendarOpen(false)}></div>
@@ -290,7 +338,7 @@ const Reservation = () => {
               <button onClick={() => setIsCalendarOpen(false)} className="p-2 hover:bg-slate-200 rounded-full transition-colors"><X size={24} /></button>
             </div>
             <div className="p-8">
-              <div className="flex items-center justify-between mb-8">
+               <div className="flex items-center justify-between mb-8">
                 <span className="font-bold text-2xl text-slate-900">{currentDate.toLocaleString('default', { month: 'long', year: 'numeric' })}</span>
                 <div className="flex gap-3">
                   <button onClick={() => changeMonth(-1)} className="p-3 hover:bg-slate-100 rounded-2xl border border-slate-200"><ChevronLeft size={20} /></button>
@@ -304,17 +352,27 @@ const Reservation = () => {
               </div>
               <div className="grid grid-cols-7 gap-2 text-center">
                 {generateCalendarDays().map((dateObj, idx) => {
-                  const dayString = `${currentDate.toLocaleString('default', { month: 'short' })} ${dateObj.day}`;
-                  const dayReservations = reservations.filter(r => r.date.includes(dayString));
+                  if (!dateObj.day) return <div key={idx} className="min-h-[80px]"></div>;
+
+                  // NEW LOGIC INTEGRATED HERE
+                  const dayDisplay = `${currentDate.toLocaleString('default', { month: 'short' })} ${dateObj.day}`;
+                  const cellDate = new Date(currentDate.getFullYear(), currentDate.getMonth(), dateObj.day);
+                  
+                  const dayReservations = reservations.filter(r => {
+                    if (!r.date) return false;
+                    const isoMatch = r.date.startsWith(cellDate.toISOString().split('T')[0]);
+                    const stringMatch = r.date.includes(dayDisplay);
+                    return isoMatch || stringMatch;
+                  });
+
                   const hasReservation = dayReservations.length > 0;
-                  const isToday = dateObj.day === new Date().getDate() && currentDate.getMonth() === new Date().getMonth();
+                  const isToday = dateObj.day === new Date().getDate() && 
+                                  currentDate.getMonth() === new Date().getMonth() &&
+                                  currentDate.getFullYear() === new Date().getFullYear();
 
                   return (
-                    <div 
-                      key={idx} 
-                      onClick={() => hasReservation && setSelectedDateDetails({ date: dayString, items: dayReservations })}
-                      onMouseEnter={() => hasReservation && setHoveredDateReservations(dayReservations)}
-                      onMouseLeave={() => setHoveredDateReservations(null)}
+                    <div key={idx} 
+                      onClick={() => hasReservation && setSelectedDateDetails({ date: dayDisplay, items: dayReservations })}
                       className={`min-h-[80px] p-2 flex flex-col items-center justify-start rounded-2xl text-lg font-bold relative transition-all
                         ${dateObj.day ? 'hover:bg-indigo-50 cursor-pointer border border-transparent hover:border-indigo-100' : ''}
                         ${hasReservation && !isToday ? 'bg-yellow-100 text-yellow-700' : 'text-slate-700'}
@@ -322,14 +380,13 @@ const Reservation = () => {
                       `}
                     >
                       {dateObj.day}
+                      
                       {hasReservation && (
-                        <div className={`mt-2 w-2 h-2 rounded-full ${isToday ? 'bg-white' : 'bg-orange-500'}`}></div>
-                      )}
-
-                      {/* HOVER TOOLTIP */}
-                      {hoveredDateReservations && hoveredDateReservations[0]?.date.includes(dayString) && (
-                        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-4 w-56 bg-slate-900/90 text-white p-2 rounded-xl shadow-2xl z-[10001] pointer-events-none">
-                          <p className="text-[9px] font-bold text-center uppercase">Click to view {dayReservations.length} items</p>
+                        <div className="flex flex-col items-center mt-1">
+                          <span className={`text-[10px] uppercase tracking-tighter font-black ${isToday ? 'text-indigo-200' : 'text-orange-600'}`}>
+                            Marked
+                          </span>
+                          <div className={`mt-1 w-1.5 h-1.5 rounded-full ${isToday ? 'bg-white' : 'bg-orange-500'}`}></div>
                         </div>
                       )}
                     </div>
@@ -337,55 +394,32 @@ const Reservation = () => {
                 })}
               </div>
             </div>
-
-            {/* NEW OVERLAY FOR CLICKED DAY DETAILS */}
+            {/* Date Details Overlay */}
             {selectedDateDetails && (
               <div className="absolute inset-0 z-[10005] bg-white flex flex-col animate-in slide-in-from-bottom-4 duration-300">
                 <div className="p-8 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
                   <div>
                     <h2 className="text-xl font-bold text-slate-900">{selectedDateDetails.date}</h2>
-                    <p className="text-sm text-slate-500 font-medium">{selectedDateDetails.items.length} Reservations Found</p>
+                    <p className="text-sm text-slate-500 font-medium">{selectedDateDetails.items.length} Reservations</p>
                   </div>
-                  <button 
-                    onClick={() => setSelectedDateDetails(null)} 
-                    className="p-3 bg-slate-200 hover:bg-slate-300 rounded-full transition-colors text-slate-700"
-                  >
-                    <X size={20} />
-                  </button>
+                  <button onClick={() => setSelectedDateDetails(null)} className="p-3 bg-slate-200 hover:bg-slate-300 rounded-full text-slate-700"><X size={20} /></button>
                 </div>
-                <div className="flex-1 overflow-y-auto p-8 space-y-4 custom-scrollbar">
+                <div className="flex-1 overflow-y-auto p-8 space-y-4">
                   {selectedDateDetails.items.map((item) => (
-                    <div key={item.id} className="p-6 bg-slate-50 rounded-3xl border border-slate-100 flex items-center justify-between group">
+                    <div key={item.id} className="p-6 bg-slate-50 rounded-3xl border border-slate-100 flex items-center justify-between">
                       <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-indigo-600 shadow-sm border border-slate-100">
-                          <User size={20} />
-                        </div>
+                        <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-indigo-600 shadow-sm"><User size={20} /></div>
                         <div>
-                          <h4 className="font-bold text-slate-900">{item.name}</h4>
-                          <p className="text-xs font-medium text-slate-500">{item.facility} • {item.time}</p>
+                          <h4 className="font-bold text-slate-900">{item.profiles?.full_name}</h4>
+                          <p className="text-xs font-medium text-slate-500">{item.facilities?.name || 'Unknown Facility'} • {item.start_time}</p>
                         </div>
                       </div>
-                      <div className="flex items-center gap-3">
-                         <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase ${getStatusStyle(item.status)}`}>
-                            {item.status}
-                         </span>
-                         <button 
-                            onClick={() => { setSelectedReservation(item); setSelectedDateDetails(null); }}
-                            className="p-2 bg-white border border-slate-200 rounded-xl hover:bg-indigo-50 hover:text-indigo-600 transition-all shadow-sm"
-                         >
-                            <Eye size={18} />
-                         </button>
-                      </div>
+                      <button onClick={() => { setSelectedReservation(item); setSelectedDateDetails(null); }} className="p-2 bg-white border border-slate-200 rounded-xl hover:bg-indigo-50 transition-all"><Eye size={18} /></button>
                     </div>
                   ))}
                 </div>
                 <div className="p-8 border-t border-slate-100">
-                  <button 
-                    onClick={() => setSelectedDateDetails(null)}
-                    className="w-full py-4 bg-slate-900 text-white font-bold rounded-2xl hover:bg-slate-800 transition-all"
-                  >
-                    Back to Calendar
-                  </button>
+                  <button onClick={() => setSelectedDateDetails(null)} className="w-full py-4 bg-slate-900 text-white font-bold rounded-2xl">Back to Calendar</button>
                 </div>
               </div>
             )}

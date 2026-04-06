@@ -46,7 +46,7 @@ const AboutUs = () => {
             
             <div className="space-y-6 text-lg text-slate-600 leading-relaxed">
               <p>
-                Chateau isn't just a place to live; it's a premier community designed for those who value 
+                Chateau isn't just a place to live, it's a premier community designed for those who value 
                 security, comfort, and connection. Nestled in a landscape of modern architecture and 
                 lush greenery, our subdivision offers a sanctuary away from the hustle, without 
                 compromising on convenience.
