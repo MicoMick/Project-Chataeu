@@ -41,13 +41,18 @@ const SectionHeader = ({ title, linkText, onClick }) => (
 const HoaDashboard = () => {
   const navigate = useNavigate();
   const [liveReports, setLiveReports] = useState([]);
-  const [liveAnnouncements, setLiveAnnouncements] = useState([]); // Added state for live announcements
-  const [liveElections, setLiveElections] = useState([]); // ADDED: State for live elections
+  const [liveAnnouncements, setLiveAnnouncements] = useState([]); 
+  const [liveElections, setLiveElections] = useState([]); 
+  // ADDED: State for live reservations and residents count
+  const [liveReservations, setLiveReservations] = useState([]);
+  const [totalResidents, setTotalResidents] = useState(0);
 
   useEffect(() => {
     fetchLiveReports();
-    fetchLiveAnnouncements(); // Initialize fetch
-    fetchLiveElections(); // ADDED: Initialize fetch for elections
+    fetchLiveAnnouncements(); 
+    fetchLiveElections(); 
+    fetchLiveReservations(); // ADDED
+    fetchTotalResidents();   // ADDED
   }, []);
 
   const fetchLiveReports = async () => {
@@ -65,13 +70,12 @@ const HoaDashboard = () => {
     }
   };
 
-  // --- ADDED FETCH FUNCTION FOR ANNOUNCEMENTS ---
   const fetchLiveAnnouncements = async () => {
     try {
       const { data, error } = await supabase
         .from('announcements')
         .select('*')
-        .eq('status', 'published') // Only show published ones on dashboard
+        .eq('status', 'published') 
         .order('created_at', { ascending: false })
         .limit(4);
 
@@ -82,13 +86,12 @@ const HoaDashboard = () => {
     }
   };
 
-  // --- ADDED FETCH FUNCTION FOR ACTIVE ELECTIONS ---
   const fetchLiveElections = async () => {
     try {
       const { data, error } = await supabase
         .from('elections')
         .select('*')
-        .eq('status', 'active') // Fetch only active elections
+        .eq('status', 'active') 
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -98,17 +101,45 @@ const HoaDashboard = () => {
     }
   };
 
+  // --- ADDED: FETCH LIVE RESERVATIONS ---
+  const fetchLiveReservations = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('reservations')
+        .select(`
+          *,
+          facilities ( name ),
+          profiles ( full_name )
+        `)
+        .order('date', { ascending: false })
+        .limit(4);
+
+      if (error) throw error;
+      setLiveReservations(data || []);
+    } catch (error) {
+      console.error("Error fetching live reservations:", error.message);
+    }
+  };
+
+  // --- ADDED: FETCH TOTAL RESIDENTS COUNT ---
+  const fetchTotalResidents = async () => {
+    try {
+      const { count, error } = await supabase
+        .from('profiles')
+        .select('*', { count: 'exact', head: true });
+
+      if (error) throw error;
+      setTotalResidents(count || 0);
+    } catch (error) {
+      console.error("Error fetching residents count:", error.message);
+    }
+  };
+
   const handleNavigate = (path) => {
     navigate(`/hoa/${path}`);
   };
 
   const mockData = {
-    reservations: [
-      { id: 1, user: "Juan Dela Cruz", facility: "Clubhouse", date: "Feb 5, 2026", status: "Approved" },
-      { id: 2, user: "Carlos P Garcia", facility: "Clubhouse", date: "Feb 5, 2026", status: "Pending" },
-      { id: 3, user: "Jose Mang Juan", facility: "Clubhouse", date: "Feb 5, 2026", status: "Rejected" },
-      { id: 4, user: "Pedro Sanchez", facility: "Clubhouse", date: "Mar 8, 2026", status: "Approved" }
-    ],
     payments: [
       { id: 1, user: "Juan Dela Cruz", amount: "₱2,500", type: "Monthly Dues", status: "Paid", date: "Jan 15, 2024" },
       { id: 4, user: "Ana Garcia", amount: "₱2,500", type: "Monthly Dues", status: "Overdue", date: "Jan 15, 2024" }
@@ -123,11 +154,12 @@ const HoaDashboard = () => {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-        <StatCard title="Total Reservations" value="4" icon={Calendar} iconBg="bg-blue-50" />
+        {/* UPDATED: Now uses live reservations count */}
+        <StatCard title="Total Reservations" value={liveReservations.length} icon={Calendar} iconBg="bg-blue-50" />
         <StatCard title="Overdue Payments" value="1" icon={CreditCard} iconBg="bg-red-50" />
-        {/* UPDATED: Stat card now uses liveElections length */}
         <StatCard title="Active Elections" value={liveElections.length} icon={Vote} iconBg="bg-orange-50" />
-        <StatCard title="Active Residents" value="154" icon={Users} iconBg="bg-purple-50" />
+        {/* UPDATED: Now uses live total residents count */}
+        <StatCard title="Residents" value={totalResidents} icon={Users} iconBg="bg-purple-50" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -136,17 +168,22 @@ const HoaDashboard = () => {
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
             <SectionHeader title="Recent Reservations" linkText="View All" onClick={() => handleNavigate('reservations')} />
             <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
-              {mockData.reservations.map((item) => (
-                <div key={item.id} className="flex justify-between items-center p-3 border border-slate-50 rounded-xl hover:bg-slate-50 transition-colors">
-                  <div>
-                    <p className="text-sm font-semibold text-slate-800">{item.user}</p>
-                    <p className="text-xs text-slate-500">{item.facility} • {item.date}</p>
+              {/* UPDATED: Uses liveReservations instead of mockData */}
+              {liveReservations.length > 0 ? (
+                liveReservations.map((item) => (
+                  <div key={item.id} className="flex justify-between items-center p-3 border border-slate-50 rounded-xl hover:bg-slate-50 transition-colors">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-800">{item.profiles?.full_name || 'Unknown User'}</p>
+                      <p className="text-xs text-slate-500">{item.facilities?.name} • {item.date}</p>
+                    </div>
+                    <span className={`px-3 py-1 text-[10px] font-bold uppercase rounded-full ${item.status === 'Approved' ? 'bg-green-50 text-green-600' : item.status === 'Pending' ? 'bg-blue-50 text-blue-600' : 'bg-red-50 text-red-600'}`}>
+                      {item.status}
+                    </span>
                   </div>
-                  <span className={`px-3 py-1 text-[10px] font-bold uppercase rounded-full ${item.status === 'Approved' ? 'bg-green-50 text-green-600' : item.status === 'Pending' ? 'bg-blue-50 text-blue-600' : 'bg-red-50 text-red-600'}`}>
-                    {item.status}
-                  </span>
-                </div>
-              ))}
+                ))
+              ) : (
+                <p className="text-sm text-slate-400 text-center py-4 italic">No reservations found.</p>
+              )}
             </div>
           </div>
 
@@ -201,7 +238,6 @@ const HoaDashboard = () => {
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
             <SectionHeader title="Recent Announcements" linkText="View All" onClick={() => handleNavigate('announcements')} />
             <div className="space-y-4 max-h-[350px] overflow-y-auto pr-2 custom-scrollbar">
-              {/* UPDATED TO USE LIVE ANNOUNCEMENTS DATA */}
               {liveAnnouncements.length > 0 ? (
                 liveAnnouncements.map((item) => (
                   <div key={item.id} className={`p-4 border rounded-xl ${item.is_emergency ? 'border-red-100 bg-red-50/30' : 'border-slate-50 bg-slate-50/50'}`}>
@@ -223,7 +259,6 @@ const HoaDashboard = () => {
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
             <SectionHeader title="Active Elections" linkText="View All" onClick={() => handleNavigate('elections')} />
             <div className="space-y-3 max-h-[250px] overflow-y-auto pr-2 custom-scrollbar">
-              {/* UPDATED: Now uses liveElections state instead of mockData */}
               {liveElections.length > 0 ? (
                 liveElections.map((item) => (
                   <div key={item.id} className="p-4 border-2 border-orange-100 rounded-xl bg-orange-50/30">

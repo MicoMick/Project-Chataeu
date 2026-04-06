@@ -128,7 +128,7 @@ const Sidebar = () => {
               {/* Added handleLogout here */}
               <button 
                 onClick={handleLogout}
-                className="w-full flex items-center gap-3 px-3 py-2.5 text-sm font-semibold text-red-500 hover:bg-red-50 rounded-xl transition-all text-left"
+                className="w-full flex items-center gap-3 px-3 py-2.5 text-sm font-semibold text-red-500 hover:bg-red-50 rounded-xl transition-all text-left cursor-pointer"
               >
                 <LogOut size={18} /> Sign Out
               </button>

@@ -77,7 +77,7 @@ const Footer = () => {
         <div className="flex justify-end mt-4 md:mt-0">
           <button 
             onClick={scrollToTop}
-            className="group flex flex-col items-center gap-2 text-white/50 hover:text-[#FFF200] transition-all duration-300"
+            className="group flex flex-col items-center gap-2 text-white/50 hover:text-[#FFF200] transition-all duration-300 cursor-pointer"
           >
             <div className="p-2.5 border border-white/10 rounded-full group-hover:border-[#FFF200] group-hover:bg-[#FFF200]/10 group-hover:-translate-y-1 transition-all">
               <ArrowUp size={18} />
