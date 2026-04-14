@@ -65,10 +65,12 @@ const SuperAdProfile = () => {
     getUser();
   }, []);
 
-  // --- UPDATE FUNCTIONS ---
+  // --- UPDATED PERSONAL INFO UPDATE FUNCTION TO SYNC WITH ADMINS TABLE ---
   const handleInfoUpdate = async () => {
     setInfoLoading(true);
-    const { error } = await supabase.auth.updateUser({
+    
+    // 1. Update the Auth Metadata (Standard)
+    const { error: authError } = await supabase.auth.updateUser({
       data: { 
         first_name: firstName,
         last_name: lastName,
@@ -76,11 +78,25 @@ const SuperAdProfile = () => {
       }
     });
 
-    if (error) {
-      triggerToast("Error: " + error.message, "error");
-    } else {
-      triggerToast("Super Admin profile updated!", "success");
+    if (authError) {
+      triggerToast("Auth Error: " + authError.message, "error");
+      setInfoLoading(false);
+      return;
     }
+
+    // 2. Sync with the 'admins' table
+    const fullDisplayName = `${firstName} ${lastName}`.trim();
+    const { error: adminError } = await supabase
+      .from('admins')
+      .update({ display_name: fullDisplayName })
+      .eq('email', userEmail);
+
+    if (adminError) {
+      triggerToast("Sync Error: " + adminError.message, "error");
+    } else {
+      triggerToast("Super Admin profile and display name updated!", "success");
+    }
+    
     setInfoLoading(false);
   };
 
