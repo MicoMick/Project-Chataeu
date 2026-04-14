@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Calendar, Clock, CheckCircle2, XCircle, Search, MoreHorizontal, Plus, Users, Trash2, Edit, Eye, ChevronDown, ChevronLeft, ChevronRight, X, MapPin, Upload, Mail,
-  User
+  User, AlertTriangle
 } from 'lucide-react';
 import Facility from './Facility'; 
 import { supabase } from '../supabaseAdmin'; 
@@ -29,14 +29,17 @@ const Reservation = () => {
   const [hoveredDateReservations, setHoveredDateReservations] = useState(null); 
   const [selectedDateDetails, setSelectedDateDetails] = useState(null); 
   
+  // NEW STATES FOR DELETE CONFIRMATION
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [reservationToDelete, setReservationToDelete] = useState(null);
+
   const menuRef = useRef(null);
 
   // UPDATED STATE FOR DATABASE DATA
   const [reservations, setReservations] = useState([]);
   const [loading, setLoading] = useState(true);
 
-// FETCH DATA FROM SUPABASE
-useEffect(() => {
+  // FETCH DATA FROM SUPABASE
   const fetchReservations = async () => {
     setLoading(true);
     const { data, error } = await supabase
@@ -52,16 +55,65 @@ useEffect(() => {
       )
     `);
 
-      if (error) {
-        console.error('Error fetching:', error);
-      } else {
-        setReservations(data || []);
-      }
-      setLoading(false);
-    };
+    if (error) {
+      console.error('Error fetching:', error);
+    } else {
+      setReservations(data || []);
+    }
+    setLoading(false);
+  };
 
+  useEffect(() => {
     fetchReservations();
   }, []);
+
+  // --- ADDED: HANDLERS FOR APPROVE, REJECT, AND DELETE ---
+  const handleUpdateStatus = async (id, newStatus) => {
+    try {
+      const { error } = await supabase
+        .from('reservations')
+        .update({ status: newStatus })
+        .eq('id', id);
+
+      if (error) throw error;
+
+      // Update local state to reflect change immediately
+      setReservations(prev => prev.map(res => 
+        res.id === id ? { ...res, status: newStatus } : res
+      ));
+      setActiveMenuId(null);
+    } catch (error) {
+      alert("Error updating status: " + error.message);
+    }
+  };
+
+  // UPDATED DELETE HANDLER TO TRIGGER MODAL
+  const handleDelete = (id) => {
+    setReservationToDelete(id);
+    setIsDeleteModalOpen(true);
+    setActiveMenuId(null);
+  };
+
+  // ACTUAL DELETE EXECUTION
+  const confirmDelete = async () => {
+    if (!reservationToDelete) return;
+    
+    try {
+      const { error } = await supabase
+        .from('reservations')
+        .delete()
+        .eq('id', reservationToDelete);
+
+      if (error) throw error;
+
+      // Remove from local state
+      setReservations(prev => prev.filter(res => res.id !== reservationToDelete));
+      setIsDeleteModalOpen(false);
+      setReservationToDelete(null);
+    } catch (error) {
+      alert("Error deleting: " + error.message);
+    }
+  };
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -191,11 +243,11 @@ useEffect(() => {
                   <tr className="text-slate-400 text-[11px] uppercase tracking-widest font-bold border-b border-slate-50">
                     <th className="px-6 py-4">Name</th>
                     <th className="px-6 py-4">Facility</th>
-                    <th className="px-6 py-4">Date</th>
+                    <th className="px-6 py-4">Requested Date</th>
                     <th className="px-6 py-4">Start Time</th>
                     <th className="px-6 py-4">End Time</th>
                     <th className="px-6 py-4">Status</th>
-                    <th className="px-6 py-4">Created At</th>
+                    <th className="px-6 py-4">Requested On</th>
                     <th className="px-6 py-4"></th>
                   </tr>
                 </thead>
@@ -257,13 +309,23 @@ useEffect(() => {
                 <button onClick={() => { setSelectedReservation(res); setActiveMenuId(null); }} className="w-full px-4 py-2.5 text-left text-xs font-bold text-slate-600 hover:bg-slate-50 flex items-center gap-3 cursor-pointer">
                   View Details
                 </button>
-                <button className="w-full px-4 py-2.5 text-left text-xs font-bold text-green-600 hover:bg-green-50 flex items-center gap-3 border-t border-slate-50 cursor-pointer">
+                {/* UPDATED BUTTONS WITH LIVE FUNCTIONS */}
+                <button 
+                  onClick={() => handleUpdateStatus(activeMenuId, 'Approved')}
+                  className="w-full px-4 py-2.5 text-left text-xs font-bold text-green-600 hover:bg-green-50 flex items-center gap-3 border-t border-slate-50 cursor-pointer"
+                >
                   Approve
                 </button>
-                <button className="w-full px-4 py-2.5 text-left text-xs font-bold text-orange-600 hover:bg-orange-50 flex items-center gap-3 cursor-pointer">
+                <button 
+                  onClick={() => handleUpdateStatus(activeMenuId, 'Rejected')}
+                  className="w-full px-4 py-2.5 text-left text-xs font-bold text-orange-600 hover:bg-orange-50 flex items-center gap-3 cursor-pointer"
+                >
                   Reject
                 </button>
-                <button className="w-full px-4 py-2.5 text-left text-xs font-bold text-red-600 hover:bg-red-50 flex items-center gap-3 border-t border-slate-50 cursor-pointer">
+                <button 
+                  onClick={() => handleDelete(activeMenuId)}
+                  className="w-full px-4 py-2.5 text-left text-xs font-bold text-red-600 hover:bg-red-50 flex items-center gap-3 border-t border-slate-50 cursor-pointer"
+                >
                   Delete
                 </button>
               </>
@@ -277,30 +339,30 @@ useEffect(() => {
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-md" onClick={() => setSelectedReservation(null)}></div>
           <div className="relative bg-white w-full max-w-lg rounded-[32px] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
             <div className="px-8 pt-10 pb-6 flex justify-between items-start">
-               <div className="flex items-center gap-6">
-                  <div className="w-20 h-20 bg-slate-100 rounded-3xl flex items-center justify-center text-slate-400 shadow-inner">
-                    <User size={40} />
-                  </div>
-                  <div>
-                    <h2 className="text-2xl font-bold text-slate-900">{selectedReservation.profiles?.full_name}</h2>
-                    <span className={`inline-block mt-1 px-3 py-1 rounded-full text-[10px] font-bold uppercase ${getStatusStyle(selectedReservation.status)}`}>
-                      {selectedReservation.status}
-                    </span>
-                  </div>
-               </div>
-               <button onClick={() => setSelectedReservation(null)} className="p-2 hover:bg-slate-100 rounded-full text-slate-400 transition-all cursor-pointer"><X size={24} /></button>
+                <div className="flex items-center gap-6">
+                   <div className="w-20 h-20 bg-slate-100 rounded-3xl flex items-center justify-center text-slate-400 shadow-inner">
+                     <User size={40} />
+                   </div>
+                   <div>
+                     <h2 className="text-2xl font-bold text-slate-900">{selectedReservation.profiles?.full_name}</h2>
+                     <span className={`inline-block mt-1 px-3 py-1 rounded-full text-[10px] font-bold uppercase ${getStatusStyle(selectedReservation.status)}`}>
+                       {selectedReservation.status}
+                     </span>
+                   </div>
+                </div>
+                <button onClick={() => setSelectedReservation(null)} className="p-2 hover:bg-slate-100 rounded-full text-slate-400 transition-all cursor-pointer"><X size={24} /></button>
             </div>
             <div className="px-8 pb-10">
               <div className="space-y-6">
                 <div className="grid grid-cols-2 gap-4">
-                   <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
-                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Email Address</p>
-                     <p className="text-sm font-bold text-slate-700 flex items-center gap-2 truncate"><Mail size={14} className="text-indigo-500 shrink-0" /> {selectedReservation.profiles?.email || 'N/A'}</p>
-                   </div>
-                   <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
-                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Requested On</p>
-                     <p className="text-sm font-bold text-slate-700 flex items-center gap-2"><Clock size={14} className="text-indigo-500 shrink-0" /> {selectedReservation.created_at ? new Date(selectedReservation.created_at).toLocaleDateString() : 'N/A'}</p>
-                   </div>
+                    <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Email Address</p>
+                      <p className="text-sm font-bold text-slate-700 flex items-center gap-2 truncate"><Mail size={14} className="text-indigo-500 shrink-0" /> {selectedReservation.profiles?.email || 'N/A'}</p>
+                    </div>
+                    <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Requested On</p>
+                      <p className="text-sm font-bold text-slate-700 flex items-center gap-2"><Clock size={14} className="text-indigo-500 shrink-0" /> {selectedReservation.created_at ? new Date(selectedReservation.created_at).toLocaleDateString() : 'N/A'}</p>
+                    </div>
                 </div>
                 <div className="p-6 bg-slate-50 rounded-3xl border border-slate-100">
                    <h4 className="text-xs font-black text-slate-900 uppercase tracking-widest mb-4">Reservation Details</h4>
@@ -335,7 +397,7 @@ useEffect(() => {
           <div className="relative bg-white w-full max-w-2xl rounded-[40px] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
             <div className="p-8 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
               <h2 className="text-xl font-bold text-slate-800">Reservation Calendar</h2>
-              <button onClick={() => setIsCalendarOpen(false)} className="p-2 hover:bg-slate-200 rounded-full transition-colors"><X size={24} /></button>
+              <button onClick={() => setIsCalendarOpen(false)} className="p-2 hover:bg-slate-200 rounded-full transition-colors"><X size={24} className='cursor-pointer' /></button>
             </div>
             <div className="p-8">
                <div className="flex items-center justify-between mb-8">
@@ -402,7 +464,6 @@ useEffect(() => {
                     <h2 className="text-xl font-bold text-slate-900">{selectedDateDetails.date}</h2>
                     <p className="text-sm text-slate-500 font-medium">{selectedDateDetails.items.length} Reservations</p>
                   </div>
-                  <button onClick={() => setSelectedDateDetails(null)} className="p-3 bg-slate-200 hover:bg-slate-300 rounded-full text-slate-700"><X size={20} /></button>
                 </div>
                 <div className="flex-1 overflow-y-auto p-8 space-y-4">
                   {selectedDateDetails.items.map((item) => (
@@ -414,15 +475,47 @@ useEffect(() => {
                           <p className="text-xs font-medium text-slate-500">{item.facilities?.name || 'Unknown Facility'} • {item.start_time}</p>
                         </div>
                       </div>
-                      <button onClick={() => { setSelectedReservation(item); setSelectedDateDetails(null); }} className="p-2 bg-white border border-slate-200 rounded-xl hover:bg-indigo-50 transition-all"><Eye size={18} /></button>
+                      <button onClick={() => { setSelectedReservation(item); setSelectedDateDetails(null); setIsCalendarOpen(false); }} className="p-2 bg-white border border-slate-200 rounded-xl hover:bg-indigo-50 transition-all"><Eye size={18} className="cursor-pointer" /></button>
                     </div>
                   ))}
                 </div>
                 <div className="p-8 border-t border-slate-100">
-                  <button onClick={() => setSelectedDateDetails(null)} className="w-full py-4 bg-slate-900 text-white font-bold rounded-2xl">Back to Calendar</button>
+                  <button onClick={() => setSelectedDateDetails(null)} className="w-full py-4 bg-slate-900 text-white font-bold rounded-2xl cursor-pointer">Back to Calendar</button>
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* --- ADDED: DELETE CONFIRMATION MODAL --- */}
+      {isDeleteModalOpen && (
+        <div className="fixed inset-0 z-[11000] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-md" onClick={() => setIsDeleteModalOpen(false)}></div>
+          <div className="relative bg-white w-full max-w-sm rounded-[32px] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="p-8 flex flex-col items-center text-center">
+              <div className="w-16 h-16 bg-red-50 text-red-500 rounded-2xl flex items-center justify-center mb-6">
+                <AlertTriangle size={32} />
+              </div>
+              <h3 className="text-xl font-bold text-slate-900 mb-2">Confirm Delete</h3>
+              <p className="text-sm text-slate-500 mb-8 leading-relaxed">
+                Are you sure you want to delete this reservation? This action cannot be undone and will remove the data permanently.
+              </p>
+              <div className="flex flex-col w-full gap-3">
+                <button 
+                  onClick={confirmDelete}
+                  className="w-full py-3 bg-red-500 text-white font-bold rounded-xl hover:bg-red-600 transition-all shadow-lg shadow-red-100 cursor-pointer"
+                >
+                  Yes, Delete Permanently
+                </button>
+                <button 
+                  onClick={() => setIsDeleteModalOpen(false)}
+                  className="w-full py-3 bg-slate-50 text-slate-600 font-bold rounded-xl hover:bg-slate-100 transition-all cursor-pointer"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
