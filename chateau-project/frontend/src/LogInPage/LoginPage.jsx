@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { User, Lock, ArrowRight, Eye, EyeOff, AlertCircle, ShieldCheck, QrCode } from 'lucide-react';
+import { User, Lock, ArrowRight, Eye, EyeOff, AlertCircle, ShieldCheck, QrCode, CheckCircle } from 'lucide-react';
 import ChateauLogo from '../assets/ChataueLogo.png';
 
 // --- UPDATED IMPORTS ---
@@ -17,12 +17,15 @@ const LoginPage = () => {
   const [mfaRequired, setMfaRequired] = useState(false);
   const [factorId, setFactorId] = useState('');
   const [otpCode, setOtpCode] = useState('');
-  const [qrCode, setQrCode] = useState(''); // For initial enrollment
+  const [qrCode, setQrCode] = useState(''); 
   const [isEnrolling, setIsEnrolling] = useState(false);
+
+  // --- ADDED: Confirmation State ---
+  const [isConfirmingIdentity, setIsConfirmingIdentity] = useState(false);
+  const [authenticatedUser, setAuthenticatedUser] = useState(null);
 
   const navigate = useNavigate(); 
 
-  // Helper to handle routing based on role
   const checkRoleAndRedirect = async (user) => {
     try {
       const { data: adminData } = await supabase
@@ -62,35 +65,40 @@ const LoginPage = () => {
       setErrorMsg(error.message);
       setLoading(false);
     } else {
-      // Check for MFA factors
-      const { data: factors } = await supabase.auth.mfa.listFactors();
-      const enrolledFactor = factors.totp[0];
-
-      if (enrolledFactor) {
-        // User already has MFA set up
-        setFactorId(enrolledFactor.id);
-        setMfaRequired(true);
-        setLoading(false);
-      } else {
-        // No MFA yet. Check if they are an admin.
-        const { data: adminCheck } = await supabase
-          .from('admins')
-          .select('role')
-          .eq('email', data.user.email)
-          .single();
-
-        if (adminCheck) {
-          // It's an admin without MFA - Force Enrollment
-          enrollMFA(data.user.email);
-        } else {
-          // Regular user
-          checkRoleAndRedirect(data.user);
-        }
-      }
+      // --- UPDATED: Pause for Identity Confirmation ---
+      setAuthenticatedUser(data.user);
+      setIsConfirmingIdentity(true);
+      setLoading(false);
     }
   };
 
-  // --- MFA ENROLLMENT (First Time) ---
+  // --- ADDED: Logic to proceed after confirmation ---
+  const proceedToMfa = async () => {
+    setLoading(true);
+    setIsConfirmingIdentity(false);
+
+    const { data: factors } = await supabase.auth.mfa.listFactors();
+    const enrolledFactor = factors.totp[0];
+
+    if (enrolledFactor) {
+      setFactorId(enrolledFactor.id);
+      setMfaRequired(true);
+    } else {
+      const { data: adminCheck } = await supabase
+        .from('admins')
+        .select('role')
+        .eq('email', authenticatedUser.email)
+        .single();
+
+      if (adminCheck) {
+        enrollMFA(authenticatedUser.email);
+      } else {
+        checkRoleAndRedirect(authenticatedUser);
+      }
+    }
+    setLoading(false);
+  };
+
   const enrollMFA = async (userEmail) => {
     const { data, error } = await supabase.auth.mfa.enroll({
       factorType: 'totp',
@@ -107,22 +115,51 @@ const LoginPage = () => {
     setLoading(false);
   };
 
-  // --- MFA VERIFICATION (Every Login) ---
   const handleVerifyOTP = async () => {
     setLoading(true);
+    setErrorMsg(''); // Clear previous errors
     const { error } = await supabase.auth.mfa.challengeAndVerify({
       factorId: factorId,
       code: otpCode,
     });
 
     if (error) {
-      alert("Invalid OTP Code. Please try again.");
+      setErrorMsg("Invalid OTP Code. Please try again.");
       setLoading(false);
     } else {
       const { data: { user } } = await supabase.auth.getUser();
       checkRoleAndRedirect(user);
     }
   };
+
+  // --- IDENTITY CONFIRMATION UI ---
+  if (isConfirmingIdentity) {
+    return (
+      <div className="fixed inset-0 bg-slate-900/95 backdrop-blur-md flex items-center justify-center z-[9999] p-4">
+        <div className="bg-white p-8 rounded-[32px] shadow-2xl max-w-sm w-full text-center animate-in fade-in zoom-in duration-300">
+           <div className="w-20 h-20 bg-indigo-50 text-indigo-600 rounded-3xl flex items-center justify-center mx-auto mb-6">
+              <CheckCircle size={40} />
+           </div>
+           <h2 className="text-2xl font-bold text-slate-900 mb-2">Verify Identity</h2>
+           <p className="text-slate-500 mb-6 text-sm">
+             To ensure security, please confirm that you are the administrator initiating this login session.
+           </p>
+           <button 
+             onClick={proceedToMfa}
+             className="w-full py-4 bg-[#006837] hover:bg-[#005a2d] text-white font-bold rounded-2xl transition-all shadow-lg active:scale-[0.98] mb-3 cursor-pointer" 
+           >
+             Confirm & Continue
+           </button>
+           <button 
+             onClick={() => { setIsConfirmingIdentity(false); supabase.auth.signOut(); }}
+             className="text-slate-400 text-xs font-semibold uppercase tracking-widest hover:text-red-500 cursor-pointer" 
+           >
+             Cancel
+           </button>
+        </div>
+      </div>
+    );
+  }
 
   // --- MFA OVERLAY UI ---
   if (mfaRequired) {
@@ -143,6 +180,14 @@ const LoginPage = () => {
               : "Enter the 6-digit code from your authenticator app."}
           </p>
 
+          {/* Error Display for MFA */}
+          {errorMsg && (
+             <div className="mb-4 p-4 bg-red-50 border border-red-100 rounded-xl flex items-center gap-3 text-red-600 animate-in fade-in slide-in-from-top-2">
+                <AlertCircle size={18} />
+                <p className="text-xs font-bold uppercase tracking-wide">{errorMsg}</p>
+             </div>
+          )}
+
           {isEnrolling && qrCode && (
             <div className="bg-white p-4 border-2 border-slate-100 rounded-2xl mb-6 inline-block">
               <img src={qrCode} alt="MFA QR Code" className="w-48 h-48" />
@@ -162,14 +207,14 @@ const LoginPage = () => {
             <button 
               onClick={handleVerifyOTP}
               disabled={loading}
-              className="w-full py-4 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-2xl transition-all shadow-lg active:scale-[0.98] disabled:bg-slate-300"
+              className="w-full py-4 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-2xl transition-all shadow-lg active:scale-[0.98] disabled:bg-slate-300 cursor-pointer"
             >
               {loading ? "Verifying..." : "Confirm & Access"}
             </button>
 
             <button 
               onClick={() => { setMfaRequired(false); setIsEnrolling(false); supabase.auth.signOut(); }}
-              className="text-slate-400 text-xs font-semibold uppercase tracking-widest hover:text-red-500"
+              className="text-slate-400 text-xs font-semibold uppercase tracking-widest hover:text-red-500 cursor-pointer"
             >
               Cancel Login
             </button>

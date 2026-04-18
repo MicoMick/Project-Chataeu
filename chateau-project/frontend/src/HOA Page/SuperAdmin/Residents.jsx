@@ -1,38 +1,41 @@
 import React, { useState, useEffect } from 'react';
-// This is your "connector" - we will use this exclusively
-import { supabase } from '../supabaseAdmin'; 
+import { supabase } from '../supabaseAdmin';
 import { 
-  Users, UserPlus, UserCheck, UserMinus, Clock, Search, MoreHorizontal, X, User, Mail, MapPin, Calendar,
-  Phone, ShieldCheck, Home, Car, Dog, AlertTriangle, UserCircle, Briefcase
+  Search, Plus, Trash2, Edit2, User, Home, AlertTriangle, 
+  X, UserCircle, Briefcase, Calendar, MapPin, Phone, MoreHorizontal, Clock, Users 
 } from 'lucide-react';
 
+// Added StatCard helper for the UI
 const StatCard = ({ title, value, icon: Icon, iconBg }) => (
-  <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col justify-between">
-    <div className="flex justify-between items-start">
-      <div>
-        <p className="text-slate-500 text-xs font-medium uppercase tracking-wider">{title}</p>
-        <h3 className="text-3xl font-bold text-slate-900 mt-1">{value}</h3>
-      </div>
-      <div className={`p-3 rounded-xl ${iconBg}`}>
-        <Icon size={22} className="text-slate-700" />
-      </div>
+  <div className="bg-white p-6 rounded-3xl border border-slate-100 flex items-center gap-4">
+    <div className={`p-4 rounded-full ${iconBg}`}>
+      <Icon className="text-indigo-600" size={24} />
+    </div>
+    <div>
+      <p className="text-sm text-slate-500 font-medium">{title}</p>
+      <p className="text-2xl font-bold text-slate-900">{value}</p>
     </div>
   </div>
 );
 
-const ResidentManage = () => {
-  const [residents, setResidents] = useState([]); 
+const Residents = () => {
+  const [residents, setResidents] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [showAddModal, setShowAddModal] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [showOnlyPending, setShowOnlyPending] = useState(false); // Added Pending Filter State
+  
+  // Logic & Modal States
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [showCreateModal, setShowCreateModal] = useState(false); // Added Create Modal State
   const [openMenuId, setOpenMenuId] = useState(null);
   const [selectedResident, setSelectedResident] = useState(null);
   const [isViewingProfile, setIsViewingProfile] = useState(false);
   const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
   const [showToast, setShowToast] = useState(false);
   const [residentToDelete, setResidentToDelete] = useState(null);
-  
-  // --- ADDED: State for all edit fields ---
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Edit/Create States
   const [editFullName, setEditFullName] = useState('');
   const [editEmail, setEditEmail] = useState('');
   const [editFirstName, setEditFirstName] = useState('');
@@ -43,13 +46,11 @@ const ResidentManage = () => {
   const [editAddress, setEditAddress] = useState('');
   const [editStreet, setEditStreet] = useState('');
   const [editPhone, setEditPhone] = useState('');
-  const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     fetchResidents();
   }, []);
 
-  // Initialize edit form when a resident is selected
   useEffect(() => {
     if (selectedResident) {
       setEditFullName(selectedResident.full_name || '');
@@ -82,7 +83,6 @@ const ResidentManage = () => {
     }
   };
 
-  // --- UPDATED: Function to update profile in database with all fields ---
   const handleUpdateResident = async (e) => {
     e.preventDefault();
     setIsSaving(true);
@@ -90,7 +90,7 @@ const ResidentManage = () => {
       const { error } = await supabase
         .from('profiles')
         .update({ 
-          full_name: editFullName,
+          full_name: `${editFirstName} ${editLastName}`,
           email: editEmail,
           first_name: editFirstName,
           last_name: editLastName,
@@ -104,8 +104,6 @@ const ResidentManage = () => {
         .eq('id', selectedResident.id);
 
       if (error) throw error;
-      
-      // Refresh list and close modal
       await fetchResidents();
       setShowAddModal(false);
       setSelectedResident(null);
@@ -117,26 +115,47 @@ const ResidentManage = () => {
     }
   };
 
+  // Added Create Resident Handler
+  const handleCreateResident = async (e) => {
+    e.preventDefault();
+    setIsSaving(true);
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .insert([{ 
+          full_name: `${editFirstName} ${editLastName}`,
+          email: editEmail,
+          first_name: editFirstName,
+          last_name: editLastName,
+          middle_initial: editMiddleInitial,
+          username: editUsername,
+          resident_type: editResidentType,
+          address: editAddress,
+          street: editStreet,
+          phone: editPhone,
+          status: 'active' // Assuming new users are active by default
+        }]);
+
+      if (error) throw error;
+      await fetchResidents();
+      setShowCreateModal(false);
+      // Reset form
+      setEditFirstName(''); setEditLastName(''); setEditEmail(''); // ... clear others
+    } catch (error) {
+      console.error('Error creating resident:', error.message);
+      alert('Failed to create resident.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const handleActionClick = (e, resident) => {
     e.stopPropagation();
     if (openMenuId === resident.id) {
       setOpenMenuId(null);
     } else {
       const rect = e.currentTarget.getBoundingClientRect();
-      const menuHeight = 160; 
-      const spaceBelow = window.innerHeight - rect.bottom;
-      
-      let topPosition;
-      if (spaceBelow < menuHeight) {
-        topPosition = rect.top + window.scrollY - menuHeight - 8;
-      } else {
-        topPosition = rect.bottom + window.scrollY + 8;
-      }
-
-      setMenuPosition({
-        top: topPosition,
-        left: rect.left + window.scrollX - 140 
-      });
+      setMenuPosition({ top: rect.bottom + window.scrollY + 8, left: rect.left + window.scrollX - 140 });
       setOpenMenuId(resident.id);
     }
   };
@@ -166,18 +185,21 @@ const ResidentManage = () => {
     setResidentToDelete(null);
   };
 
-  const filteredResidents = residents.filter((resident) => {
-    return searchTerm === '' || (
-      (resident.full_name?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
-      (resident.email?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
-      (resident.address?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
-      (resident.username?.toLowerCase() || '').includes(searchTerm.toLowerCase())
-    );
+  // Logic for filtering
+  const filteredResidents = residents.filter((r) => {
+    const matchesSearch = searchTerm === '' || 
+      (r.full_name?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
+      (r.email?.toLowerCase() || '').includes(searchTerm.toLowerCase());
+    
+    const matchesPending = showOnlyPending ? r.status === 'pending' : true;
+    
+    return matchesSearch && matchesPending;
   });
 
   return (
     <div className="p-8 bg-slate-50 min-h-screen relative font-sans text-slate-900">
       
+      {/* Deletion Toast */}
       {showToast && (
         <div className="fixed inset-0 z-[300] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowToast(false)}></div>
@@ -197,10 +219,25 @@ const ResidentManage = () => {
         </div>
       )}
 
+      {/* Header */}
       <div className="flex justify-between items-start mb-8">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Resident Management</h1>
           <p className="text-slate-500 text-sm mt-1">Manage residents, approve registrations, and assign roles.</p>
+        </div>
+        <div className="flex gap-3">
+          <button 
+            onClick={() => setShowOnlyPending(!showOnlyPending)}
+            className={`px-4 py-2 rounded-xl text-sm font-bold border ${showOnlyPending ? 'bg-amber-100 border-amber-200 text-amber-700' : 'bg-white border-slate-200 text-slate-600'}`}
+          >
+            {showOnlyPending ? 'Showing Pending' : 'Show Pending Approval'}
+          </button>
+          <button 
+            onClick={() => setShowCreateModal(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 transition-all cursor-pointer"
+          >
+            <Plus size={18} /> Create User
+          </button>
         </div>
       </div>
 
@@ -208,11 +245,18 @@ const ResidentManage = () => {
         <StatCard title="Total Residents" value={residents.length} icon={Users} iconBg="bg-blue-50" />
       </div>
 
+      {/* Table Container */}
       <div className="bg-white rounded-3xl shadow-sm border border-slate-100"> 
         <div className="px-6 py-4">
           <div className="relative max-w-sm">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-            <input type="text" placeholder="Search Residents..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all" />
+            <input 
+              type="text" 
+              placeholder="Search Residents..." 
+              value={searchTerm} 
+              onChange={(e) => setSearchTerm(e.target.value)} 
+              className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all" 
+            />
           </div>
         </div>
 
@@ -266,10 +310,10 @@ const ResidentManage = () => {
                     <td className="py-4 px-2 text-sm text-slate-500">{resident.address || 'N/A'}</td>
                     <td className="py-4 px-2 text-sm text-slate-500">{resident.street || 'N/A'}</td>
                     <td className="py-4 px-2 text-sm text-slate-500">{resident.phone || 'N/A'}</td>
-                    <td className="py-4 px-2 text-sm text-slate-500">{new Date(resident.created_at).toLocaleDateString()}</td>
+                    <td className="py-4 px-2 text-sm text-slate-500">{resident.created_at ? new Date(resident.created_at).toLocaleDateString() : 'N/A'}</td>
                     <td className="py-4 text-right">
                       <button onClick={(e) => handleActionClick(e, resident)} className="p-2 hover:bg-white rounded-lg transition-all text-slate-400 hover:text-slate-600 border border-transparent hover:border-slate-200 cursor-pointer">
-                        < MoreHorizontal size={18} />
+                        <MoreHorizontal size={18} />
                       </button>
                     </td>
                   </tr>
@@ -287,6 +331,7 @@ const ResidentManage = () => {
             </tbody>
           </table>
 
+          {/* Menu Dropdown */}
           {openMenuId && (
             <>
               <div className="fixed inset-0 z-40" onClick={() => setOpenMenuId(null)}></div>
@@ -303,6 +348,7 @@ const ResidentManage = () => {
         </div>
       </div>
 
+      {/* View Profile Modal */}
       {selectedResident && isViewingProfile && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setSelectedResident(null)}></div>
@@ -345,6 +391,7 @@ const ResidentManage = () => {
         </div>
       )}
 
+      {/* Edit Modal */}
       {showAddModal && selectedResident && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => { setShowAddModal(false); setSelectedResident(null); }}></div>
@@ -412,8 +459,73 @@ const ResidentManage = () => {
           </div>
         </div>
       )}
+
+      {/* Create User Modal */}
+      {showCreateModal && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setShowCreateModal(false)}></div>
+          <div className="relative bg-white w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
+             <div className="p-6 border-b border-slate-50 flex justify-between items-center bg-white">
+                <h3 className="font-bold text-xl text-slate-900">Create New Resident</h3>
+                <button onClick={() => setShowCreateModal(false)} className="p-2 hover:bg-slate-50 rounded-full transition-colors text-slate-400 cursor-pointer"><X size={20}/></button>
+             </div>
+             <form className="p-8 max-h-[80vh] overflow-y-auto" onSubmit={handleCreateResident}>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-4">
+                        <div className="space-y-2">
+                            <label className="text-[11px] uppercase font-bold text-slate-400 tracking-widest px-1">First Name</label>
+                            <input type="text" required value={editFirstName} onChange={(e) => setEditFirstName(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all" />
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-[11px] uppercase font-bold text-slate-400 tracking-widest px-1">Last Name</label>
+                            <input type="text" required value={editLastName} onChange={(e) => setEditLastName(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all" />
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-[11px] uppercase font-bold text-slate-400 tracking-widest px-1">Middle Initial</label>
+                            <input type="text" value={editMiddleInitial} onChange={(e) => setEditMiddleInitial(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all" />
+                        </div>
+                    </div>
+                    <div className="space-y-4">
+                        <div className="space-y-2">
+                            <label className="text-[11px] uppercase font-bold text-slate-400 tracking-widest px-1">Username</label>
+                            <input type="text" required value={editUsername} onChange={(e) => setEditUsername(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all" />
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-[11px] uppercase font-bold text-slate-400 tracking-widest px-1">Email</label>
+                            <input type="email" required value={editEmail} onChange={(e) => setEditEmail(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all" />
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-[11px] uppercase font-bold text-slate-400 tracking-widest px-1">Resident Type</label>
+                            <input type="text" value={editResidentType} onChange={(e) => setEditResidentType(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all" />
+                        </div>
+                    </div>
+                </div>
+                <div className="space-y-4 mt-4">
+                    <div className="space-y-2">
+                        <label className="text-[11px] uppercase font-bold text-slate-400 tracking-widest px-1">Address</label>
+                        <input type="text" value={editAddress} onChange={(e) => setEditAddress(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all" />
+                    </div>
+                    <div className="space-y-2">
+                        <label className="text-[11px] uppercase font-bold text-slate-400 tracking-widest px-1">Street</label>
+                        <input type="text" value={editStreet} onChange={(e) => setEditStreet(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all" />
+                    </div>
+                    <div className="space-y-2">
+                        <label className="text-[11px] uppercase font-bold text-slate-400 tracking-widest px-1">Phone</label>
+                        <input type="text" value={editPhone} onChange={(e) => setEditPhone(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all" />
+                    </div>
+                </div>
+                <div className="pt-8 flex gap-3">
+                  <button type="button" onClick={() => setShowCreateModal(false)} className="flex-1 py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-2xl font-bold text-sm transition-all cursor-pointer">Cancel</button>
+                  <button type="submit" disabled={isSaving} className="flex-1 py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-bold text-sm transition-all shadow-lg shadow-indigo-200 cursor-pointer disabled:opacity-50">
+                    {isSaving ? "Creating..." : "Create User"}
+                  </button>
+                </div>
+             </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
 
-export default ResidentManage;
+export default Residents;
