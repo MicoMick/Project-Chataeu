@@ -18,15 +18,25 @@ const SidebarSuperAdmin = () => {
   const location = useLocation();
   const navigate = useNavigate();
 
+  // --- FETCH USER DATA & SETUP LISTENER (Now same logic as Admin) ---
   useEffect(() => {
     const getUserData = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
-        // Specifically for you, we can default to your title
-        setDisplayName(user.user_metadata?.full_name || "President Super");
+        setDisplayName(user.user_metadata?.full_name || user.email?.split('@')[0] || "Super Admin");
       }
     };
+
     getUserData();
+
+    // Listen for Auth changes (updates Sidebar if profile is saved elsewhere)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (session?.user) {
+        setDisplayName(session.user.user_metadata?.full_name || session.user.email?.split('@')[0] || "Super Admin");
+      }
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
   const handleLogout = async () => {
@@ -34,7 +44,6 @@ const SidebarSuperAdmin = () => {
     navigate('/admin'); // Redirects back to your login page
   };
 
-  // --- UPDATED SUPER ADMIN MENU ITEMS ---
   const menuItems = [
     { icon: <LayoutDashboard size={22} />, label: "Master Dashboard", path: "/super-admin/dashboard" },
     { icon: <Globe size={22} />, label: "HOA Management", path: "/super-admin/hoas" }, 
@@ -104,7 +113,6 @@ const SidebarSuperAdmin = () => {
               <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Master Account</p>
             </div>
             <div className="p-2">
-              {/* This link directs to /super-admin/profile */}
               <Link to="/super-admin/profile" onClick={() => setIsProfileOpen(false)} className="flex items-center gap-3 px-3 py-2.5 text-sm font-semibold text-slate-600 hover:bg-green-50 hover:text-green-600 rounded-xl transition-all">
                 <UserCircle size={18} /> System Profile
               </Link>

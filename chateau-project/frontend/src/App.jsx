@@ -1,5 +1,5 @@
-import { BrowserRouter as Router, Routes, Route, Outlet, Navigate } from 'react-router-dom'; // Added Navigate
-import React, { useState, useEffect } from 'react'; // Added React hooks
+import { BrowserRouter as Router, Routes, Route, Outlet, Navigate } from 'react-router-dom'; 
+import React, { useState, useEffect } from 'react'; 
 import Header from './LandingPage/Header/Header.jsx'; 
 import Mainpage from './LandingPage/MainPage/Mainpage.jsx';
 import Features from './LandingPage/Features/Features.jsx'; 
@@ -21,8 +21,10 @@ import ProfileManage from './HOA Page/HOA Profile/ProfileManage.jsx';
 // --- ADDED SUPER ADMIN IMPORTS ---
 import SuperAdminLayout from './HOA Page/SuperAdmin/SuperAdminLayout';
 import SuperAdmin from './HOA Page/SuperAdmin/SuperAdmin';
-import SuperAdProfile from './HOA Page/SuperAdmin/SuperAdProfile'; // ADDED THIS IMPORT
-
+import SuperAdProfile from './HOA Page/SuperAdmin/SuperAdProfile'; 
+import AdminControl from './HOA Page/SuperAdmin/AdminControl'; 
+import Residents from './HOA Page/SuperAdmin/Residents'; 
+import SystemLogs from './HOA Page/SuperAdmin/SystemLogs';
 
 // --- SUPABASE IMPORT ---
 import { supabase } from './HOA Page/supabaseAdmin'; 
@@ -108,6 +110,42 @@ function App() {
             <ProtectedRoute>
               <SuperAdminLayout>
                 <SuperAdProfile />
+              </SuperAdminLayout>
+            </ProtectedRoute>
+          } 
+        />
+
+        {/* --- ADDED ADMIN CONTROL ROUTE --- */}
+        <Route 
+          path="/super-admin/admins" 
+          element={
+            <ProtectedRoute>
+              <SuperAdminLayout>
+                <AdminControl />
+              </SuperAdminLayout>
+            </ProtectedRoute>
+          } 
+        />
+
+        {/* --- ADDED RESIDENTS ROUTE --- */}
+        <Route 
+          path="/super-admin/residents" 
+          element={
+            <ProtectedRoute>
+              <SuperAdminLayout>
+                <Residents />
+              </SuperAdminLayout>
+            </ProtectedRoute>
+          } 
+        />
+
+        {/* --- ADDED LOGS ROUTE --- */}
+        <Route 
+          path="/super-admin/logs" 
+          element={
+            <ProtectedRoute>
+              <SuperAdminLayout>
+                <SystemLogs />
               </SuperAdminLayout>
             </ProtectedRoute>
           } 
