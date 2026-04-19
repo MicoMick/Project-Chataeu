@@ -5,6 +5,21 @@ import {
 } from 'lucide-react';
 import { supabase } from '../supabaseAdmin'; 
 import { Pannellum } from "pannellum-react";
+import logger from '../auditLogger'; 
+
+const logActivity = async (supabase, userEmail, activity, severity, details) => {
+  try {
+    await supabase.from('system_logs').insert([{
+      user_email: userEmail,
+      activity: activity,
+      severity: severity,
+      details: details,
+      created_at: new Date().toISOString()
+    }]);
+  } catch (err) {
+    console.error("Failed to log activity:", err);
+  }
+};
 
 const formatTo12Hour = (timeStr) => {
   if (!timeStr) return "";
@@ -19,7 +34,7 @@ const formatTo12Hour = (timeStr) => {
   return `${h}:${minutes} ${ampm}`;
 };
 
-// --- NEW CONFIRMATION MODAL ---
+// ... [Keep your existing ConfirmModal and TransactionModal components exactly as they were] ...
 const ConfirmModal = ({ isOpen, title, message, onConfirm, onCancel }) => {
   if (!isOpen) return null;
 
@@ -50,7 +65,6 @@ const ConfirmModal = ({ isOpen, title, message, onConfirm, onCancel }) => {
   );
 };
 
-// --- TRANSACTION STATUS MODAL ---
 const TransactionModal = ({ status, message, onClose }) => {
   if (!status) return null;
 
@@ -144,6 +158,10 @@ const Facility = () => {
 
   const handleAddFacility = async () => {
     setTransaction({ status: 'loading', message: 'Creating your new facility...' });
+    // Get user email
+    const { data: { user } } = await supabase.auth.getUser();
+    const userEmail = user?.email;
+
     try {
       let publicUrl = null;
       if (file) {
@@ -172,18 +190,24 @@ const Facility = () => {
       const { data, error } = await supabase.from('facilities').insert([facilityData]).select();
       if (error) throw error;
 
+      await logActivity(supabase, userEmail, 'Create Facility', 'info', `Created facility: ${newFacility.name}`);
+
       setFacilities([data[0], ...facilities]);
       setIsAddFacilityOpen(false);
       setFile(null);
       setNewFacility({ name: '', description: '', capacity: '', rate: '', opening_time: '', closing_time: '' });
       setTransaction({ status: 'success', message: 'Facility has been created successfully!' });
     } catch (error) {
+      await logActivity(supabase, userEmail, 'Create Facility Failed', 'error', error.message);
       setTransaction({ status: 'error', message: error.message });
     }
   };
 
   const handleAddAmenityItem = async () => {
     setTransaction({ status: 'loading', message: 'Adding your new item...' });
+    const { data: { user } } = await supabase.auth.getUser();
+    const userEmail = user?.email;
+
     try {
       let publicUrl = null;
       if (file) {
@@ -207,18 +231,24 @@ const Facility = () => {
       const { data, error } = await supabase.from('facilities').insert([itemData]).select();
       if (error) throw error;
 
+      await logActivity(supabase, userEmail, 'Add Amenity Item', 'info', `Added item: ${newItem.name}`);
+
       setFacilities([data[0], ...facilities]);
       setIsAddAmenityItemOpen(false);
       setFile(null);
       setNewItem({ name: '', description: '' });
       setTransaction({ status: 'success', message: 'Amenity item added successfully!' });
     } catch (error) {
+      await logActivity(supabase, userEmail, 'Add Amenity Item Failed', 'error', error.message);
       setTransaction({ status: 'error', message: error.message });
     }
   };
 
   const handleUpdateFacility = async () => {
     setTransaction({ status: 'loading', message: 'Updating details...' });
+    const { data: { user } } = await supabase.auth.getUser();
+    const userEmail = user?.email;
+
     try {
       let publicUrl = editingFacility.image_360_url;
       if (file) {
@@ -235,11 +265,14 @@ const Facility = () => {
       const { error } = await supabase.from('facilities').update(updatedData).eq('id', editingFacility.id);
       if (error) throw error;
 
+      await logActivity(supabase, userEmail, 'Update Facility', 'info', `Updated: ${editingFacility.name}`);
+
       setFacilities(facilities.map(f => f.id === editingFacility.id ? updatedData : f));
       setEditingFacility(null);
       setFile(null);
       setTransaction({ status: 'success', message: 'Changes have been saved!' });
     } catch (error) {
+      await logActivity(supabase, userEmail, 'Update Facility Failed', 'error', error.message);
       setTransaction({ status: 'error', message: error.message });
     }
   };
@@ -250,12 +283,18 @@ const Facility = () => {
 
   const executeDelete = async () => {
     const idToDelete = confirmData.id;
+    const itemToDelete = facilities.find(f => f.id === idToDelete); // Find item for log details
+    
     setConfirmData({ isOpen: false, id: null });
     setTransaction({ status: 'loading', message: 'Deleting item from database...' });
+    const { data: { user } } = await supabase.auth.getUser();
+    const userEmail = user?.email;
     
     try {
       const { error } = await supabase.from('facilities').delete().eq('id', idToDelete);
       if (error) throw error;
+
+      await logActivity(supabase, userEmail, 'Delete Facility/Item', 'info', `Deleted: ${itemToDelete?.name || idToDelete}`);
 
       setFacilities(prev => prev.filter(f => f.id !== idToDelete));
       setTransaction({ 
@@ -263,6 +302,7 @@ const Facility = () => {
         message: 'The item has been permanently removed from the system.' 
       });
     } catch (error) {
+      await logActivity(supabase, userEmail, 'Delete Failed', 'error', error.message);
       setTransaction({ 
         status: 'error', 
         message: `Failed to delete: ${error.message}` 
@@ -270,6 +310,7 @@ const Facility = () => {
     }
   };
 
+  // ... [The rest of your JSX remains exactly as it was] ...
   const filteredFacilities = facilities.filter((fac) => {
     const matchesSearch = fac.name.toLowerCase().includes(facilitySearch.toLowerCase());
     const matchesCategory = categoryFilter === 'All' || fac.category === categoryFilter;
@@ -291,7 +332,7 @@ const Facility = () => {
         onConfirm={executeDelete}
         onCancel={() => setConfirmData({ isOpen: false, id: null })}
       />
-{/* --- HEADER --- */}
+      {/* --- HEADER --- */}
       <div className="flex justify-between items-start mb-8">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Amenity Management</h1>

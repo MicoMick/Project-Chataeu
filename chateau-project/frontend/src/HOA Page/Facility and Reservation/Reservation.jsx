@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import Facility from './Facility'; 
 import { supabase } from '../supabaseAdmin'; 
+import logger from '../auditlogger'; 
 
 const StatCard = ({ title, value, icon: Icon, iconColor, bgColor }) => (
   <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center justify-between">
@@ -41,6 +42,7 @@ const Reservation = () => {
 
   // FETCH DATA FROM SUPABASE
   const fetchReservations = async () => {
+    logger.info('Fetching reservations data...');
     setLoading(true);
     const { data, error } = await supabase
     .from('reservations')
@@ -56,6 +58,7 @@ const Reservation = () => {
     `);
 
     if (error) {
+      logger.error('Error fetching reservations:', error);
       console.error('Error fetching:', error);
     } else {
       setReservations(data || []);
@@ -69,6 +72,7 @@ const Reservation = () => {
 
   // --- ADDED: HANDLERS FOR APPROVE, REJECT, AND DELETE ---
   const handleUpdateStatus = async (id, newStatus) => {
+    logger.info(`Attempting to update status for reservation ${id} to ${newStatus}`);
     try {
       const { error } = await supabase
         .from('reservations')
@@ -82,7 +86,9 @@ const Reservation = () => {
         res.id === id ? { ...res, status: newStatus } : res
       ));
       setActiveMenuId(null);
+      logger.info(`Successfully updated reservation ${id} to ${newStatus}`);
     } catch (error) {
+      logger.error(`Error updating status for ${id}:`, error);
       alert("Error updating status: " + error.message);
     }
   };
@@ -97,6 +103,7 @@ const Reservation = () => {
   // ACTUAL DELETE EXECUTION
   const confirmDelete = async () => {
     if (!reservationToDelete) return;
+    logger.info(`Confirming deletion of reservation ${reservationToDelete}`);
     
     try {
       const { error } = await supabase
@@ -110,7 +117,9 @@ const Reservation = () => {
       setReservations(prev => prev.filter(res => res.id !== reservationToDelete));
       setIsDeleteModalOpen(false);
       setReservationToDelete(null);
+      logger.info(`Successfully deleted reservation ${reservationToDelete}`);
     } catch (error) {
+      logger.error(`Error deleting reservation ${reservationToDelete}:`, error);
       alert("Error deleting: " + error.message);
     }
   };
@@ -406,7 +415,7 @@ const Reservation = () => {
                   <button onClick={() => changeMonth(-1)} className="p-3 hover:bg-slate-100 rounded-2xl border border-slate-200"><ChevronLeft size={20} /></button>
                   <button onClick={() => changeMonth(1)} className="p-3 hover:bg-slate-100 rounded-2xl border border-slate-200"><ChevronRight size={20} /></button>
                 </div>
-              </div>
+               </div>
               <div className="grid grid-cols-7 gap-2 mb-4">
                 {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
                   <div key={day} className="text-center text-xs font-black uppercase text-slate-400 py-2">{day}</div>

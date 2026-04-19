@@ -1,12 +1,13 @@
-import React, { useState, useEffect, useRef } from 'react'; // Added useRef
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Megaphone, Clock, FileEdit, Eye, Plus, 
-  Search, ChevronDown, MoreVertical, Pin, 
+  Search, MoreVertical, Pin, 
   AlertTriangle, MessageSquare, X, Paperclip, 
-  Calendar, Trash2, Share2, Send, CheckCircle2,
-  FileIcon, Loader2 // Added icons
+  Calendar, Trash2, Send, CheckCircle2,
+  FileIcon, Loader2
 } from 'lucide-react';
 import { supabase } from '../supabaseAdmin';
+import logger from '../auditlogger';
 
 const Announcements = () => {
   const [activeCategory, setActiveCategory] = useState('All Categories');
@@ -51,6 +52,21 @@ const Announcements = () => {
 
   const [announcements, setAnnouncements] = useState([]);
   const [loading, setLoading] = useState(true);
+
+// --- FIXED LOGGER HELPER ---
+const logAction = async (action, details) => {
+  try {
+    await supabase.from('system_logs').insert([{
+      activity: action,       // Maps your custom action string to the 'activity' column
+      severity: 'info',       // Added severity, which is required by your table
+      user_email: 'chateauadmin@gmail.com', // Use the column 'user_email' instead of 'user_name'
+      details: details        // Matches the 'details' column
+      // Removed 'created_at' as Supabase usually handles this automatically
+    }]);
+  } catch (err) {
+    console.error("Logging error:", err);
+  }
+};
 
   // --- FILE UPLOAD HANDLER ---
   const handleFileUpload = async (event) => {
@@ -109,6 +125,9 @@ const Announcements = () => {
     try {
       const { error } = await supabase.from('announcements').delete().eq('id', id);
       if (error) throw error;
+      
+      await logAction('Delete', `Deleted announcement ID: ${id}`);
+      
       setAnnouncements(announcements.filter(ann => ann.id !== id));
       setOpenMenuId(null);
       showToast("Announcement deleted successfully", "error");
@@ -131,6 +150,11 @@ const Announcements = () => {
   };
 
   const handleUpdateAnnouncement = async (status) => {
+    if (!selectedAnnouncement || !selectedAnnouncement.id) {
+      showToast("Error: Announcement not selected", "error");
+      return;
+    }
+
     if (!newTitle || !newContent) {
       showToast("Please fill in all required fields", "error");
       return;
@@ -149,9 +173,11 @@ const Announcements = () => {
           end_date: endDate,
           attachment_url: attachmentUrl 
         })
-        .eq('id', selectedAnnouncement.id);
+        .eq('id', selectedAnnouncement.id); // This will no longer crash
 
       if (error) throw error;
+
+      await logAction('Update', `Updated announcement: ${newTitle} (Status: ${status})`);
 
       if (status === 'published') {
         const { error: notifError } = await supabase
@@ -174,7 +200,7 @@ const Announcements = () => {
     }
   };
 
-  const handleAddComment = () => {
+  const handleAddComment = async () => {
     if (!newComment.trim()) return;
     const commentObj = {
       id: Date.now(),
@@ -182,6 +208,9 @@ const Announcements = () => {
       text: newComment,
       time: "Just now"
     };
+    
+    await logAction('Comment', `Added comment to: ${selectedAnnouncement.title}`);
+
     setAnnouncements(announcements.map(ann => 
       ann.id === selectedAnnouncement.id 
         ? { ...ann, comments: [...(ann.comments || []), commentObj] }
@@ -192,8 +221,11 @@ const Announcements = () => {
     showToast("Comment added");
   };
 
-  const handleDeleteComment = (commentId) => {
+  const handleDeleteComment = async (commentId) => {
     if (!window.confirm("Delete this comment?")) return;
+    
+    await logAction('Delete Comment', `Removed comment from: ${selectedAnnouncement.title}`);
+
     setAnnouncements(announcements.map(ann => 
       ann.id === selectedAnnouncement.id 
         ? { ...ann, comments: ann.comments.filter(c => c.id !== commentId) }
@@ -240,6 +272,8 @@ const Announcements = () => {
         .select();
 
       if (error) throw error;
+      
+      await logAction('Create', `Created new announcement: ${newTitle}`);
 
       if (status === 'published') {
         const { error: notifError } = await supabase
@@ -275,12 +309,16 @@ const Announcements = () => {
     setAttachmentUrl(pendingPublishItem.attachment_url); 
     
     await handleUpdateAnnouncement('published');
+    await logAction('Publish', `Published announcement: ${pendingPublishItem.title}`);
     
     setShowPublishConfirm(false);
     setPendingPublishItem(null);
   };
 
-  const handleTogglePin = (id) => {
+  const handleTogglePin = async (id) => {
+    const target = announcements.find(a => a.id === id);
+    await logAction('Pin Toggle', `${target.isPinned ? 'Unpinned' : 'Pinned'} announcement: ${target.title}`);
+
     setAnnouncements(announcements.map(ann => 
       ann.id === id ? { ...ann, isPinned: !ann.isPinned } : ann
     ));
@@ -466,7 +504,7 @@ const Announcements = () => {
         )}
       </div>
 
-      {/* --- RESTORED VIEW DETAILS OVERLAY --- */}
+      {/* View Details Overlay */}
       {showDetailsOverlay && selectedAnnouncement && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-2xl rounded-[32px] shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
@@ -507,7 +545,7 @@ const Announcements = () => {
         </div>
       )}
 
-      {/* --- CUSTOM DELETE CONFIRMATION MODAL --- */}
+      {/* Delete Confirmation Modal */}
       {showDeleteConfirm && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-sm rounded-[32px] shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
@@ -541,7 +579,7 @@ const Announcements = () => {
         </div>
       )}
 
-      {/* --- CUSTOM PUBLISH CONFIRMATION MODAL --- */}
+      {/* Publish Confirmation Modal */}
       {showPublishConfirm && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-sm rounded-[32px] shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
@@ -572,7 +610,7 @@ const Announcements = () => {
         </div>
       )}
 
-      {/* --- EDIT / CREATE MODAL --- */}
+      {/* Edit/Create Modal */}
       {(showModal || showEditOverlay) && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-xl rounded-[32px] shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
@@ -656,7 +694,7 @@ const Announcements = () => {
         </div>
       )}
 
-      {/* --- VIEW COMMENTS MODAL --- */}
+      {/* View Comments Modal */}
       {showCommentsOverlay && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-xl rounded-[32px] shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
