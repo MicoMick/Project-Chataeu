@@ -18,7 +18,7 @@ const SidebarSuperAdmin = () => {
   const location = useLocation();
   const navigate = useNavigate();
 
-  // --- FETCH USER DATA & SETUP LISTENER (Now same logic as Admin) ---
+  // --- FETCH USER DATA & SETUP LISTENER ---
   useEffect(() => {
     const getUserData = async () => {
       const { data: { user } } = await supabase.auth.getUser();
@@ -29,7 +29,6 @@ const SidebarSuperAdmin = () => {
 
     getUserData();
 
-    // Listen for Auth changes (updates Sidebar if profile is saved elsewhere)
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (session?.user) {
         setDisplayName(session.user.user_metadata?.full_name || session.user.email?.split('@')[0] || "Super Admin");
@@ -41,7 +40,7 @@ const SidebarSuperAdmin = () => {
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
-    navigate('/admin'); // Redirects back to your login page
+    navigate('/admin');
   };
 
   const menuItems = [
@@ -54,7 +53,8 @@ const SidebarSuperAdmin = () => {
   ];
 
   return (
-    <aside className={`relative min-h-screen transition-all duration-300 ease-in-out shadow-2xl z-50
+    // Changed to h-screen flex flex-col to pin footer
+    <aside className={`relative h-screen flex flex-col transition-all duration-300 ease-in-out shadow-2xl z-50
       ${isCollapsed ? 'w-20' : 'w-72'} 
       bg-gradient-to-b from-[#006837] to-[#004d29]`}>
       
@@ -64,7 +64,7 @@ const SidebarSuperAdmin = () => {
       {/* Toggle Button */}
       <button 
         onClick={() => setIsCollapsed(!isCollapsed)}
-        className="absolute -right-3 top-10 bg-white text-[#006837] rounded-full p-1 shadow-md hover:scale-110 transition-transform border border-slate-200"
+        className="absolute -right-3 top-10 bg-white text-[#006837] rounded-full p-1 shadow-md hover:scale-110 transition-transform border border-slate-200 z-50"
       >
         {isCollapsed ? <Menu size={18} /> : <ChevronLeft size={18} />}
       </button>
@@ -80,8 +80,8 @@ const SidebarSuperAdmin = () => {
         <div className="h-px w-full bg-white/20 mt-6"></div>
       </div>
 
-      {/* Navigation Menu */}
-      <nav className="mt-4 px-3 space-y-2">
+      {/* Navigation Menu (flex-1 makes this area grow to fill space) */}
+      <nav className="mt-4 px-3 space-y-2 flex-1 overflow-y-auto">
         {menuItems.map((item, index) => {
           const isActive = location.pathname === item.path;
           return (
@@ -105,8 +105,8 @@ const SidebarSuperAdmin = () => {
         })}
       </nav>
 
-      {/* User Profile Footer */}
-      <div className="absolute bottom-8 left-0 w-full px-3">
+      {/* User Profile Footer (Static at bottom) */}
+      <div className="p-3 mt-auto">
         {isProfileOpen && !isCollapsed && (
           <div className="absolute bottom-24 left-3 right-3 bg-white rounded-2xl shadow-2xl border border-slate-100 overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-200">
             <div className="p-4 border-b border-slate-50 bg-slate-50/50">

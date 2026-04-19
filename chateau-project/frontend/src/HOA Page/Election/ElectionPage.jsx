@@ -2,8 +2,8 @@ import React, { useState, useEffect } from "react";
 import { supabase } from "../supabaseAdmin"; 
 import { Plus, Send, BarChart2, Users, Calendar, X, Info, CheckCircle, Bell, Pencil, Trash2, SearchX, ArrowLeft, AlertCircle, LayoutDashboard, UserPlus } from "lucide-react";
 import CandidateManager from "./CandidateManager.jsx"; 
-// 1. ADDED: Import your CandidatesPage component
 import CandidatesPage from "./CandidatesPage.jsx"; 
+import logger from '../auditlogger';
 
 const ElectionPage = () => {
   const [elections, setElections] = useState([]);
@@ -31,28 +31,39 @@ const ElectionPage = () => {
     fetchElections();
   }, []);
 
-  // ADDED: Function to automatically close expired elections
+  // UPDATED: Optimized Function to automatically close expired elections
   const checkAndCloseExpiredElections = async (electionList) => {
     const today = new Date().toISOString().split('T')[0];
     
-    // Find elections that are 'active' but their end_date is strictly before today
+    // Find expired elections
     const expiredElections = electionList.filter(el => 
       el.status === "active" && el.end_date < today
     );
 
     if (expiredElections.length > 0) {
-      for (const election of expiredElections) {
-        try {
-          await supabase
-            .from("elections")
-            .update({ status: "closed" })
-            .eq("id", election.id);
-        } catch (err) {
-          console.error("Auto-close error:", err);
-        }
+      try {
+        // 1. Update all expired elections in the DB at once
+        const { error } = await supabase
+          .from("elections")
+          .update({ status: "closed" })
+          .in("id", expiredElections.map(el => el.id));
+
+        if (error) throw error;
+
+        // 2. Update the local state WITHOUT re-fetching from DB
+        setElections(prev => 
+          prev.map(el => 
+            expiredElections.some(expired => expired.id === el.id) 
+              ? { ...el, status: "closed" } 
+              : el
+          )
+        );
+        
+        console.log("Expired elections updated to closed.");
+      } catch (err) {
+        logger.error("Auto-close error", { error: err.message });
+        console.error("Auto-close error:", err);
       }
-      // Re-fetch to show the updated "closed" status
-      fetchElections();
     }
   };
 
@@ -71,6 +82,7 @@ const ElectionPage = () => {
       if (data) checkAndCloseExpiredElections(data);
 
     } catch (error) {
+      logger.error("Error fetching elections", { error: error.message });
       console.error("Error:", error.message);
     } finally {
       setLoading(false);
@@ -113,6 +125,7 @@ const ElectionPage = () => {
         type: "success"
       });
     } catch (error) {
+      logger.error("Error creating election", { error: error.message });
       setNotification({
         show: true,
         title: "Error",
@@ -153,6 +166,7 @@ const ElectionPage = () => {
         type: "success"
       });
     } catch (error) {
+      logger.error("Error updating election", { error: error.message });
       setNotification({
         show: true,
         title: "Update Failed",
@@ -176,6 +190,7 @@ const ElectionPage = () => {
         type: "success"
       });
     } catch (error) {
+      logger.error("Error deleting election", { error: error.message });
       setNotification({
         show: true,
         title: "Error",
@@ -185,8 +200,14 @@ const ElectionPage = () => {
     }
   };
 
+  // UPDATED: Minor UX Improvement for Date Input
   const handleEditClick = (election) => {
-    setNewElection(election);
+    setNewElection({
+      ...election,
+      // Ensure dates are just YYYY-MM-DD
+      start_date: election.start_date ? election.start_date.split('T')[0] : "",
+      end_date: election.end_date ? election.end_date.split('T')[0] : ""
+    });
     setIsEditing(true);
     setIsModalOpen(true);
   };
@@ -404,7 +425,6 @@ const ElectionPage = () => {
                     </div>
                     <div className="flex gap-2">
                         <button onClick={() => handleEditClick(election)} className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer"><Pencil size={16} /></button>
-                        {/* CHANGED show: false TO show: true BELOW */}
                         <button onClick={() => setDeleteConfirm({ show: true, id: election.id })} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"><Trash2 size={16} /></button>
                         <span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider ${election.status === 'active' ? 'bg-green-100 text-green-700' : election.status === 'pending' ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-600'}`}>{election.status}</span>
                     </div>

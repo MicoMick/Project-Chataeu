@@ -24,6 +24,17 @@ const Reports = () => {
 
   const filters = ['All', 'Pending', 'In Progress', 'Resolved', 'On Hold'];
 
+  // --- ADDED AUDIT LOGGER HELPER ---
+  const logActivity = async (action, details) => {
+    try {
+      await supabase
+        .from('audit_logs')
+        .insert([{ action, details }]);
+    } catch (error) {
+      console.error("Audit logging failed:", error);
+    }
+  };
+
   const showToast = (message, type = 'success') => {
     setToast({ show: true, message, type });
     setTimeout(() => setToast({ show: false, message: '', type: 'success' }), 3000);
@@ -149,6 +160,9 @@ const Reports = () => {
 
       if (notifError) throw notifError;
 
+      // Log the activity
+      await logActivity('Send Feedback', `Sent feedback for report ID: ${selectedReport.id}`);
+
       setReports(prevReports => 
         prevReports.map(report => 
           report.id === selectedReport.id ? { ...report, status: selectedReport.status } : report
@@ -183,6 +197,9 @@ const Reports = () => {
 
       if (error) throw error;
       
+      // Log the activity
+      await logActivity('Delete Report', `Deleted report ID: ${id}`);
+
       setOpenMenuId(null);
       setDeleteConfirmation({ show: false, id: null });
       showToast("Report deleted successfully", "success");
@@ -200,6 +217,9 @@ const Reports = () => {
 
       if (error) throw error;
       
+      // Log the activity
+      await logActivity('Status Change', `Status changed to ${newStatus} for report ID: ${id}`);
+
       setReports(prevReports => 
         prevReports.map(report => 
           report.id === id ? { ...report, status: newStatus } : report

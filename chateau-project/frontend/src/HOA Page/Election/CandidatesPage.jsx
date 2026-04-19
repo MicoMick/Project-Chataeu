@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "../supabaseAdmin";
 import { ArrowLeft, Search, User, Mail, Briefcase, SearchX, Loader2, Filter, X, Globe, Layers } from "lucide-react";
+import logger from '../auditlogger';
 
 const CandidatesPage = ({ onBack }) => {
   const [candidates, setCandidates] = useState([]);
@@ -32,6 +33,7 @@ const CandidatesPage = ({ onBack }) => {
       if (error) throw error;
       setCandidates(data || []);
     } catch (error) {
+      logger.error("Error fetching candidates", { error: error.message });
       console.error("Error fetching candidates:", error.message);
     } finally {
       setLoading(false);
@@ -48,6 +50,7 @@ const CandidatesPage = ({ onBack }) => {
       if (error) throw error;
       setElections(data || []);
     } catch (error) {
+      logger.error("Error fetching elections", { error: error.message });
       console.error("Error fetching elections:", error.message);
     }
   };

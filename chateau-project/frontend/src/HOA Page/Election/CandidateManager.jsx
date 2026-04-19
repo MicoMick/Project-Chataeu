@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "../supabaseAdmin";
 import { UserPlus, Trash2, User, Camera, X, CheckCircle, AlertCircle, Briefcase } from "lucide-react"; 
+import logger from '../auditlogger';
 
 const CandidateManager = ({ electionId }) => {
   const [candidates, setCandidates] = useState([]);
@@ -98,6 +99,7 @@ const CandidateManager = ({ electionId }) => {
       .select();
 
     if (error) {
+      logger.error("Failed to add candidate", { electionId, error });
       setNotification({
         show: true,
         title: "Error",
@@ -106,6 +108,7 @@ const CandidateManager = ({ electionId }) => {
       });
     } else {
       fetchCandidates();
+      logger.info("Candidate added successfully", { electionId, candidateName: newCandidate.full_name });
       setNewCandidate({ full_name: "", position: "", manifesto: "", photo_url: "" });
       setNotification({
         show: true,
@@ -127,6 +130,7 @@ const CandidateManager = ({ electionId }) => {
     
     if (error) {
       console.error("Supabase Delete Error:", error); // This will show why it failed in the console
+      logger.error("Failed to delete candidate", { electionId, id, error });
       setNotification({
         show: true,
         title: "Deletion Failed",
@@ -143,6 +147,7 @@ const CandidateManager = ({ electionId }) => {
       });
     } else {
       fetchCandidates();
+      logger.info("Candidate removed successfully", { electionId, id });
       setDeleteConfirm({ show: false, id: null });
       setNotification({
         show: true,
