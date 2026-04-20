@@ -39,17 +39,28 @@ const SidebarSuperAdmin = () => {
   }, []);
 
   const handleLogout = async () => {
+    // --- ADDED: Log Logout Activity ---
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      await supabase.from('system_logs').insert([
+        { 
+          user_email: user.email, 
+          activity: 'User Logged Out', 
+          severity: 'info', 
+          details: 'Admin/Super Admin session terminated' 
+        }
+      ]);
+    }
+
     await supabase.auth.signOut();
-    navigate('/admin');
+    navigate('/admin'); 
   };
 
   const menuItems = [
     { icon: <LayoutDashboard size={22} />, label: "Master Dashboard", path: "/super-admin/dashboard" },
-    { icon: <Globe size={22} />, label: "HOA Management", path: "/super-admin/hoas" }, 
     { icon: <ShieldAlert size={22} />, label: "Admin Control", path: "/super-admin/admins" },
     { icon: <Users size={22} />, label: "All Residents", path: "/super-admin/residents" },
     { icon: <Activity size={22} />, label: "System Logs", path: "/super-admin/logs" },
-    { icon: <Settings size={22} />, label: "Global Settings", path: "/super-admin/settings" },
   ];
 
   return (
@@ -119,7 +130,7 @@ const SidebarSuperAdmin = () => {
               <div className="h-px bg-slate-100 my-2 mx-2"></div>
               <button 
                 onClick={handleLogout}
-                className="w-full flex items-center gap-3 px-3 py-2.5 text-sm font-semibold text-red-500 hover:bg-red-50 rounded-xl transition-all text-left"
+                className="w-full flex items-center gap-3 px-3 py-2.5 text-sm font-semibold text-red-500 hover:bg-red-50 rounded-xl transition-all text-left cursor-pointer"
               >
                 <LogOut size={18} /> Sign Out
               </button>

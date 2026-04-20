@@ -20,7 +20,7 @@ import ProfileManage from './HOA Page/HOA Profile/ProfileManage.jsx';
 
 // --- ADDED SUPER ADMIN IMPORTS ---
 import SuperAdminLayout from './HOA Page/SuperAdmin/SuperAdminLayout';
-import SuperAdmin from './HOA Page/SuperAdmin/SuperAdmin';
+import SuperAdminDB from './HOA Page/SuperAdmin/SuperAdminDB';
 import SuperAdProfile from './HOA Page/SuperAdmin/SuperAdProfile'; 
 import AdminControl from './HOA Page/SuperAdmin/AdminControl'; 
 import Residents from './HOA Page/SuperAdmin/Residents'; 
@@ -97,7 +97,7 @@ function App() {
           element={
             <ProtectedRoute>
               <SuperAdminLayout>
-                <SuperAdmin />
+                <SuperAdminDB />
               </SuperAdminLayout>
             </ProtectedRoute>
           } 

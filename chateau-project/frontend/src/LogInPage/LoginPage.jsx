@@ -128,6 +128,17 @@ const LoginPage = () => {
       setLoading(false);
     } else {
       const { data: { user } } = await supabase.auth.getUser();
+      
+      // --- ADDED: Log Login Activity ---
+      await supabase.from('system_logs').insert([
+        { 
+          user_email: user.email, 
+          activity: 'User Logged In', 
+          severity: 'info', 
+          details: 'Admin/Super Admin successfully authenticated via MFA' 
+        }
+      ]);
+
       checkRoleAndRedirect(user);
     }
   };

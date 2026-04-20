@@ -116,6 +116,9 @@ const ElectionPage = () => {
 
       if (error) throw error;
       
+      // AUDIT LOG
+      logger.info("Created new election", { title: newElection.title });
+
       setElections([data[0], ...elections]);
       closeModal();
       setNotification({
@@ -157,6 +160,9 @@ const ElectionPage = () => {
 
       if (error) throw error;
 
+      // AUDIT LOG
+      logger.info("Updated election", { id: newElection.id, title: newElection.title });
+
       setElections(elections.map(el => el.id === newElection.id ? newElection : el));
       closeModal();
       setNotification({
@@ -181,6 +187,10 @@ const ElectionPage = () => {
     try {
       const { error } = await supabase.from("elections").delete().eq("id", id);
       if (error) throw error;
+
+      // AUDIT LOG
+      logger.info("Deleted election", { id: id });
+
       setElections(elections.filter(el => el.id !== id));
       setDeleteConfirm({ show: false, id: null });
       setNotification({
@@ -253,20 +263,20 @@ const ElectionPage = () => {
 
         <div className="flex gap-4 mb-6 border-b border-gray-200 pb-px">
             <button 
-                onClick={() => setElectionTab("overview")}
-                className={`flex items-center gap-2 px-4 py-2 text-sm font-bold transition-all cursor-pointer relative ${
-                    electionTab === "overview" ? "text-indigo-600" : "text-gray-500 hover:text-gray-800"
-                }`}
+              onClick={() => setElectionTab("overview")}
+              className={`flex items-center gap-2 px-4 py-2 text-sm font-bold transition-all cursor-pointer relative ${
+                  electionTab === "overview" ? "text-indigo-600" : "text-gray-500 hover:text-gray-800"
+            }`}
             >
                 <LayoutDashboard size={18} />
                 Overview
                 {electionTab === "overview" && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600 rounded-full" />}
             </button>
             <button 
-                onClick={() => setElectionTab("candidates")}
-                className={`flex items-center gap-2 px-4 py-2 text-sm font-bold transition-all cursor-pointer relative ${
-                    electionTab === "candidates" ? "text-indigo-600" : "text-gray-500 hover:text-gray-800"
-                }`}
+              onClick={() => setElectionTab("candidates")}
+              className={`flex items-center gap-2 px-4 py-2 text-sm font-bold transition-all cursor-pointer relative ${
+                  electionTab === "candidates" ? "text-indigo-600" : "text-gray-500 hover:text-gray-800"
+            }`}
             >
                 <UserPlus size={18} />
                 Candidates
@@ -405,7 +415,7 @@ const ElectionPage = () => {
                       : "text-gray-500 hover:text-gray-800"
                   }`}
                 >
-                    {tab === "all" ? "All Elections" : tab}
+                  {tab === "all" ? "All Elections" : tab}
                 </button>
             ))}
         </div>
