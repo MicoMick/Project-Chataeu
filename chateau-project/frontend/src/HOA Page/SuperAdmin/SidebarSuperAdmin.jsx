@@ -39,22 +39,33 @@ const SidebarSuperAdmin = () => {
   }, []);
 
   const handleLogout = async () => {
+    // --- ADDED: Log Logout Activity ---
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      await supabase.from('system_logs').insert([
+        { 
+          user_email: user.email, 
+          activity: 'User Logged Out', 
+          severity: 'info', 
+          details: 'Admin/Super Admin session terminated' 
+        }
+      ]);
+    }
+
     await supabase.auth.signOut();
-    navigate('/admin');
+    navigate('/admin'); 
   };
 
   const menuItems = [
     { icon: <LayoutDashboard size={22} />, label: "Master Dashboard", path: "/super-admin/dashboard" },
-    { icon: <Globe size={22} />, label: "HOA Management", path: "/super-admin/hoas" }, 
     { icon: <ShieldAlert size={22} />, label: "Admin Control", path: "/super-admin/admins" },
     { icon: <Users size={22} />, label: "All Residents", path: "/super-admin/residents" },
     { icon: <Activity size={22} />, label: "System Logs", path: "/super-admin/logs" },
-    { icon: <Settings size={22} />, label: "Global Settings", path: "/super-admin/settings" },
   ];
 
   return (
-    // Changed to h-screen flex flex-col to pin footer
-    <aside className={`relative h-screen flex flex-col transition-all duration-300 ease-in-out shadow-2xl z-50
+    // Changed relative to sticky top-0 to fix the sidebar scrolling behavior
+    <aside className={`sticky top-0 h-screen flex flex-col transition-all duration-300 ease-in-out shadow-2xl z-50
       ${isCollapsed ? 'w-20' : 'w-72'} 
       bg-gradient-to-b from-[#006837] to-[#004d29]`}>
       
@@ -119,7 +130,7 @@ const SidebarSuperAdmin = () => {
               <div className="h-px bg-slate-100 my-2 mx-2"></div>
               <button 
                 onClick={handleLogout}
-                className="w-full flex items-center gap-3 px-3 py-2.5 text-sm font-semibold text-red-500 hover:bg-red-50 rounded-xl transition-all text-left"
+                className="w-full flex items-center gap-3 px-3 py-2.5 text-sm font-semibold text-red-500 hover:bg-red-50 rounded-xl transition-all text-left cursor-pointer"
               >
                 <LogOut size={18} /> Sign Out
               </button>

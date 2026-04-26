@@ -32,6 +32,9 @@ const ResidentManage = () => {
   const [showToast, setShowToast] = useState(false);
   const [residentToDelete, setResidentToDelete] = useState(null);
   
+  // --- ADDED: Notification Modal State ---
+  const [notification, setNotification] = useState({ show: false, title: '', message: '', type: 'success' });
+  
   // --- ADDED: State for all edit fields ---
   const [editFullName, setEditFullName] = useState('');
   const [editEmail, setEditEmail] = useState('');
@@ -44,6 +47,21 @@ const ResidentManage = () => {
   const [editStreet, setEditStreet] = useState('');
   const [editPhone, setEditPhone] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+
+// --- NEW: Helper for Audit Logs ---
+const logActivity = async (action, description) => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      await supabase.from('system_logs').insert({
+        user_email: user?.email || 'Admin', 
+        activity: `${action} - ${description}`,
+        severity: 'info', 
+        details: 'Success' 
+      });
+    } catch (err) {
+      console.error('Audit log failed', err);
+    }
+  };
 
   useEffect(() => {
     fetchResidents();
@@ -82,36 +100,46 @@ const ResidentManage = () => {
     }
   };
 
-  // --- UPDATED: Function to update profile in database with all fields ---
+  // --- UPDATED: Send Edit Request to Approval System + Log ---
   const handleUpdateResident = async (e) => {
     e.preventDefault();
     setIsSaving(true);
     try {
+      // Get the current user
+      const { data: { user } } = await supabase.auth.getUser();
+
       const { error } = await supabase
-        .from('profiles')
-        .update({ 
-          full_name: editFullName,
-          email: editEmail,
-          first_name: editFirstName,
-          last_name: editLastName,
-          middle_initial: editMiddleInitial,
-          username: editUsername,
-          resident_type: editResidentType,
-          address: editAddress,
-          street: editStreet,
-          phone: editPhone
-        })
-        .eq('id', selectedResident.id);
+        .from('approval_requests')
+        .insert({
+          action_type: 'UPDATE',
+          target_id: selectedResident.id,
+          requested_by: user?.id,
+          requested_data: { 
+            full_name: editFullName,
+            email: editEmail,
+            first_name: editFirstName,
+            last_name: editLastName,
+            middle_initial: editMiddleInitial,
+            username: editUsername,
+            resident_type: editResidentType,
+            address: editAddress,
+            street: editStreet,
+            phone: editPhone
+          },
+          status: 'PENDING'
+        });
 
       if (error) throw error;
       
-      // Refresh list and close modal
-      await fetchResidents();
+      // Log the audit event
+      await logActivity('UPDATE_REQUEST', `Requested updates for resident ID: ${selectedResident.id}`);
+
+      setNotification({ show: true, title: 'Success', message: 'Edit request submitted for Admin approval.', type: 'success' });
       setShowAddModal(false);
       setSelectedResident(null);
     } catch (error) {
-      console.error('Error updating resident:', error.message);
-      alert('Failed to update resident.');
+      console.error('Error requesting update:', error.message);
+      setNotification({ show: true, title: 'Error', message: 'Failed to submit update request.', type: 'error' });
     } finally {
       setIsSaving(false);
     }
@@ -160,10 +188,32 @@ const ResidentManage = () => {
     setOpenMenuId(null);
   };
 
+  // --- UPDATED: Send Delete Request to Approval System + Log ---
   const confirmDelete = async () => {
-    setResidents(residents.filter(r => r.id !== residentToDelete));
-    setShowToast(false);
-    setResidentToDelete(null);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+
+      const { error } = await supabase
+        .from('approval_requests')
+        .insert({
+          action_type: 'DELETE',
+          target_id: residentToDelete,
+          requested_by: user?.id,
+          status: 'PENDING'
+        });
+
+      if (error) throw error;
+
+      // Log the audit event
+      await logActivity('DELETE_REQUEST', `Requested deletion for resident ID: ${residentToDelete}`);
+
+      setNotification({ show: true, title: 'Success', message: 'Deletion request submitted for Admin approval.', type: 'success' });
+      setShowToast(false);
+      setResidentToDelete(null);
+    } catch (error) {
+      console.error('Error requesting deletion:', error.message);
+      setNotification({ show: true, title: 'Error', message: 'Failed to submit delete request.', type: 'error' });
+    }
   };
 
   const filteredResidents = residents.filter((resident) => {
@@ -178,6 +228,23 @@ const ResidentManage = () => {
   return (
     <div className="p-8 bg-slate-50 min-h-screen relative font-sans text-slate-900">
       
+      {/* --- Notification Modal --- */}
+      {notification.show && (
+        <div className="fixed inset-0 z-[400] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setNotification({...notification, show: false})}></div>
+          <div className="relative bg-white shadow-2xl rounded-3xl p-8 flex flex-col items-center text-center gap-4 max-w-sm w-full animate-in fade-in zoom-in duration-200">
+            <div className={`p-4 rounded-full mb-2 ${notification.type === 'success' ? 'bg-green-50 text-green-500' : 'bg-red-50 text-red-500'}`}>
+              {notification.type === 'success' ? <ShieldCheck size={40} /> : <AlertTriangle size={40} />}
+            </div>
+            <div>
+              <p className="text-xl font-bold text-slate-900">{notification.title}</p>
+              <p className="text-sm text-slate-500 mt-2">{notification.message}</p>
+            </div>
+            <button onClick={() => setNotification({...notification, show: false})} className="w-full px-4 py-3 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl cursor-pointer transition-colors">Close</button>
+          </div>
+        </div>
+      )}
+
       {showToast && (
         <div className="fixed inset-0 z-[300] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowToast(false)}></div>
@@ -187,11 +254,11 @@ const ResidentManage = () => {
             </div>
             <div>
               <p className="text-xl font-bold text-slate-900">Confirm Deletion</p>
-              <p className="text-sm text-slate-500 mt-2">Are you sure you want to remove this resident? This action cannot be undone.</p>
+              <p className="text-sm text-slate-500 mt-2">Are you sure you want to request the removal of this resident? This will be sent to the Super Admin for approval.</p>
             </div>
             <div className="flex gap-3 w-full mt-4">
               <button onClick={() => setShowToast(false)} className="flex-1 px-4 py-3 text-sm font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 rounded-xl cursor-pointer transition-colors">Cancel</button>
-              <button onClick={confirmDelete} className="flex-1 px-4 py-3 text-sm font-bold bg-red-500 text-white hover:bg-red-600 rounded-xl cursor-pointer transition-all shadow-lg shadow-red-200">Remove</button>
+              <button onClick={confirmDelete} className="flex-1 px-4 py-3 text-sm font-bold bg-red-500 text-white hover:bg-red-600 rounded-xl cursor-pointer transition-all shadow-lg shadow-red-200">Confirm Request</button>
             </div>
           </div>
         </div>
@@ -223,6 +290,7 @@ const ResidentManage = () => {
                 <th className="py-4 font-bold px-2">Resident</th>
                 <th className="py-4 font-bold px-2">Username</th>
                 <th className="py-4 font-bold px-2">Full Name</th>
+                <th className="py-4 font-bold px-2">First Name</th>
                 <th className="py-4 font-bold px-2">Last Name</th>
                 <th className="py-4 font-bold px-2">Middle Initial</th>
                 <th className="py-4 font-bold px-2">Resident Type</th>
@@ -235,7 +303,7 @@ const ResidentManage = () => {
             </thead>
             <tbody className="divide-y divide-slate-50">
               {loading ? (
-                 <tr><td colSpan="11" className="py-12 text-center text-slate-400">Loading data...</td></tr>
+                  <tr><td colSpan="12" className="py-12 text-center text-slate-400">Loading data...</td></tr>
               ) : filteredResidents.length > 0 ? (
                 filteredResidents.map((resident) => (
                   <tr key={resident.id} className="group hover:bg-slate-50 transition-colors">
@@ -260,6 +328,7 @@ const ResidentManage = () => {
                     </td>
                     <td className="py-4 px-2 text-sm text-slate-500">{resident.username || 'N/A'}</td>
                     <td className="py-4 px-2 text-sm text-slate-500">{resident.full_name || 'N/A'}</td>
+                    <td className="py-4 px-2 text-sm text-slate-500">{resident.first_name || 'N/A'}</td>
                     <td className="py-4 px-2 text-sm text-slate-500">{resident.last_name || 'N/A'}</td>
                     <td className="py-4 px-2 text-sm text-slate-500">{resident.middle_initial || 'N/A'}</td>
                     <td className="py-4 px-2 text-sm text-slate-500">{resident.resident_type || 'N/A'}</td>
@@ -276,7 +345,7 @@ const ResidentManage = () => {
                 ))
               ) : (
                 <tr>
-                  <td colSpan="11" className="py-12 text-center">
+                  <td colSpan="12" className="py-12 text-center">
                     <div className="flex flex-col items-center justify-center text-slate-400 gap-2">
                       <Clock size={32} className="opacity-20" />
                       <p className="text-sm font-medium">No residents found.</p>
@@ -349,11 +418,11 @@ const ResidentManage = () => {
         <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => { setShowAddModal(false); setSelectedResident(null); }}></div>
           <div className="relative bg-white w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
-             <div className="p-6 border-b border-slate-50 flex justify-between items-center bg-white">
+              <div className="p-6 border-b border-slate-50 flex justify-between items-center bg-white">
                 <h3 className="font-bold text-xl text-slate-900">Edit Resident Details</h3>
                 <button onClick={() => { setShowAddModal(false); setSelectedResident(null); }} className="p-2 hover:bg-slate-50 rounded-full transition-colors text-slate-400 cursor-pointer"><X size={20}/></button>
-             </div>
-             <form className="p-8 max-h-[80vh] overflow-y-auto" onSubmit={handleUpdateResident}>
+               </div>
+               <form className="p-8 max-h-[80vh] overflow-y-auto" onSubmit={handleUpdateResident}>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div className="space-y-4">
                         <div className="space-y-2">
@@ -405,10 +474,10 @@ const ResidentManage = () => {
                 <div className="pt-8 flex gap-3">
                   <button type="button" onClick={() => { setShowAddModal(false); setSelectedResident(null); }} className="flex-1 py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-2xl font-bold text-sm transition-all cursor-pointer">Cancel</button>
                   <button type="submit" disabled={isSaving} className="flex-1 py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-bold text-sm transition-all shadow-lg shadow-indigo-200 cursor-pointer disabled:opacity-50">
-                    {isSaving ? "Saving..." : "Save Changes"}
+                    {isSaving ? "Submitting..." : "Submit for Approval"}
                   </button>
                 </div>
-             </form>
+               </form>
           </div>
         </div>
       )}

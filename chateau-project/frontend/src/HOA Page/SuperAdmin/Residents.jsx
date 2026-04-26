@@ -46,6 +46,7 @@ const Residents = () => {
   const [editAddress, setEditAddress] = useState('');
   const [editStreet, setEditStreet] = useState('');
   const [editPhone, setEditPhone] = useState('');
+  const [editPassword, setEditPassword] = useState('');
 
   useEffect(() => {
     fetchResidents();
@@ -87,9 +88,13 @@ const Residents = () => {
     e.preventDefault();
     setIsSaving(true);
     try {
-      const { error } = await supabase
-        .from('profiles')
-        .update({ 
+const { error } = await supabase
+      .from('approval_requests')
+      .insert([{
+        target_table: 'profiles',
+        target_id: selectedResident.id,
+        action_type: 'UPDATE',
+        requested_data: { 
           full_name: `${editFirstName} ${editLastName}`,
           email: editEmail,
           first_name: editFirstName,
@@ -100,29 +105,48 @@ const Residents = () => {
           address: editAddress,
           street: editStreet,
           phone: editPhone
-        })
-        .eq('id', selectedResident.id);
+        },
+        status: 'PENDING'
+      }]);
 
-      if (error) throw error;
-      await fetchResidents();
-      setShowAddModal(false);
-      setSelectedResident(null);
-    } catch (error) {
-      console.error('Error updating resident:', error.message);
-      alert('Failed to update resident.');
-    } finally {
-      setIsSaving(false);
-    }
-  };
+    if (error) throw error;
+    
+    alert('Update request submitted for Super Admin approval.');
+    setShowAddModal(false);
+    setSelectedResident(null);
+  } catch (error) {
+    console.error('Error submitting request:', error.message);
+    alert('Failed to submit request.');
+  } finally {
+    setIsSaving(false);
+  }
+};
 
   // Added Create Resident Handler
   const handleCreateResident = async (e) => {
     e.preventDefault();
+    
+    // Validation
+    if (editPassword.length < 6) {
+      alert("Password must be at least 6 characters long.");
+      return;
+    }
+
     setIsSaving(true);
     try {
-      const { error } = await supabase
+      // 1. Authenticate the User
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: editEmail,
+        password: editPassword,
+      });
+
+      if (authError) throw authError;
+
+      // 2. Create the Profile record linked to the Auth ID
+      const { error: profileError } = await supabase
         .from('profiles')
         .insert([{ 
+          id: authData.user.id, // Linking the profile to the Auth ID
           full_name: `${editFirstName} ${editLastName}`,
           email: editEmail,
           first_name: editFirstName,
@@ -133,17 +157,27 @@ const Residents = () => {
           address: editAddress,
           street: editStreet,
           phone: editPhone,
-          status: 'active' // Assuming new users are active by default
+          status: 'active'
         }]);
 
-      if (error) throw error;
+      if (profileError) throw profileError;
+
+      // 3. Add Audit Log
+      await supabase.from('audit_logs').insert([{
+        action: 'CREATE_USER',
+        description: `New user created: ${editEmail}`,
+        created_at: new Date().toISOString()
+      }]);
+
       await fetchResidents();
       setShowCreateModal(false);
+      
       // Reset form
-      setEditFirstName(''); setEditLastName(''); setEditEmail(''); // ... clear others
+      setEditFirstName(''); setEditLastName(''); setEditEmail(''); 
+      setEditPassword(''); setEditUsername('');
     } catch (error) {
       console.error('Error creating resident:', error.message);
-      alert('Failed to create resident.');
+      alert('Failed to create resident: ' + error.message);
     } finally {
       setIsSaving(false);
     }
@@ -179,11 +213,27 @@ const Residents = () => {
     setOpenMenuId(null);
   };
 
-  const confirmDelete = async () => {
-    setResidents(residents.filter(r => r.id !== residentToDelete));
+ const confirmDelete = async () => {
+  try {
+    const { error } = await supabase
+      .from('approval_requests')
+      .insert([{
+        target_table: 'profiles',
+        target_id: residentToDelete,
+        action_type: 'DELETE',
+        status: 'PENDING'
+      }]);
+
+    if (error) throw error;
+
+    alert('Delete request submitted for Super Admin approval.');
     setShowToast(false);
     setResidentToDelete(null);
-  };
+  } catch (error) {
+    console.error('Error submitting delete request:', error.message);
+    alert('Failed to submit request.');
+  }
+};
 
   // Logic for filtering
   const filteredResidents = residents.filter((r) => {
@@ -267,6 +317,7 @@ const Residents = () => {
                 <th className="py-4 font-bold px-2">Resident</th>
                 <th className="py-4 font-bold px-2">Username</th>
                 <th className="py-4 font-bold px-2">Full Name</th>
+                <th className="py-4 font-bold px-2">First Name</th>
                 <th className="py-4 font-bold px-2">Last Name</th>
                 <th className="py-4 font-bold px-2">Middle Initial</th>
                 <th className="py-4 font-bold px-2">Resident Type</th>
@@ -279,7 +330,7 @@ const Residents = () => {
             </thead>
             <tbody className="divide-y divide-slate-50">
               {loading ? (
-                 <tr><td colSpan="11" className="py-12 text-center text-slate-400">Loading data...</td></tr>
+                 <tr><td colSpan="12" className="py-12 text-center text-slate-400">Loading data...</td></tr>
               ) : filteredResidents.length > 0 ? (
                 filteredResidents.map((resident) => (
                   <tr key={resident.id} className="group hover:bg-slate-50 transition-colors">
@@ -304,6 +355,7 @@ const Residents = () => {
                     </td>
                     <td className="py-4 px-2 text-sm text-slate-500">{resident.username || 'N/A'}</td>
                     <td className="py-4 px-2 text-sm text-slate-500">{resident.full_name || 'N/A'}</td>
+                    <td className="py-4 px-2 text-sm text-slate-500">{resident.first_name || 'N/A'}</td>
                     <td className="py-4 px-2 text-sm text-slate-500">{resident.last_name || 'N/A'}</td>
                     <td className="py-4 px-2 text-sm text-slate-500">{resident.middle_initial || 'N/A'}</td>
                     <td className="py-4 px-2 text-sm text-slate-500">{resident.resident_type || 'N/A'}</td>
@@ -320,7 +372,7 @@ const Residents = () => {
                 ))
               ) : (
                 <tr>
-                  <td colSpan="11" className="py-12 text-center">
+                  <td colSpan="12" className="py-12 text-center">
                     <div className="flex flex-col items-center justify-center text-slate-400 gap-2">
                       <Clock size={32} className="opacity-20" />
                       <p className="text-sm font-medium">No residents found.</p>
@@ -417,7 +469,7 @@ const Residents = () => {
                         </div>
                         <div className="space-y-2">
                             <label className="text-[11px] uppercase font-bold text-slate-400 tracking-widest px-1">Middle Initial</label>
-                            <input type="text" value={editMiddleInitial} onChange={(e) => setEditMiddleInitial(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all" />
+                            <input type="text" maxLength="1" value={editMiddleInitial} onChange={(e) => setEditMiddleInitial(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all" />
                         </div>
                     </div>
                     <div className="space-y-4">
@@ -465,53 +517,76 @@ const Residents = () => {
         <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setShowCreateModal(false)}></div>
           <div className="relative bg-white w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
-             <div className="p-6 border-b border-slate-50 flex justify-between items-center bg-white">
+             <div className="p-6 border-b border-slate-50 bg-white">
                 <h3 className="font-bold text-xl text-slate-900">Create New Resident</h3>
-                <button onClick={() => setShowCreateModal(false)} className="p-2 hover:bg-slate-50 rounded-full transition-colors text-slate-400 cursor-pointer"><X size={20}/></button>
              </div>
              <form className="p-8 max-h-[80vh] overflow-y-auto" onSubmit={handleCreateResident}>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div className="space-y-4">
                         <div className="space-y-2">
                             <label className="text-[11px] uppercase font-bold text-slate-400 tracking-widest px-1">First Name</label>
-                            <input type="text" required value={editFirstName} onChange={(e) => setEditFirstName(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all" />
+                            <input type="text" required value={editFirstName} onChange={(e) => setEditFirstName(e.target.value)} placeholder="e.g. Juan" className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all" />
                         </div>
                         <div className="space-y-2">
                             <label className="text-[11px] uppercase font-bold text-slate-400 tracking-widest px-1">Last Name</label>
-                            <input type="text" required value={editLastName} onChange={(e) => setEditLastName(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all" />
+                            <input type="text" required value={editLastName} onChange={(e) => setEditLastName(e.target.value)} placeholder="e.g. Karlo" className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all" />
                         </div>
                         <div className="space-y-2">
                             <label className="text-[11px] uppercase font-bold text-slate-400 tracking-widest px-1">Middle Initial</label>
-                            <input type="text" value={editMiddleInitial} onChange={(e) => setEditMiddleInitial(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all" />
+                            <input type="text" maxLength="1" value={editMiddleInitial} onChange={(e) => setEditMiddleInitial(e.target.value)} placeholder="e.g. A" className="w-20 px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all" />
                         </div>
                     </div>
                     <div className="space-y-4">
                         <div className="space-y-2">
                             <label className="text-[11px] uppercase font-bold text-slate-400 tracking-widest px-1">Username</label>
-                            <input type="text" required value={editUsername} onChange={(e) => setEditUsername(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all" />
+                            <input type="text" required value={editUsername} onChange={(e) => setEditUsername(e.target.value)} placeholder="e.g. juan karlos" className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all" />
                         </div>
                         <div className="space-y-2">
                             <label className="text-[11px] uppercase font-bold text-slate-400 tracking-widest px-1">Email</label>
-                            <input type="email" required value={editEmail} onChange={(e) => setEditEmail(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all" />
+                            <input type="email" required value={editEmail} onChange={(e) => setEditEmail(e.target.value)} placeholder="e.g. juan.karlo@example.com" className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all" />
                         </div>
+
+                        {/* Password Input */}
                         <div className="space-y-2">
-                            <label className="text-[11px] uppercase font-bold text-slate-400 tracking-widest px-1">Resident Type</label>
-                            <input type="text" value={editResidentType} onChange={(e) => setEditResidentType(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all" />
+                          <label className="text-[11px] uppercase font-bold text-slate-400 tracking-widest px-1">Password</label>
+                          <input 
+                            type="password" 
+                            required 
+                            value={editPassword} 
+                            onChange={(e) => setEditPassword(e.target.value)} 
+                            placeholder="Enter a secure password"
+                            className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all" 
+                          />
+                        </div>
+
+                        {/* Resident Type Selector */}
+                        <div className="space-y-2">
+                          <label className="text-[11px] uppercase font-bold text-slate-400 tracking-widest px-1">Resident Type</label>
+                          <select 
+                            value={editResidentType} 
+                            onChange={(e) => setEditResidentType(e.target.value)} 
+                            className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all"
+                            required
+                          >
+                            <option value="" disabled>Select Type</option>
+                            <option value="Resident">Resident</option>
+                            <option value="Renter">Renter</option>
+                          </select>
                         </div>
                     </div>
                 </div>
                 <div className="space-y-4 mt-4">
                     <div className="space-y-2">
                         <label className="text-[11px] uppercase font-bold text-slate-400 tracking-widest px-1">Address</label>
-                        <input type="text" value={editAddress} onChange={(e) => setEditAddress(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all" />
+                        <input type="text" value={editAddress} onChange={(e) => setEditAddress(e.target.value)} placeholder="e.g. Blk 15 Lot 10 Phase 1" className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all" />
                     </div>
                     <div className="space-y-2">
                         <label className="text-[11px] uppercase font-bold text-slate-400 tracking-widest px-1">Street</label>
-                        <input type="text" value={editStreet} onChange={(e) => setEditStreet(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all" />
+                        <input type="text" value={editStreet} onChange={(e) => setEditStreet(e.target.value)} placeholder="e.g. Gumamela St" className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all" />
                     </div>
                     <div className="space-y-2">
                         <label className="text-[11px] uppercase font-bold text-slate-400 tracking-widest px-1">Phone</label>
-                        <input type="text" value={editPhone} onChange={(e) => setEditPhone(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all" />
+                        <input type="text" value={editPhone} onChange={(e) => setEditPhone(e.target.value)} placeholder="e.g. (+63) 949 123 4567" className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all" />
                     </div>
                 </div>
                 <div className="pt-8 flex gap-3">

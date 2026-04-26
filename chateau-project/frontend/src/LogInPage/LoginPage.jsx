@@ -72,31 +72,38 @@ const LoginPage = () => {
     }
   };
 
-  // --- ADDED: Logic to proceed after confirmation ---
+  // --- UPDATED LOGIC: Proceed to MFA ---
   const proceedToMfa = async () => {
     setLoading(true);
     setIsConfirmingIdentity(false);
 
-    const { data: factors } = await supabase.auth.mfa.listFactors();
-    const enrolledFactor = factors.totp[0];
+    // 1. Fetch current factors
+    const { data: { totp } } = await supabase.auth.mfa.listFactors();
+    const enrolledFactor = totp[0];
 
+    // 2. Check if they are an admin
+    const { data: adminCheck } = await supabase
+      .from('admins')
+      .select('role')
+      .eq('email', authenticatedUser.email)
+      .single();
+
+    // 3. Logic: If admin and no factor -> FORCE ENROLLMENT
+    if (adminCheck && !enrolledFactor) {
+      enrollMFA(authenticatedUser.email);
+      return;
+    } 
+
+    // 4. Logic: If factor exists -> Challenge them
     if (enrolledFactor) {
       setFactorId(enrolledFactor.id);
       setMfaRequired(true);
+      setLoading(false);
     } else {
-      const { data: adminCheck } = await supabase
-        .from('admins')
-        .select('role')
-        .eq('email', authenticatedUser.email)
-        .single();
-
-      if (adminCheck) {
-        enrollMFA(authenticatedUser.email);
-      } else {
-        checkRoleAndRedirect(authenticatedUser);
-      }
+      // 5. Logic: Not an admin, no MFA needed -> Direct Redirect
+      checkRoleAndRedirect(authenticatedUser);
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const enrollMFA = async (userEmail) => {
@@ -115,21 +122,50 @@ const LoginPage = () => {
     setLoading(false);
   };
 
+  // --- UPDATED LOGIC: Handle OTP Verification ---
   const handleVerifyOTP = async () => {
     setLoading(true);
-    setErrorMsg(''); // Clear previous errors
-    const { error } = await supabase.auth.mfa.challengeAndVerify({
-      factorId: factorId,
-      code: otpCode,
-    });
+    setErrorMsg('');
 
-    if (error) {
+    try {
+      // If we are currently enrolling, we need to verify the new factor
+      if (isEnrolling) {
+        const { error } = await supabase.auth.mfa.verify({
+          factorId: factorId, // The ID from enrollMFA
+          code: otpCode,
+        });
+
+        if (error) throw error;
+        
+        // Success! Move to redirect
+        await logSystemActivity('Admin/Super Admin successfully enrolled and verified MFA');
+        checkRoleAndRedirect(authenticatedUser);
+      } else {
+        // If we are just signing in (existing user), use the challenge flow
+        const { error } = await supabase.auth.mfa.challengeAndVerify({
+          factorId: factorId,
+          code: otpCode,
+        });
+
+        if (error) throw error;
+        
+        await logSystemActivity('Admin/Super Admin successfully authenticated via MFA');
+        checkRoleAndRedirect(authenticatedUser);
+      }
+    } catch (err) {
       setErrorMsg("Invalid OTP Code. Please try again.");
       setLoading(false);
-    } else {
-      const { data: { user } } = await supabase.auth.getUser();
-      checkRoleAndRedirect(user);
     }
+  };
+
+  // --- ADDED: Helper for logs ---
+  const logSystemActivity = async (details) => {
+    await supabase.from('system_logs').insert([{ 
+      user_email: authenticatedUser.email, 
+      activity: 'User Logged In', 
+      severity: 'info', 
+      details: details
+    }]);
   };
 
   // --- IDENTITY CONFIRMATION UI ---

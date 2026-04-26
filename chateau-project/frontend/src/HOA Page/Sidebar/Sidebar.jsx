@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react'; // Added useEffect
+import React, { useState, useEffect } from 'react'; 
 import { 
   Link, 
   useLocation,
-  useNavigate // Added useNavigate
+  useNavigate 
 } from 'react-router-dom';
 import { 
   LayoutDashboard,  Users,  CalendarCheck, CreditCard, Vote, Megaphone, BarChart3, ChevronLeft, Menu, ChevronDown, ShieldCheck, UserCircle,
@@ -10,15 +10,15 @@ import {
   LogOut
 } from 'lucide-react';
 import ChateauLogo from '../../assets/ChataueLogo.png';
-import { supabase } from '../supabaseAdmin'; // Added Supabase import
+import { supabase } from '../supabaseAdmin'; 
 
 const Sidebar = () => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
-  const [userEmail, setUserEmail] = useState('Admin'); // State for user
-  const [displayName, setDisplayName] = useState('Admin'); // Added state for Name
+  const [userEmail, setUserEmail] = useState('Admin'); 
+  const [displayName, setDisplayName] = useState('Admin'); 
   const location = useLocation();
-  const navigate = useNavigate(); // For logout redirect
+  const navigate = useNavigate(); 
 
   // --- FETCH USER DATA & SETUP LISTENER ---
   useEffect(() => {
@@ -46,8 +46,21 @@ const Sidebar = () => {
 
   // --- LOGOUT HANDLER ---
   const handleLogout = async () => {
+    // --- ADDED: Log Logout Activity ---
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      await supabase.from('system_logs').insert([
+        { 
+          user_email: user.email, 
+          activity: 'User Logged Out', 
+          severity: 'info', 
+          details: 'Admin/Super Admin session terminated' 
+        }
+      ]);
+    }
+
     await supabase.auth.signOut();
-    navigate('/admin');
+    navigate('/admin'); 
   };
 
   const menuItems = [
