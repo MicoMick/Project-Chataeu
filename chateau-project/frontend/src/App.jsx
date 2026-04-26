@@ -14,6 +14,7 @@ import ResidentManage from './HOA Page/Resident Management/ResidentManage.jsx';
 import Reservation from './HOA Page/Facility and Reservation/Reservation.jsx';
 import Payment from './HOA Page/Payments/Payment.jsx';
 import ElectionPage from './HOA Page/Election/ElectionPage.jsx';
+import Results from './HOA Page/Election/Results.jsx';
 import Announcements from './HOA Page/Announcements/Announcements.jsx';
 import Reports from './HOA Page/Residents Reports/Reports.jsx';
 import ProfileManage from './HOA Page/HOA Profile/ProfileManage.jsx';
@@ -167,6 +168,7 @@ function App() {
           <Route path="reservations" element={<Reservation />} />
           <Route path="payments" element={<Payment />} />
           <Route path="elections" element={<ElectionPage />} />
+          <Route path="results" element={<Results/>} />
           <Route path="announcements" element={<Announcements />} />
           <Route path="reports" element={<Reports />} />
           <Route path="profile" element={<ProfileManage />} />

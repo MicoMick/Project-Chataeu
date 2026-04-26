@@ -64,8 +64,8 @@ const SidebarSuperAdmin = () => {
   ];
 
   return (
-    // Changed to h-screen flex flex-col to pin footer
-    <aside className={`relative h-screen flex flex-col transition-all duration-300 ease-in-out shadow-2xl z-50
+    // Changed relative to sticky top-0 to fix the sidebar scrolling behavior
+    <aside className={`sticky top-0 h-screen flex flex-col transition-all duration-300 ease-in-out shadow-2xl z-50
       ${isCollapsed ? 'w-20' : 'w-72'} 
       bg-gradient-to-b from-[#006837] to-[#004d29]`}>
       

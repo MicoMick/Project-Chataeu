@@ -88,9 +88,13 @@ const Residents = () => {
     e.preventDefault();
     setIsSaving(true);
     try {
-      const { error } = await supabase
-        .from('profiles')
-        .update({ 
+const { error } = await supabase
+      .from('approval_requests')
+      .insert([{
+        target_table: 'profiles',
+        target_id: selectedResident.id,
+        action_type: 'UPDATE',
+        requested_data: { 
           full_name: `${editFirstName} ${editLastName}`,
           email: editEmail,
           first_name: editFirstName,
@@ -101,20 +105,22 @@ const Residents = () => {
           address: editAddress,
           street: editStreet,
           phone: editPhone
-        })
-        .eq('id', selectedResident.id);
+        },
+        status: 'PENDING'
+      }]);
 
-      if (error) throw error;
-      await fetchResidents();
-      setShowAddModal(false);
-      setSelectedResident(null);
-    } catch (error) {
-      console.error('Error updating resident:', error.message);
-      alert('Failed to update resident.');
-    } finally {
-      setIsSaving(false);
-    }
-  };
+    if (error) throw error;
+    
+    alert('Update request submitted for Super Admin approval.');
+    setShowAddModal(false);
+    setSelectedResident(null);
+  } catch (error) {
+    console.error('Error submitting request:', error.message);
+    alert('Failed to submit request.');
+  } finally {
+    setIsSaving(false);
+  }
+};
 
   // Added Create Resident Handler
   const handleCreateResident = async (e) => {
@@ -207,11 +213,27 @@ const Residents = () => {
     setOpenMenuId(null);
   };
 
-  const confirmDelete = async () => {
-    setResidents(residents.filter(r => r.id !== residentToDelete));
+ const confirmDelete = async () => {
+  try {
+    const { error } = await supabase
+      .from('approval_requests')
+      .insert([{
+        target_table: 'profiles',
+        target_id: residentToDelete,
+        action_type: 'DELETE',
+        status: 'PENDING'
+      }]);
+
+    if (error) throw error;
+
+    alert('Delete request submitted for Super Admin approval.');
     setShowToast(false);
     setResidentToDelete(null);
-  };
+  } catch (error) {
+    console.error('Error submitting delete request:', error.message);
+    alert('Failed to submit request.');
+  }
+};
 
   // Logic for filtering
   const filteredResidents = residents.filter((r) => {
@@ -295,6 +317,7 @@ const Residents = () => {
                 <th className="py-4 font-bold px-2">Resident</th>
                 <th className="py-4 font-bold px-2">Username</th>
                 <th className="py-4 font-bold px-2">Full Name</th>
+                <th className="py-4 font-bold px-2">First Name</th>
                 <th className="py-4 font-bold px-2">Last Name</th>
                 <th className="py-4 font-bold px-2">Middle Initial</th>
                 <th className="py-4 font-bold px-2">Resident Type</th>
@@ -307,7 +330,7 @@ const Residents = () => {
             </thead>
             <tbody className="divide-y divide-slate-50">
               {loading ? (
-                 <tr><td colSpan="11" className="py-12 text-center text-slate-400">Loading data...</td></tr>
+                 <tr><td colSpan="12" className="py-12 text-center text-slate-400">Loading data...</td></tr>
               ) : filteredResidents.length > 0 ? (
                 filteredResidents.map((resident) => (
                   <tr key={resident.id} className="group hover:bg-slate-50 transition-colors">
@@ -332,6 +355,7 @@ const Residents = () => {
                     </td>
                     <td className="py-4 px-2 text-sm text-slate-500">{resident.username || 'N/A'}</td>
                     <td className="py-4 px-2 text-sm text-slate-500">{resident.full_name || 'N/A'}</td>
+                    <td className="py-4 px-2 text-sm text-slate-500">{resident.first_name || 'N/A'}</td>
                     <td className="py-4 px-2 text-sm text-slate-500">{resident.last_name || 'N/A'}</td>
                     <td className="py-4 px-2 text-sm text-slate-500">{resident.middle_initial || 'N/A'}</td>
                     <td className="py-4 px-2 text-sm text-slate-500">{resident.resident_type || 'N/A'}</td>
@@ -348,7 +372,7 @@ const Residents = () => {
                 ))
               ) : (
                 <tr>
-                  <td colSpan="11" className="py-12 text-center">
+                  <td colSpan="12" className="py-12 text-center">
                     <div className="flex flex-col items-center justify-center text-slate-400 gap-2">
                       <Clock size={32} className="opacity-20" />
                       <p className="text-sm font-medium">No residents found.</p>
