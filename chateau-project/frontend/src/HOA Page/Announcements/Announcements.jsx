@@ -1,10 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-  Megaphone, Clock, FileEdit, Eye, Plus, 
-  Search, MoreVertical, Pin, 
-  AlertTriangle, MessageSquare, X, Paperclip, 
-  Calendar, Trash2, Send, CheckCircle2,
-  FileIcon, Loader2
+import { Megaphone, Clock, FileEdit, Plus, Search, MoreVertical, Pin, AlertTriangle, X, Paperclip, Calendar, Trash2, Send, CheckCircle2, FileIcon, Loader2
 } from 'lucide-react';
 import { supabase } from '../supabaseAdmin';
 import logger from '../auditlogger';
@@ -21,11 +16,9 @@ const Announcements = () => {
   const [showCommentsOverlay, setShowCommentsOverlay] = useState(false);
   const [showEditOverlay, setShowEditOverlay] = useState(false);
   
-  // Custom confirmation states
   const [showPublishConfirm, setShowPublishConfirm] = useState(false);
   const [pendingPublishItem, setPendingPublishItem] = useState(null);
 
-  // Added state for custom delete confirmation
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [pendingDeleteItem, setPendingDeleteItem] = useState(null);
 
@@ -45,7 +38,6 @@ const Announcements = () => {
   const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
   const [endDate, setEndDate] = useState('');
   
-  // --- ATTACHMENT LOGIC STATES ---
   const [attachmentUrl, setAttachmentUrl] = useState('');
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef(null);
@@ -53,22 +45,19 @@ const Announcements = () => {
   const [announcements, setAnnouncements] = useState([]);
   const [loading, setLoading] = useState(true);
 
-// --- FIXED LOGGER HELPER ---
 const logAction = async (action, details) => {
   try {
     await supabase.from('system_logs').insert([{
-      activity: action,       // Maps your custom action string to the 'activity' column
-      severity: 'info',       // Added severity, which is required by your table
-      user_email: 'chateauadmin@gmail.com', // Use the column 'user_email' instead of 'user_name'
-      details: details        // Matches the 'details' column
-      // Removed 'created_at' as Supabase usually handles this automatically
+      activity: action,      
+      severity: 'info',       
+      user_email: 'chateauadmin@gmail.com', 
+      details: details        
     }]);
   } catch (err) {
     console.error("Logging error:", err);
   }
 };
 
-  // --- FILE UPLOAD HANDLER ---
   const handleFileUpload = async (event) => {
     const file = event.target.files[0];
     if (!file) return;
@@ -79,14 +68,12 @@ const logAction = async (action, details) => {
       const fileName = `${Math.random()}.${fileExt}`;
       const filePath = `attachments/${fileName}`;
 
-      // Upload to Supabase Storage
       const { error: uploadError } = await supabase.storage
         .from('announcements')
         .upload(filePath, file);
 
       if (uploadError) throw uploadError;
 
-      // Get Public URL
       const { data } = supabase.storage
         .from('announcements')
         .getPublicUrl(filePath);
@@ -173,7 +160,7 @@ const logAction = async (action, details) => {
           end_date: endDate,
           attachment_url: attachmentUrl 
         })
-        .eq('id', selectedAnnouncement.id); // This will no longer crash
+        .eq('id', selectedAnnouncement.id); 
 
       if (error) throw error;
 
@@ -330,7 +317,6 @@ const logAction = async (action, details) => {
     { label: 'Published', count: announcements.filter(a => a.status === 'published').length, icon: Megaphone, color: 'text-indigo-600', bg: 'bg-indigo-50' },
     { label: 'Scheduled', count: 0, icon: Clock, color: 'text-blue-600', bg: 'bg-blue-50' },
     { label: 'Drafts', count: announcements.filter(a => a.status === 'draft').length, icon: FileEdit, color: 'text-slate-600', bg: 'bg-slate-50' },
-    { label: 'Total Views', count: announcements.reduce((acc, curr) => acc + (curr.views_count || 0), 0), icon: Eye, color: 'text-cyan-600', bg: 'bg-cyan-50' },
   ];
 
   const filteredAnnouncements = announcements
@@ -452,8 +438,6 @@ const logAction = async (action, details) => {
                   <div className="flex items-center gap-6 text-slate-400 text-xs font-medium">
                     <span className="flex items-center gap-1.5"><Clock size={14} /> {new Date(item.created_at).toLocaleDateString()}</span>
                     <span>By {item.author_name}</span>
-                    <span className="flex items-center gap-1.5"><Eye size={14} /> {item.views_count} views</span>
-                    <span className="flex items-center gap-1.5"><MessageSquare size={14} /> {item.comments?.length || 0}</span>
                     <span className="px-2 py-1 bg-slate-100 rounded text-slate-600">{item.category}</span>
                     {item.attachment_url && <span className="flex items-center gap-1.5 text-indigo-600"><Paperclip size={14} /> Attachment</span>}
                   </div>
@@ -468,7 +452,6 @@ const logAction = async (action, details) => {
                       <div className="fixed inset-0 z-10" onClick={() => setOpenMenuId(null)}></div>
                       <div className="absolute right-0 mt-2 w-48 bg-white rounded-2xl shadow-xl border border-slate-100 py-2 z-20">
                         <button onClick={() => { setSelectedAnnouncement(item); setShowDetailsOverlay(true); setOpenMenuId(null); }} className="w-full flex items-center px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 cursor-pointer">View Details</button>
-                        <button onClick={() => { setSelectedAnnouncement(item); setShowCommentsOverlay(true); setOpenMenuId(null); }} className="w-full flex items-center px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 cursor-pointer">View Comments</button>
                         <button onClick={() => handleOpenEdit(item)} className="w-full flex items-center px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 cursor-pointer">Edit Announcement</button>
                         {item.status === 'draft' && (
                           <button 
@@ -523,7 +506,6 @@ const logAction = async (action, details) => {
               <div className="flex items-center gap-6 text-slate-400 text-sm mb-8 pb-8 border-b border-slate-100">
                 <span className="flex items-center gap-2"><Clock size={16} /> {new Date(selectedAnnouncement.created_at).toLocaleDateString()}</span>
                 <span>By {selectedAnnouncement.author_name}</span>
-                <span className="flex items-center gap-2"><Eye size={16} /> {selectedAnnouncement.views_count} views</span>
               </div>
               <div className="prose prose-slate max-w-none text-slate-600 leading-relaxed mb-8">
                 {selectedAnnouncement.content}

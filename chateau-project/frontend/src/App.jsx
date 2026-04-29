@@ -2,7 +2,7 @@ import { BrowserRouter as Router, Routes, Route, Outlet, Navigate } from 'react-
 import React, { useState, useEffect } from 'react'; 
 import Header from './LandingPage/Header/Header.jsx'; 
 import Mainpage from './LandingPage/MainPage/Mainpage.jsx';
-import Features from './LandingPage/Features/Features.jsx'; 
+import Team from './LandingPage/Team/Team.jsx'; 
 import HowItWorks from './LandingPage/HowItWorks/HowItWorks.jsx';
 import DownloadPage from './LandingPage/DownloadPage/Downloadpage.jsx';
 import AboutUs from './LandingPage/About us/AboutUs.jsx';
@@ -64,7 +64,7 @@ const LandingPage = () => (
     <Header />
     <main>
       <Mainpage />
-      <Features />
+      <Team />
       <HowItWorks />
       <DownloadPage />
       <AboutUs />

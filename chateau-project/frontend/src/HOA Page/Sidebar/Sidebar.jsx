@@ -17,6 +17,7 @@ const Sidebar = () => {
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [userEmail, setUserEmail] = useState('Admin'); 
   const [displayName, setDisplayName] = useState('Admin'); 
+  const [avatarUrl, setAvatarUrl] = useState(null); 
   const location = useLocation();
   const navigate = useNavigate(); 
 
@@ -28,6 +29,7 @@ const Sidebar = () => {
         setUserEmail(user.email);
         // Use first_name from metadata if available, else use email prefix
         setDisplayName(user.user_metadata?.first_name || user.email.split('@')[0]);
+        setAvatarUrl(user.user_metadata?.avatar_url || null); // Added avatar fetch
       }
     };
 
@@ -38,6 +40,7 @@ const Sidebar = () => {
       if (session?.user) {
         setUserEmail(session.user.email);
         setDisplayName(session.user.user_metadata?.first_name || session.user.email.split('@')[0]);
+        setAvatarUrl(session.user.user_metadata?.avatar_url || null); // Added avatar update
       }
     });
 
@@ -155,8 +158,12 @@ const Sidebar = () => {
           ${isCollapsed ? 'justify-center' : 'justify-between'}`}
         >
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-[#FFF200] to-white flex items-center justify-center text-[#006837] font-bold shadow-inner text-lg group-hover:scale-105 transition-transform uppercase">
-              {displayName.charAt(0)}
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-[#FFF200] to-white flex items-center justify-center text-[#006837] font-bold shadow-inner text-lg group-hover:scale-105 transition-transform uppercase overflow-hidden">
+              {avatarUrl ? (
+                <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+              ) : (
+                displayName.charAt(0)
+              )}
             </div>
             {!isCollapsed && (
               <div className="text-left overflow-hidden">

@@ -15,31 +15,51 @@ const SidebarSuperAdmin = () => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [displayName, setDisplayName] = useState('President Super'); 
+  const [avatarUrl, setAvatarUrl] = useState(null); 
   const location = useLocation();
   const navigate = useNavigate();
 
+  const fetchUserData = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      // Fetch avatar and full_name from admins table
+      const { data: adminData } = await supabase
+        .from('admins')
+        .select('avatar_url, display_name')
+        .eq('email', user.email)
+        .single();
+        
+      if (adminData) {
+        setDisplayName(adminData.display_name || user.user_metadata?.display_name || user.email?.split('@')[0] || "Super Admin");
+        if (adminData.avatar_url) setAvatarUrl(adminData.avatar_url);
+      } else {
+        setDisplayName(user.user_metadata?.display_name || user.email?.split('@')[0] || "Super Admin");
+      }
+    }
+  };
+
   // --- FETCH USER DATA & SETUP LISTENER ---
   useEffect(() => {
-    const getUserData = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        setDisplayName(user.user_metadata?.full_name || user.email?.split('@')[0] || "Super Admin");
-      }
-    };
+    fetchUserData();
 
-    getUserData();
+    // Listen for custom profile update event
+    const handleProfileUpdate = () => fetchUserData();
+    window.addEventListener('profile-updated', handleProfileUpdate);
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (session?.user) {
-        setDisplayName(session.user.user_metadata?.full_name || session.user.email?.split('@')[0] || "Super Admin");
+        // Fallback for real-time auth change
+        setDisplayName(session.user.user_metadata?.display_name || session.user.email?.split('@')[0] || "Super Admin");
       }
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      subscription.unsubscribe();
+      window.removeEventListener('profile-updated', handleProfileUpdate);
+    };
   }, []);
 
   const handleLogout = async () => {
-    // --- ADDED: Log Logout Activity ---
     const { data: { user } } = await supabase.auth.getUser();
     if (user) {
       await supabase.from('system_logs').insert([
@@ -64,15 +84,12 @@ const SidebarSuperAdmin = () => {
   ];
 
   return (
-    // Changed relative to sticky top-0 to fix the sidebar scrolling behavior
     <aside className={`sticky top-0 h-screen flex flex-col transition-all duration-300 ease-in-out shadow-2xl z-50
       ${isCollapsed ? 'w-20' : 'w-72'} 
       bg-gradient-to-b from-[#006837] to-[#004d29]`}>
       
-      {/* Background Yellow Glow Overlay */}
       <div className="absolute bottom-0 left-0 w-full h-1/2 bg-[#FFF200] opacity-10 blur-[100px] pointer-events-none"></div>
 
-      {/* Toggle Button */}
       <button 
         onClick={() => setIsCollapsed(!isCollapsed)}
         className="absolute -right-3 top-10 bg-white text-[#006837] rounded-full p-1 shadow-md hover:scale-110 transition-transform border border-slate-200 z-50"
@@ -80,18 +97,12 @@ const SidebarSuperAdmin = () => {
         {isCollapsed ? <Menu size={18} /> : <ChevronLeft size={18} />}
       </button>
 
-      {/* Branding Section */}
       <div className={`flex flex-col items-center py-10 px-4 transition-opacity duration-300 ${isCollapsed ? 'opacity-0 invisible' : 'opacity-100'}`}>
-        <img 
-          src={ChateauLogo} 
-          alt="Chateau Logo" 
-          className="w-20 h-auto mb-4 drop-shadow-lg" 
-        />
-        <h1 className="text-white font-black tracking-[0.2em] text-xl uppercase text-center">CHATEAU CONTROL</h1>
+        <img src={ChateauLogo} alt="Chateau Logo" className="w-20 h-auto mb-4 drop-shadow-lg" />
+        <h1 className="text-white font-black tracking-[0.2em] text-xl uppercase text-center">SUPER ADNASAL</h1>
         <div className="h-px w-full bg-white/20 mt-6"></div>
       </div>
 
-      {/* Navigation Menu (flex-1 makes this area grow to fill space) */}
       <nav className="mt-4 px-3 space-y-2 flex-1 overflow-y-auto">
         {menuItems.map((item, index) => {
           const isActive = location.pathname === item.path;
@@ -116,7 +127,6 @@ const SidebarSuperAdmin = () => {
         })}
       </nav>
 
-      {/* User Profile Footer (Static at bottom) */}
       <div className="p-3 mt-auto">
         {isProfileOpen && !isCollapsed && (
           <div className="absolute bottom-24 left-3 right-3 bg-white rounded-2xl shadow-2xl border border-slate-100 overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-200">
@@ -144,8 +154,12 @@ const SidebarSuperAdmin = () => {
           ${isCollapsed ? 'justify-center' : 'justify-between'}`}
         >
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-[#FFF200] to-white flex items-center justify-center text-[#006837] font-bold shadow-inner text-lg group-hover:scale-105 transition-transform uppercase">
-              {displayName.charAt(0)}
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-[#FFF200] to-white flex items-center justify-center text-[#006837] font-bold shadow-inner text-lg group-hover:scale-105 transition-transform uppercase overflow-hidden">
+              {avatarUrl ? (
+                <img src={avatarUrl} alt="Profile" className="w-full h-full object-cover" />
+              ) : (
+                displayName.charAt(0)
+              )}
             </div>
             {!isCollapsed && (
               <div className="text-left overflow-hidden">
