@@ -1,39 +1,51 @@
-import React, { useState, useEffect } from 'react'; // useEffect
+import React, { useState, useEffect, useRef } from 'react'; 
 import { 
   User, Mail, Phone, Shield, Camera, 
   Lock, Bell, Save, CheckCircle2,
-  Eye, EyeOff, AlertCircle // Added AlertCircle
+  Eye, EyeOff, AlertCircle 
 } from 'lucide-react';
-import { supabase } from '../supabaseAdmin'; // Supabase import
+import { supabase } from '../supabaseAdmin';
 
 const ProfileManage = () => {
   const [activeSection, setActiveSection] = useState('Personal Info');
-  const [userEmail, setUserEmail] = useState(''); // State for email
+  const [userEmail, setUserEmail] = useState('');
+  const fileInputRef = useRef(null); // Ref for file input
   
-  // --- ADDED STATES FOR PERSONAL INFO ---
+  // --- ADDED STATES FOR AVATAR ---
+  const [avatarUrl, setAvatarUrl] = useState(null);
+  const [uploading, setUploading] = useState(false);
+
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [bio, setBio] = useState('');
   const [infoLoading, setInfoLoading] = useState(false);
 
-  // --- ADDED STATES FOR PASSWORD ---
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
   
-  // --- ADDED STATES FOR TOGGLE VISIBILITY ---
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
-  // --- ADDED STATE FOR TOAST ---
   const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
+
+  // --- AUDIT LOGGER ---
+  const logAudit = async (activity, details) => {
+    await supabase.from('system_logs').insert([
+      { 
+        user_email: userEmail, 
+        activity: activity, 
+        severity: 'info', 
+        details: details 
+      }
+    ]);
+  };
 
   const triggerToast = (message, type = 'success') => {
     setToast({ show: true, message, type });
     setTimeout(() => setToast({ show: false, message: '', type: 'success' }), 3000);
   };
 
-  // --- ADDED PASSWORD STRENGTH LOGIC ---
   const calculateStrength = (password) => {
     if (!password) return { score: 0, label: '', color: 'bg-slate-200' };
     let score = 0;
@@ -51,26 +63,69 @@ const ProfileManage = () => {
 
   const strength = calculateStrength(newPassword);
 
-  // --- FETCH USER DATA ---
+  // --- UPDATED FETCH LOGIC ---
   useEffect(() => {
     const getUser = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
         setUserEmail(user.email);
-        // Fetch metadata if it exists, otherwise use defaults
         setFirstName(user.user_metadata?.first_name || user.email.split('@')[0]);
         setLastName(user.user_metadata?.last_name || 'Admin');
         setBio(user.user_metadata?.bio || "Handling the administrative tasks and resident concerns for Chateau Community.");
+        setAvatarUrl(user.user_metadata?.avatar_url || null); // Load existing avatar
       }
     };
     getUser();
   }, []);
 
-  // --- UPDATED PERSONAL INFO UPDATE FUNCTION TO SYNC WITH ADMINS TABLE ---
+  // --- ADDED AVATAR UPLOAD FUNCTION (WITH DATABASE SYNC) ---
+  const handleAvatarUpload = async (event) => {
+    try {
+      setUploading(true);
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${Math.random()}.${fileExt}`;
+      const filePath = `avatars/${fileName}`;
+
+      let { error: uploadError } = await supabase.storage
+        .from('avatars')
+        .upload(filePath, file);
+
+      if (uploadError) throw uploadError;
+
+      const { data } = supabase.storage.from('avatars').getPublicUrl(filePath);
+      const newAvatarUrl = data.publicUrl;
+
+      // 1. Update Auth Metadata
+      const { error: updateError } = await supabase.auth.updateUser({
+        data: { avatar_url: newAvatarUrl }
+      });
+      if (updateError) throw updateError;
+
+      // 2. Update 'admins' table
+      const { error: dbError } = await supabase
+        .from('admins')
+        .update({ avatar_url: newAvatarUrl })
+        .eq('email', userEmail);
+      if (dbError) throw dbError;
+
+      setAvatarUrl(newAvatarUrl);
+      
+      // Added Audit Log
+      await logAudit('Profile Updated', 'HOA Administrator updated profile picture.');
+
+      triggerToast("Profile picture updated!", "success");
+    } catch (error) {
+      triggerToast("Error: " + error.message, "error");
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const handleInfoUpdate = async () => {
     setInfoLoading(true);
-    
-    // 1. Update the Auth Metadata (Standard)
     const { error: authError } = await supabase.auth.updateUser({
       data: { 
         first_name: firstName,
@@ -85,7 +140,6 @@ const ProfileManage = () => {
       return;
     }
 
-    // 2. Sync with the 'admins' table
     const fullDisplayName = `${firstName} ${lastName}`.trim();
     const { error: adminError } = await supabase
       .from('admins')
@@ -95,32 +149,31 @@ const ProfileManage = () => {
     if (adminError) {
       triggerToast("Sync Error: " + adminError.message, "error");
     } else {
+      // Added Audit Log
+      await logAudit('Profile Updated', `HOA Administrator updated display name to: ${fullDisplayName}`);
+      
       triggerToast("Profile and Admin display name updated!", "success");
     }
-    
     setInfoLoading(false);
   };
 
-  // --- ADDED PASSWORD UPDATE FUNCTION ---
   const handlePasswordUpdate = async () => {
     if (!newPassword || !confirmPassword) {
       triggerToast("Please fill in both password fields.", "error");
       return;
     }
-
     if (newPassword !== confirmPassword) {
       triggerToast("Passwords do not match!", "error");
       return;
     }
-
     setLoading(true);
-    const { error } = await supabase.auth.updateUser({
-      password: newPassword
-    });
-
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
     if (error) {
       triggerToast("Error: " + error.message, "error");
     } else {
+      // Added Audit Log
+      await logAudit('Security Update', 'HOA Administrator updated account password.');
+
       triggerToast("Password updated successfully!", "success");
       setNewPassword('');
       setConfirmPassword('');
@@ -130,7 +183,6 @@ const ProfileManage = () => {
 
   return (
     <div className="p-8 bg-slate-50 min-h-screen relative">
-      {/* TOAST NOTIFICATION */}
       {toast.show && (
         <div className={`fixed top-8 right-8 z-50 flex items-center gap-3 px-6 py-4 rounded-2xl shadow-2xl border transition-all animate-in fade-in slide-in-from-top-4
           ${toast.type === 'success' ? 'bg-emerald-50 border-emerald-100 text-emerald-800' : 'bg-red-50 border-red-100 text-red-800'}`}>
@@ -139,27 +191,41 @@ const ProfileManage = () => {
         </div>
       )}
 
-      {/* Header */}
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-slate-900">Profile Management</h1>
         <p className="text-slate-500 text-sm">Update your account settings and personal information.</p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        
-        {/* Left Column: Avatar & Basic Info */}
         <div className="lg:col-span-1 space-y-6">
           <div className="bg-white rounded-[32px] p-8 border border-slate-100 shadow-sm flex flex-col items-center">
             <div className="relative group">
-              <div className="w-32 h-32 rounded-3xl bg-gradient-to-tr from-[#006837] to-[#004d29] flex items-center justify-center text-white text-4xl font-bold shadow-xl uppercase">
-                {firstName.charAt(0) || userEmail.charAt(0) || 'A'}
+              {/* UPDATED AVATAR DISPLAY */}
+              <div className="w-32 h-32 rounded-3xl bg-gradient-to-tr from-[#006837] to-[#004d29] flex items-center justify-center text-white text-4xl font-bold shadow-xl overflow-hidden uppercase">
+                {avatarUrl ? (
+                  <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+                ) : (
+                  firstName.charAt(0) || userEmail.charAt(0) || 'A'
+                )}
               </div>
-              <button className="absolute -bottom-2 -right-2 p-2 bg-white border border-slate-100 rounded-xl shadow-lg text-slate-600 hover:text-indigo-600 transition-all">
+              
+              <input 
+                type="file" 
+                ref={fileInputRef} 
+                onChange={handleAvatarUpload} 
+                className="hidden" 
+                accept="image/*" 
+              />
+              
+              <button 
+                onClick={() => fileInputRef.current.click()}
+                disabled={uploading}
+                className="absolute -bottom-2 -right-2 p-2 bg-white border border-slate-100 rounded-xl shadow-lg text-slate-600 hover:text-indigo-600 transition-all cursor-pointer"
+              >
                 <Camera size={20} />
               </button>
             </div>
             
-            {/* Dynamic Name and Email */}
             <h2 className="text-xl font-bold text-slate-900 mt-6 truncate w-full text-center">{firstName} {lastName}</h2>
             <p className="text-indigo-600 text-xs font-bold uppercase tracking-widest mt-1">HOA Administrator</p>
             
@@ -173,7 +239,6 @@ const ProfileManage = () => {
             </div>
           </div>
 
-          {/* Quick Links */}
           <div className="bg-white rounded-[24px] p-2 border border-slate-100 shadow-sm">
             {['Personal Info', 'Security'].map((section) => (
               <button
@@ -190,7 +255,6 @@ const ProfileManage = () => {
           </div>
         </div>
 
-        {/* Right Column: Edit Forms */}
         <div className="lg:col-span-2">
           <div className="bg-white rounded-[32px] border border-slate-100 shadow-sm p-10">
             <h3 className="text-xl font-bold text-slate-900 mb-8">{activeSection}</h3>
@@ -262,7 +326,6 @@ const ProfileManage = () => {
                         </button>
                       </div>
                       
-                      {/* PASSWORD STRENGTH BAR */}
                       {newPassword && (
                         <div className="mt-2 space-y-1">
                           <div className="flex justify-between items-center">
@@ -298,7 +361,6 @@ const ProfileManage = () => {
                           {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                         </button>
                       </div>
-                      {/* PASSWORD MATCH VALIDATION MESSAGE */}
                       {confirmPassword && newPassword !== confirmPassword && (
                         <p className="text-[10px] font-bold text-red-500 uppercase mt-1">Passwords do not match</p>
                       )}

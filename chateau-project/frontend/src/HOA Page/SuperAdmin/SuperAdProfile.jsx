@@ -4,7 +4,7 @@ import {
   Lock, Bell, Save, CheckCircle2,
   Eye, EyeOff, AlertCircle 
 } from 'lucide-react';
-import { supabase } from '../supabaseAdmin'; // Ensure this path is correct for your project structure
+import { supabase } from '../supabaseAdmin'; 
 
 const SuperAdProfile = () => {
   const [activeSection, setActiveSection] = useState('Personal Info');
@@ -15,6 +15,10 @@ const SuperAdProfile = () => {
   const [lastName, setLastName] = useState('');
   const [bio, setBio] = useState('');
   const [infoLoading, setInfoLoading] = useState(false);
+  
+  // --- AVATAR STATE ---
+  const [avatarUrl, setAvatarUrl] = useState(null);
+  const [isUploading, setIsUploading] = useState(false);
 
   // --- PASSWORD STATES ---
   const [newPassword, setNewPassword] = useState('');
@@ -27,6 +31,18 @@ const SuperAdProfile = () => {
 
   // --- TOAST STATE ---
   const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
+
+  // --- AUDIT LOGGER ---
+  const logAudit = async (activity, details) => {
+    await supabase.from('system_logs').insert([
+      { 
+        user_email: userEmail, 
+        activity: activity, 
+        severity: 'info', 
+        details: details 
+      }
+    ]);
+  };
 
   const triggerToast = (message, type = 'success') => {
     setToast({ show: true, message, type });
@@ -60,16 +76,70 @@ const SuperAdProfile = () => {
         setFirstName(user.user_metadata?.first_name || user.email.split('@')[0]);
         setLastName(user.user_metadata?.last_name || 'Admin');
         setBio(user.user_metadata?.bio || "Managing the high-level system operations for Chateau.");
+        
+        // Fetch avatar from admins table
+        const { data: adminData } = await supabase
+          .from('admins')
+          .select('avatar_url')
+          .eq('email', user.email)
+          .single();
+          
+        if (adminData?.avatar_url) setAvatarUrl(adminData.avatar_url);
       }
     };
     getUser();
   }, []);
 
-  // --- UPDATED PERSONAL INFO UPDATE FUNCTION TO SYNC WITH ADMINS TABLE ---
+  // --- AVATAR UPLOAD HANDLER ---
+  const handleAvatarUpload = async (event) => {
+    try {
+      setIsUploading(true);
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${Math.random()}.${fileExt}`;
+      const filePath = `avatars/${fileName}`;
+
+      // 1. Upload to Supabase Storage
+      const { error: uploadError } = await supabase.storage
+        .from('avatars')
+        .upload(filePath, file);
+
+      if (uploadError) throw uploadError;
+
+      // 2. Get Public URL
+      const { data: publicUrlData } = supabase.storage
+        .from('avatars')
+        .getPublicUrl(filePath);
+
+      const newUrl = publicUrlData.publicUrl;
+
+      // 3. Update 'admins' table
+      const { error: dbError } = await supabase
+        .from('admins')
+        .update({ avatar_url: newUrl })
+        .eq('email', userEmail);
+
+      if (dbError) throw dbError;
+
+      setAvatarUrl(newUrl);
+
+      // Added Audit Log
+      await logAudit('Profile Updated', 'Super Admin updated profile picture.');
+
+      triggerToast("Profile picture updated!", "success");
+    } catch (error) {
+      triggerToast("Upload failed: " + error.message, "error");
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  // --- UPDATED PERSONAL INFO UPDATE FUNCTION ---
   const handleInfoUpdate = async () => {
     setInfoLoading(true);
     
-    // 1. Update the Auth Metadata (Standard)
     const { error: authError } = await supabase.auth.updateUser({
       data: { 
         first_name: firstName,
@@ -84,7 +154,6 @@ const SuperAdProfile = () => {
       return;
     }
 
-    // 2. Sync with the 'admins' table
     const fullDisplayName = `${firstName} ${lastName}`.trim();
     const { error: adminError } = await supabase
       .from('admins')
@@ -94,6 +163,9 @@ const SuperAdProfile = () => {
     if (adminError) {
       triggerToast("Sync Error: " + adminError.message, "error");
     } else {
+      // Added Audit Log
+      await logAudit('Profile Updated', `Super Admin updated display name to: ${fullDisplayName}`);
+      
       triggerToast("Super Admin profile and display name updated!", "success");
     }
     
@@ -149,12 +221,25 @@ const SuperAdProfile = () => {
         <div className="lg:col-span-1 space-y-6">
           <div className="bg-white rounded-[32px] p-8 border border-slate-100 shadow-sm flex flex-col items-center">
             <div className="relative group">
-              <div className="w-32 h-32 rounded-3xl bg-gradient-to-tr from-[#1e293b] to-[#0f172a] flex items-center justify-center text-white text-4xl font-bold shadow-xl uppercase">
-                {firstName.charAt(0) || userEmail.charAt(0) || 'S'}
+              <div className="w-32 h-32 rounded-3xl bg-gradient-to-tr from-[#1e293b] to-[#0f172a] flex items-center justify-center text-white text-4xl font-bold shadow-xl overflow-hidden">
+                {avatarUrl ? (
+                  <img src={avatarUrl} alt="Profile" className="w-full h-full object-cover" />
+                ) : (
+                  firstName.charAt(0) || userEmail.charAt(0) || 'S'
+                )}
               </div>
-              <button className="absolute -bottom-2 -right-2 p-2 bg-white border border-slate-100 rounded-xl shadow-lg text-slate-600 hover:text-blue-600 transition-all cursor-pointer">
+              
+              {/* Avatar Uploader Input */}
+              <label className="absolute -bottom-2 -right-2 p-2 bg-white border border-slate-100 rounded-xl shadow-lg text-slate-600 hover:text-blue-600 transition-all cursor-pointer">
+                <input 
+                  type="file" 
+                  className="hidden" 
+                  accept="image/*" 
+                  onChange={handleAvatarUpload}
+                  disabled={isUploading}
+                />
                 <Camera size={20} />
-              </button>
+              </label>
             </div>
             
             <h2 className="text-xl font-bold text-slate-900 mt-6 truncate w-full text-center">{firstName} {lastName}</h2>
