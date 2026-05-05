@@ -1,35 +1,40 @@
-import React, { useState, useEffect, useRef } from 'react'; 
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   User, Mail, Phone, Shield, Camera, 
   Lock, Bell, Save, CheckCircle2,
   Eye, EyeOff, AlertCircle 
 } from 'lucide-react';
-import { supabase } from '../supabaseAdmin';
+// UPDATED: Added an extra '../' to reach supabaseAdmin in the HOA Page folder
+import { supabase } from '../../supabaseAdmin'; 
 
-const ProfileManage = () => {
+const SuperAdProfile = () => {
   const [activeSection, setActiveSection] = useState('Personal Info');
   const [userEmail, setUserEmail] = useState('');
-  const fileInputRef = useRef(null); // Ref for file input
+  const fileInputRef = useRef(null); // Added ref to match standard behavior if you need it
   
-  // --- ADDED STATES FOR AVATAR ---
-  const [avatarUrl, setAvatarUrl] = useState(null);
-  const [uploading, setUploading] = useState(false);
-
+  // --- PERSONAL INFO STATES ---
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [bio, setBio] = useState('');
   const [infoLoading, setInfoLoading] = useState(false);
+  
+  // --- AVATAR STATE ---
+  const [avatarUrl, setAvatarUrl] = useState(null);
+  const [isUploading, setIsUploading] = useState(false);
 
+  // --- PASSWORD STATES ---
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
   
+  // --- VISIBILITY TOGGLES ---
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
+  // --- TOAST STATE ---
   const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
 
-  // ADDED: State for initial page load animation
+  // --- ADDED: PAGE LOADING STATE ---
   const [isPageLoading, setIsPageLoading] = useState(true);
 
   // --- AUDIT LOGGER ---
@@ -49,6 +54,7 @@ const ProfileManage = () => {
     setTimeout(() => setToast({ show: false, message: '', type: 'success' }), 3000);
   };
 
+  // --- PASSWORD STRENGTH LOGIC ---
   const calculateStrength = (password) => {
     if (!password) return { score: 0, label: '', color: 'bg-slate-200' };
     let score = 0;
@@ -66,7 +72,7 @@ const ProfileManage = () => {
 
   const strength = calculateStrength(newPassword);
 
-  // --- UPDATED FETCH LOGIC WITH LOADING STATE ---
+  // --- FETCH SUPER ADMIN DATA ---
   useEffect(() => {
     const getUser = async () => {
       setIsPageLoading(true); // Start loading animation
@@ -75,18 +81,26 @@ const ProfileManage = () => {
         setUserEmail(user.email);
         setFirstName(user.user_metadata?.first_name || user.email.split('@')[0]);
         setLastName(user.user_metadata?.last_name || 'Admin');
-        setBio(user.user_metadata?.bio || "Handling the administrative tasks and resident concerns for Chateau Community.");
-        setAvatarUrl(user.user_metadata?.avatar_url || null); // Load existing avatar
+        setBio(user.user_metadata?.bio || "Managing the high-level system operations for Chateau.");
+        
+        // Fetch avatar from admins table
+        const { data: adminData } = await supabase
+          .from('admins')
+          .select('avatar_url')
+          .eq('email', user.email)
+          .single();
+          
+        if (adminData?.avatar_url) setAvatarUrl(adminData.avatar_url);
       }
       setIsPageLoading(false); // End loading animation
     };
     getUser();
   }, []);
 
-  // --- ADDED AVATAR UPLOAD FUNCTION (WITH DATABASE SYNC) ---
+  // --- AVATAR UPLOAD HANDLER ---
   const handleAvatarUpload = async (event) => {
     try {
-      setUploading(true);
+      setIsUploading(true);
       const file = event.target.files[0];
       if (!file) return;
 
@@ -94,43 +108,45 @@ const ProfileManage = () => {
       const fileName = `${Math.random()}.${fileExt}`;
       const filePath = `avatars/${fileName}`;
 
-      let { error: uploadError } = await supabase.storage
+      // 1. Upload to Supabase Storage
+      const { error: uploadError } = await supabase.storage
         .from('avatars')
         .upload(filePath, file);
 
       if (uploadError) throw uploadError;
 
-      const { data } = supabase.storage.from('avatars').getPublicUrl(filePath);
-      const newAvatarUrl = data.publicUrl;
+      // 2. Get Public URL
+      const { data: publicUrlData } = supabase.storage
+        .from('avatars')
+        .getPublicUrl(filePath);
 
-      // 1. Update Auth Metadata
-      const { error: updateError } = await supabase.auth.updateUser({
-        data: { avatar_url: newAvatarUrl }
-      });
-      if (updateError) throw updateError;
+      const newUrl = publicUrlData.publicUrl;
 
-      // 2. Update 'admins' table
+      // 3. Update 'admins' table
       const { error: dbError } = await supabase
         .from('admins')
-        .update({ avatar_url: newAvatarUrl })
+        .update({ avatar_url: newUrl })
         .eq('email', userEmail);
+
       if (dbError) throw dbError;
 
-      setAvatarUrl(newAvatarUrl);
-      
+      setAvatarUrl(newUrl);
+
       // Added Audit Log
-      await logAudit('Profile Updated', 'HOA Administrator updated profile picture.');
+      await logAudit('Profile Updated', 'Super Admin updated profile picture.');
 
       triggerToast("Profile picture updated!", "success");
     } catch (error) {
-      triggerToast("Error: " + error.message, "error");
+      triggerToast("Upload failed: " + error.message, "error");
     } finally {
-      setUploading(false);
+      setIsUploading(false);
     }
   };
 
+  // --- UPDATED PERSONAL INFO UPDATE FUNCTION ---
   const handleInfoUpdate = async () => {
     setInfoLoading(true);
+    
     const { error: authError } = await supabase.auth.updateUser({
       data: { 
         first_name: firstName,
@@ -155,10 +171,11 @@ const ProfileManage = () => {
       triggerToast("Sync Error: " + adminError.message, "error");
     } else {
       // Added Audit Log
-      await logAudit('Profile Updated', `HOA Administrator updated display name to: ${fullDisplayName}`);
+      await logAudit('Profile Updated', `Super Admin updated display name to: ${fullDisplayName}`);
       
-      triggerToast("Profile and Admin display name updated!", "success");
+      triggerToast("Super Admin profile and display name updated!", "success");
     }
+    
     setInfoLoading(false);
   };
 
@@ -167,18 +184,20 @@ const ProfileManage = () => {
       triggerToast("Please fill in both password fields.", "error");
       return;
     }
+
     if (newPassword !== confirmPassword) {
       triggerToast("Passwords do not match!", "error");
       return;
     }
+
     setLoading(true);
-    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    const { error } = await supabase.auth.updateUser({
+      password: newPassword
+    });
+
     if (error) {
       triggerToast("Error: " + error.message, "error");
     } else {
-      // Added Audit Log
-      await logAudit('Security Update', 'HOA Administrator updated account password.');
-
       triggerToast("Password updated successfully!", "success");
       setNewPassword('');
       setConfirmPassword('');
@@ -186,7 +205,7 @@ const ProfileManage = () => {
     setLoading(false);
   };
 
-  // ADDED: Loading Screen Animation
+  // ADDED: Full Page Loading Animation
   if (isPageLoading) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-8">
@@ -200,6 +219,7 @@ const ProfileManage = () => {
 
   return (
     <div className="p-8 bg-slate-50 min-h-screen relative animate-in fade-in duration-500">
+      {/* TOAST NOTIFICATION */}
       {toast.show && (
         <div className={`fixed top-8 right-8 z-50 flex items-center gap-3 px-6 py-4 rounded-2xl shadow-2xl border transition-all animate-in fade-in slide-in-from-top-4
           ${toast.type === 'success' ? 'bg-emerald-50 border-emerald-100 text-emerald-800' : 'bg-red-50 border-red-100 text-red-800'}`}>
@@ -208,43 +228,42 @@ const ProfileManage = () => {
         </div>
       )}
 
+      {/* Header */}
       <div className="mb-8">
-        <h1 className="text-2xl font-bold text-slate-900">Profile Management</h1>
-        <p className="text-slate-500 text-sm">Update your account settings and personal information.</p>
+        <h1 className="text-2xl font-bold text-slate-900">Super Admin Profile</h1>
+        <p className="text-slate-500 text-sm">Update your system-wide administrative settings.</p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        
+        {/* Left Column: Avatar & Basic Info */}
         <div className="lg:col-span-1 space-y-6">
           <div className="bg-white rounded-[32px] p-8 border border-slate-100 shadow-sm flex flex-col items-center">
             <div className="relative group">
-              {/* UPDATED AVATAR DISPLAY */}
-              <div className="w-32 h-32 rounded-3xl bg-gradient-to-tr from-[#006837] to-[#004d29] flex items-center justify-center text-white text-4xl font-bold shadow-xl overflow-hidden uppercase">
+              <div className="w-32 h-32 rounded-3xl bg-gradient-to-tr from-[#1e293b] to-[#0f172a] flex items-center justify-center text-white text-4xl font-bold shadow-xl overflow-hidden">
                 {avatarUrl ? (
-                  <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+                  <img src={avatarUrl} alt="Profile" className="w-full h-full object-cover" />
                 ) : (
-                  firstName.charAt(0) || userEmail.charAt(0) || 'A'
+                  firstName.charAt(0) || userEmail.charAt(0) || 'S'
                 )}
               </div>
               
-              <input 
-                type="file" 
-                ref={fileInputRef} 
-                onChange={handleAvatarUpload} 
-                className="hidden" 
-                accept="image/*" 
-              />
-              
-              <button 
-                onClick={() => fileInputRef.current.click()}
-                disabled={uploading}
-                className="absolute -bottom-2 -right-2 p-2 bg-white border border-slate-100 rounded-xl shadow-lg text-slate-600 hover:text-indigo-600 transition-all cursor-pointer"
-              >
+              {/* Avatar Uploader Input */}
+              <label className="absolute -bottom-2 -right-2 p-2 bg-white border border-slate-100 rounded-xl shadow-lg text-slate-600 hover:text-blue-600 transition-all cursor-pointer">
+                <input 
+                  type="file" 
+                  ref={fileInputRef}
+                  className="hidden" 
+                  accept="image/*" 
+                  onChange={handleAvatarUpload}
+                  disabled={isUploading}
+                />
                 <Camera size={20} />
-              </button>
+              </label>
             </div>
             
             <h2 className="text-xl font-bold text-slate-900 mt-6 truncate w-full text-center">{firstName} {lastName}</h2>
-            <p className="text-indigo-600 text-xs font-bold uppercase tracking-widest mt-1">HOA Administrator</p>
+            <p className="text-blue-600 text-xs font-bold uppercase tracking-widest mt-1">Super Administrator</p>
             
             <div className="w-full h-px bg-slate-50 my-6"></div>
             
@@ -256,13 +275,14 @@ const ProfileManage = () => {
             </div>
           </div>
 
+          {/* Quick Links */}
           <div className="bg-white rounded-[24px] p-2 border border-slate-100 shadow-sm">
             {['Personal Info', 'Security'].map((section) => (
               <button
                 key={section}
                 onClick={() => setActiveSection(section)}
                 className={`w-full flex items-center gap-3 px-6 py-4 rounded-2xl text-sm font-bold transition-all cursor-pointer
-                  ${activeSection === section ? 'bg-slate-50 text-indigo-600' : 'text-slate-500 hover:bg-slate-50'}`}
+                  ${activeSection === section ? 'bg-slate-50 text-blue-600' : 'text-slate-500 hover:bg-slate-50'}`}
               >
                 {section === 'Personal Info' && <User size={18} />}
                 {section === 'Security' && <Lock size={18} />}
@@ -272,6 +292,7 @@ const ProfileManage = () => {
           </div>
         </div>
 
+        {/* Right Column: Edit Forms */}
         <div className="lg:col-span-2">
           <div className="bg-white rounded-[32px] border border-slate-100 shadow-sm p-10">
             <h3 className="text-xl font-bold text-slate-900 mb-8">{activeSection}</h3>
@@ -284,7 +305,7 @@ const ProfileManage = () => {
                     type="text" 
                     value={firstName} 
                     onChange={(e) => setFirstName(e.target.value)}
-                    className="w-full px-5 py-3.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/10 transition-all font-medium" 
+                    className="w-full px-5 py-3.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/10 transition-all font-medium" 
                   />
                 </div>
                 <div className="space-y-2">
@@ -293,7 +314,7 @@ const ProfileManage = () => {
                     type="text" 
                     value={lastName} 
                     onChange={(e) => setLastName(e.target.value)}
-                    className="w-full px-5 py-3.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/10 transition-all font-medium" 
+                    className="w-full px-5 py-3.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/10 transition-all font-medium" 
                   />
                 </div>
                 <div className="space-y-2 md:col-span-2">
@@ -301,12 +322,12 @@ const ProfileManage = () => {
                   <input type="email" value={userEmail} disabled className="w-full px-5 py-3.5 bg-slate-100 border border-slate-100 rounded-2xl text-sm font-medium text-slate-500 cursor-not-allowed" />
                 </div>
                 <div className="space-y-2 md:col-span-2">
-                  <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Bio / Designation</label>
+                  <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Bio / Admin Role Description</label>
                   <textarea 
                     rows="3" 
                     value={bio} 
                     onChange={(e) => setBio(e.target.value)}
-                    className="w-full px-5 py-3.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/10 transition-all font-medium resize-none" 
+                    className="w-full px-5 py-3.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/10 transition-all font-medium resize-none" 
                   />
                 </div>
               </div>
@@ -317,8 +338,8 @@ const ProfileManage = () => {
                     <Lock size={24} />
                   </div>
                   <div>
-                    <h4 className="text-lg font-bold text-slate-800">Change Password</h4>
-                    <p className="text-slate-400 text-sm">Update your password to keep your account secure</p>
+                    <h4 className="text-lg font-bold text-slate-800">System Security</h4>
+                    <p className="text-slate-400 text-sm">Update your master admin password</p>
                   </div>
                 </div>
 
@@ -332,7 +353,7 @@ const ProfileManage = () => {
                           value={newPassword}
                           onChange={(e) => setNewPassword(e.target.value)}
                           placeholder="Enter new password" 
-                          className="w-full px-5 py-3.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/10 transition-all font-medium" 
+                          className="w-full px-5 py-3.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/10 transition-all font-medium" 
                         />
                         <button 
                           type="button"
@@ -368,7 +389,7 @@ const ProfileManage = () => {
                           value={confirmPassword}
                           onChange={(e) => setConfirmPassword(e.target.value)}
                           placeholder="Confirm new password" 
-                          className="w-full px-5 py-3.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/10 transition-all font-medium" 
+                          className="w-full px-5 py-3.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/10 transition-all font-medium" 
                         />
                         <button 
                           type="button"
@@ -389,7 +410,7 @@ const ProfileManage = () => {
                       onClick={handlePasswordUpdate}
                       disabled={loading || strength.score < 75 || newPassword !== confirmPassword}
                       title={strength.score < 75 ? "Password must be at least 'Good' strength" : newPassword !== confirmPassword ? "Passwords must match" : ""}
-                      className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-xl text-sm font-bold hover:bg-blue-700 transition-all shadow-md shadow-blue-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-xl text-sm font-bold hover:bg-blue-700 transition-all shadow-md shadow-blue-100 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                     >
                       <Lock size={16} /> {loading ? "Updating..." : "Update Password"}
                     </button>
@@ -406,7 +427,7 @@ const ProfileManage = () => {
                 <button 
                   onClick={handleInfoUpdate}
                   disabled={infoLoading}
-                  className="flex items-center gap-2 px-8 py-3.5 bg-indigo-600 text-white rounded-2xl text-sm font-bold hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all disabled:opacity-50 cursor-pointer"
+                  className="flex items-center gap-2 px-8 py-3.5 bg-blue-600 text-white rounded-2xl text-sm font-bold hover:bg-blue-700 shadow-lg shadow-blue-200 transition-all disabled:opacity-50 cursor-pointer"
                 >
                   <Save size={18} /> {infoLoading ? "Saving..." : "Save Changes"}
                 </button>
@@ -419,4 +440,4 @@ const ProfileManage = () => {
   );
 };
 
-export default ProfileManage;
+export default SuperAdProfile;

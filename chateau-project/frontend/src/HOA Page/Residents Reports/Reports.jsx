@@ -334,8 +334,10 @@ const Reports = () => {
 
         <div className="relative">
           {loading ? (
-            <div className="py-20 flex justify-center items-center">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+            /* ADDED: Smooth Loading Animation */
+            <div className="flex flex-col items-center justify-center py-20 gap-4">
+              <div className="w-12 h-12 border-4 border-[#006837]/20 border-t-[#006837] rounded-full animate-spin"></div>
+              <p className="text-[#006837] font-semibold animate-pulse tracking-wide">Loading reports...</p>
             </div>
           ) : (
             <table className="w-full text-left border-collapse">

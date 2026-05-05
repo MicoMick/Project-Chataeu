@@ -3,8 +3,8 @@ import { Smartphone, Star, Download } from 'lucide-react';
 
 const Downloadpage = () => {
   const residentFeatures = [
-    "Reserve facilities with 3D preview",
-    "Track and pay dues",
+    "Reserve facilities with Panorama view",
+    "Track dues",
     "Report neighborhood issues directly to HOA",
     "Vote in community elections",
     "Receive instant announcements"

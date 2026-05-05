@@ -47,12 +47,27 @@ const HoaDashboard = () => {
   const [liveReservations, setLiveReservations] = useState([]);
   const [totalResidents, setTotalResidents] = useState(0);
 
+  // ADDED: Loading state
+  const [isLoading, setIsLoading] = useState(true);
+
   useEffect(() => {
-    fetchLiveReports();
-    fetchLiveAnnouncements(); 
-    fetchLiveElections(); 
-    fetchLiveReservations(); // ADDED
-    fetchTotalResidents();   // ADDED
+    // ADDED: Wrapper to handle the loading state properly
+    const loadDashboardData = async () => {
+      setIsLoading(true);
+      
+      // Wait for all fetches to complete before hiding the loading screen
+      await Promise.all([
+        fetchLiveReports(),
+        fetchLiveAnnouncements(),
+        fetchLiveElections(),
+        fetchLiveReservations(),
+        fetchTotalResidents()
+      ]);
+
+      setIsLoading(false);
+    };
+
+    loadDashboardData();
   }, []);
 
   const fetchLiveReports = async () => {
@@ -86,6 +101,7 @@ const HoaDashboard = () => {
     }
   };
 
+  // UPDATED: Now fetches the actual vote count from the 'votes' table for each active election
   const fetchLiveElections = async () => {
     try {
       const { data, error } = await supabase
@@ -95,7 +111,18 @@ const HoaDashboard = () => {
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      setLiveElections(data || []);
+
+      if (data) {
+        const electionsWithVoteCounts = await Promise.all(data.map(async (election) => {
+          const { count, error: countError } = await supabase
+            .from('votes')
+            .select('*', { count: 'exact', head: true })
+            .eq('election_id', election.id);
+          
+          return { ...election, actual_votes: count || 0 };
+        }));
+        setLiveElections(electionsWithVoteCounts);
+      }
     } catch (error) {
       console.error("Error fetching dashboard elections:", error.message);
     }
@@ -146,19 +173,29 @@ const HoaDashboard = () => {
     ]
   };
 
+  // ADDED: Loading Screen Animation
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-8">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-12 h-12 border-4 border-[#006837]/20 border-t-[#006837] rounded-full animate-spin"></div>
+          <p className="text-[#006837] font-semibold animate-pulse tracking-wide">Loading Dashboard...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="p-8 bg-slate-50 min-h-screen">
+    <div className="p-8 bg-slate-50 min-h-screen animate-in fade-in duration-500">
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-slate-900">Dashboard</h1>
         <p className="text-slate-500 text-sm">Welcome back! Here's what's happening in your community.</p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-        {/* UPDATED: Now uses live reservations count */}
         <StatCard title="Total Reservations" value={liveReservations.length} icon={Calendar} iconBg="bg-blue-50" />
         <StatCard title="Overdue Payments" value="1" icon={CreditCard} iconBg="bg-red-50" />
         <StatCard title="Active Elections" value={liveElections.length} icon={Vote} iconBg="bg-orange-50" />
-        {/* UPDATED: Now uses live total residents count */}
         <StatCard title="Residents" value={totalResidents} icon={Users} iconBg="bg-purple-50" />
       </div>
 
@@ -168,7 +205,6 @@ const HoaDashboard = () => {
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
             <SectionHeader title="Recent Reservations" linkText="View All" onClick={() => handleNavigate('reservations')} />
             <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
-              {/* UPDATED: Uses liveReservations instead of mockData */}
               {liveReservations.length > 0 ? (
                 liveReservations.map((item) => (
                   <div key={item.id} className="flex justify-between items-center p-3 border border-slate-50 rounded-xl hover:bg-slate-50 transition-colors">
@@ -264,7 +300,8 @@ const HoaDashboard = () => {
                   <div key={item.id} className="p-4 border-2 border-orange-100 rounded-xl bg-orange-50/30">
                     <p className="text-sm font-bold text-slate-900 mb-1">{item.title}</p>
                     <div className="flex justify-between items-center">
-                      <p className="text-xs text-orange-600 font-medium">{item.votes_count || 0} Residents Voted</p>
+                      {/* UPDATED: Displays actual count of rows from votes table */}
+                      <p className="text-xs text-orange-600 font-medium">{item.actual_votes || 0} Residents Voted</p>
                       <span className="text-xs font-bold text-orange-700 bg-orange-100 px-2 py-0.5 rounded uppercase tracking-tighter">LIVE</span>
                     </div>
                   </div>

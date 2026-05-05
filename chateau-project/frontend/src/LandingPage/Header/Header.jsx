@@ -24,31 +24,31 @@ const Header = () => {
     <nav 
       className={`fixed w-full z-50 transition-all duration-300 ${
         scrolled 
-          ? 'bg-[#006837]/90 backdrop-blur-md py-3 shadow-lg' 
-          : 'bg-transparent py-5'
+          ? 'bg-[#006837]/90 backdrop-blur-md py-2 shadow-lg' 
+          : 'bg-transparent py-4'
       }`}
     >
       <div className="max-w-7xl mx-auto px-6 lg:px-12">
         <div className="flex justify-between items-center text-white">
           
-          {/* Logo - Replaced text with image */}
+          {/* Logo - Increased size to h-16 and md:h-20 */}
           <div className="flex-shrink-0">
             <a href="/">
               <img 
                 src={ChateauLogo} 
                 alt="Chateau Real Logo" 
-                className="h-20 md:h-20 w-auto object-contain hover:scale-105 transition-transform duration-300" 
+                className="h-16 md:h-20 w-auto object-contain hover:scale-105 transition-transform duration-300" 
               />
             </a>
           </div>
 
-          {/* Desktop Navigation */}
+          {/* Desktop Navigation - text-base and font-semibold */}
           <div className="hidden md:flex space-x-10 items-center">
             {navLinks.map((link) => (
               <a
                 key={link.name}
                 href={link.href}
-                className="text-gray-100 hover:text-[#FFF200] text-sm font-medium transition-colors"
+                className="text-gray-100 hover:text-[#FFF200] text-base font-semibold tracking-wide transition-colors"
               >
                 {link.name}
               </a>
@@ -70,7 +70,7 @@ const Header = () => {
         </div>
       </div>
 
-      {/* Mobile Menu Overlay - Updated bg color to match Heritage theme */}
+      {/* Mobile Menu Overlay */}
       <div className={`${isOpen ? 'block' : 'hidden'} md:hidden bg-[#006837] absolute w-full left-0 border-t border-white/10 shadow-2xl`}>
         <div className="px-6 py-6 space-y-4">
           {navLinks.map((link) => (

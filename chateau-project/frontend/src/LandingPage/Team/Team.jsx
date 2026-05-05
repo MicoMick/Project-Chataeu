@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react'; // Added useEffect and useRef
 import RaffyTuvilla from '../../assets/RaffyTuvilla.png'; 
 import MichaelNocum from '../../assets/MichaelNocum.png';
 import JanetVillar from '../../assets/JanetVillar.png';
@@ -23,8 +23,43 @@ const Team = () => {
     { name: "David Anderson", role: "Board of Directors", url: MarkAlvinTahir },
   ];
 
+  // Logic to handle scroll-triggered animation
+  useEffect(() => {
+    const observerOptions = {
+      threshold: 0.1, // Trigger when 10% of the card is visible
+    };
+
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('animate-reveal');
+          observer.unobserve(entry.target); // Run animation only once
+        }
+      });
+    }, observerOptions);
+
+    const cards = document.querySelectorAll('.team-card');
+    cards.forEach((card) => observer.observe(card));
+
+    return () => observer.disconnect();
+  }, []);
+
   return (
     <section id="team" className="py-24 bg-[#F7FAFC]">
+      {/* Internal CSS for the Pop-up effect */}
+      <style dangerouslySetInnerHTML={{ __html: `
+        @keyframes revealPopup {
+          0% { opacity: 0; transform: translateY(30px) scale(0.9); }
+          100% { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        .team-card {
+          opacity: 0; /* Hidden by default */
+        }
+        .animate-reveal {
+          animation: revealPopup 0.6s ease-out forwards;
+        }
+      `}} />
+
       <div className="container mx-auto px-6 text-center">
         <h4 className="text-[#006837] font-bold uppercase tracking-widest mb-3 text-sm">Meet Our People</h4>
         <h2 className="text-4xl md:text-5xl font-black mb-4 text-slate-900">Board of Directors</h2>
@@ -36,7 +71,9 @@ const Team = () => {
           {teamMembers.map((member, index) => (
             <div 
               key={index} 
-              className="bg-white p-8 rounded-2xl shadow-sm border border-slate-100 flex flex-col items-center text-center hover:shadow-xl hover:-translate-y-2 transition-all duration-300 group"
+              // Added "team-card" class and dynamic animation delay
+              className="team-card bg-white p-8 rounded-2xl shadow-sm border border-slate-100 flex flex-col items-center text-center hover:shadow-xl hover:-translate-y-2 transition-all duration-300 group"
+              style={{ animationDelay: `${index * 100}ms` }}
             >
               {/* Image Element */}
               <img 

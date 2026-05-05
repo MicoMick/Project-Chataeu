@@ -1,40 +1,43 @@
 import React, { useState, useEffect } from 'react';
-import { supabase } from '../supabaseAdmin'; 
+// UPDATED: Added an extra '../' to reach supabaseAdmin in the HOA Page folder
+import { supabase } from '../../supabaseAdmin';
 import { 
-  Users, UserPlus, UserCheck, UserMinus, Clock, Search, MoreHorizontal, X, User, Mail, MapPin, Calendar,
-  Phone, ShieldCheck, Home, Car, Dog, AlertTriangle, UserCircle, Briefcase,
-  Eye, Edit2, Trash2 
+  Search, Plus, Trash2, Edit2, User, Home, AlertTriangle, 
+  X, UserCircle, Briefcase, Calendar, MapPin, Phone, MoreHorizontal, Clock, Users,
+  Eye // ADDED: Imported Eye icon
 } from 'lucide-react';
 
+// Added StatCard helper for the UI
 const StatCard = ({ title, value, icon: Icon, iconBg }) => (
-  <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col justify-between">
-    <div className="flex justify-between items-start">
-      <div>
-        <p className="text-slate-500 text-xs font-medium uppercase tracking-wider">{title}</p>
-        <h3 className="text-3xl font-bold text-slate-900 mt-1">{value}</h3>
-      </div>
-      <div className={`p-3 rounded-xl ${iconBg}`}>
-        <Icon size={22} className="text-slate-700" />
-      </div>
+  <div className="bg-white p-6 rounded-3xl border border-slate-100 flex items-center gap-4">
+    <div className={`p-4 rounded-full ${iconBg}`}>
+      <Icon className="text-indigo-600" size={24} />
+    </div>
+    <div>
+      <p className="text-sm text-slate-500 font-medium">{title}</p>
+      <p className="text-2xl font-bold text-slate-900">{value}</p>
     </div>
   </div>
 );
 
-const ResidentManage = () => {
-  const [residents, setResidents] = useState([]); 
+const Residents = () => {
+  const [residents, setResidents] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [showAddModal, setShowAddModal] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  // REMOVED: openMenuId and menuPosition are no longer needed
+  const [showOnlyPending, setShowOnlyPending] = useState(false); // Added Pending Filter State
+  
+  // Logic & Modal States
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [showCreateModal, setShowCreateModal] = useState(false); // Added Create Modal State
+  const [openMenuId, setOpenMenuId] = useState(null);
   const [selectedResident, setSelectedResident] = useState(null);
   const [isViewingProfile, setIsViewingProfile] = useState(false);
+  const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
   const [showToast, setShowToast] = useState(false);
   const [residentToDelete, setResidentToDelete] = useState(null);
-  
-  // --- ADDED: Notification Modal State ---
-  const [notification, setNotification] = useState({ show: false, title: '', message: '', type: 'success' });
-  
-  // --- ADDED: State for all edit fields ---
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Edit/Create States
   const [editFullName, setEditFullName] = useState('');
   const [editEmail, setEditEmail] = useState('');
   const [editFirstName, setEditFirstName] = useState('');
@@ -45,28 +48,12 @@ const ResidentManage = () => {
   const [editAddress, setEditAddress] = useState('');
   const [editStreet, setEditStreet] = useState('');
   const [editPhone, setEditPhone] = useState('');
-  const [isSaving, setIsSaving] = useState(false);
-
-// --- NEW: Helper for Audit Logs ---
-const logActivity = async (action, description) => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      await supabase.from('system_logs').insert({
-        user_email: user?.email || 'Admin', 
-        activity: `${action} - ${description}`,
-        severity: 'info', 
-        details: 'Success' 
-      });
-    } catch (err) {
-      console.error('Audit log failed', err);
-    }
-  };
+  const [editPassword, setEditPassword] = useState('');
 
   useEffect(() => {
     fetchResidents();
   }, []);
 
-  // Initialize edit form when a resident is selected
   useEffect(() => {
     if (selectedResident) {
       setEditFullName(selectedResident.full_name || '');
@@ -99,22 +86,18 @@ const logActivity = async (action, description) => {
     }
   };
 
-  // --- UPDATED: Send Edit Request to Approval System + Log ---
   const handleUpdateResident = async (e) => {
     e.preventDefault();
     setIsSaving(true);
     try {
-      // Get the current user
-      const { data: { user } } = await supabase.auth.getUser();
-
       const { error } = await supabase
         .from('approval_requests')
-        .insert({
-          action_type: 'UPDATE',
+        .insert([{
+          target_table: 'profiles',
           target_id: selectedResident.id,
-          requested_by: user?.id,
+          action_type: 'UPDATE',
           requested_data: { 
-            full_name: editFullName,
+            full_name: `${editFirstName} ${editLastName}`,
             email: editEmail,
             first_name: editFirstName,
             last_name: editLastName,
@@ -126,99 +109,161 @@ const logActivity = async (action, description) => {
             phone: editPhone
           },
           status: 'PENDING'
-        });
+        }]);
 
       if (error) throw error;
       
-      // Log the audit event
-      await logActivity('UPDATE_REQUEST', `Requested updates for resident ID: ${selectedResident.id}`);
-
-      setNotification({ show: true, title: 'Success', message: 'Edit request submitted for Admin approval.', type: 'success' });
+      alert('Update request submitted for Super Admin approval.');
       setShowAddModal(false);
       setSelectedResident(null);
     } catch (error) {
-      console.error('Error requesting update:', error.message);
-      setNotification({ show: true, title: 'Error', message: 'Failed to submit update request.', type: 'error' });
+      console.error('Error submitting request:', error.message);
+      alert('Failed to submit request.');
     } finally {
       setIsSaving(false);
     }
   };
 
-  // REMOVED: handleActionClick (dropdown logic)
+  // Added Create Resident Handler
+  const handleCreateResident = async (e) => {
+    e.preventDefault();
+    
+    // Validation
+    if (editPassword.length < 6) {
+      alert("Password must be at least 6 characters long.");
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      // 1. Authenticate the User
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: editEmail,
+        password: editPassword,
+      });
+
+      if (authError) throw authError;
+
+      // 2. Create the Profile record linked to the Auth ID
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .insert([{ 
+          id: authData.user.id, // Linking the profile to the Auth ID
+          full_name: `${editFirstName} ${editLastName}`,
+          email: editEmail,
+          first_name: editFirstName,
+          last_name: editLastName,
+          middle_initial: editMiddleInitial,
+          username: editUsername,
+          resident_type: editResidentType,
+          address: editAddress,
+          street: editStreet,
+          phone: editPhone,
+          status: 'active'
+        }]);
+
+      if (profileError) throw profileError;
+
+      // 3. Add Audit Log
+      await supabase.from('audit_logs').insert([{
+        action: 'CREATE_USER',
+        description: `New user created: ${editEmail}`,
+        created_at: new Date().toISOString()
+      }]);
+
+      await fetchResidents();
+      setShowCreateModal(false);
+      
+      // Reset form
+      setEditFirstName(''); setEditLastName(''); setEditEmail(''); 
+      setEditPassword(''); setEditUsername('');
+    } catch (error) {
+      console.error('Error creating resident:', error.message);
+      alert('Failed to create resident: ' + error.message);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleActionClick = (e, resident) => {
+    e.stopPropagation();
+    if (openMenuId === resident.id) {
+      setOpenMenuId(null);
+    } else {
+      const rect = e.currentTarget.getBoundingClientRect();
+      setMenuPosition({ top: rect.bottom + window.scrollY + 8, left: rect.left + window.scrollX - 140 });
+      setOpenMenuId(resident.id);
+    }
+  };
 
   const handleEdit = (resident) => {
     setSelectedResident(resident);
     setIsViewingProfile(false);
     setShowAddModal(true); 
+    setOpenMenuId(null);
   };
 
   const handleViewProfile = (resident) => {
     setSelectedResident(resident);
     setIsViewingProfile(true);
+    setOpenMenuId(null);
   }
 
   const handleRemoveRequest = (id) => {
     setResidentToDelete(id);
     setShowToast(true);
+    setOpenMenuId(null);
   };
 
-  // --- UPDATED: Send Delete Request to Approval System + Log ---
   const confirmDelete = async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-
       const { error } = await supabase
         .from('approval_requests')
-        .insert({
-          action_type: 'DELETE',
+        .insert([{
+          target_table: 'profiles',
           target_id: residentToDelete,
-          requested_by: user?.id,
+          action_type: 'DELETE',
           status: 'PENDING'
-        });
+        }]);
 
       if (error) throw error;
 
-      // Log the audit event
-      await logActivity('DELETE_REQUEST', `Requested deletion for resident ID: ${residentToDelete}`);
-
-      setNotification({ show: true, title: 'Success', message: 'Deletion request submitted for Admin approval.', type: 'success' });
+      alert('Delete request submitted for Super Admin approval.');
       setShowToast(false);
       setResidentToDelete(null);
     } catch (error) {
-      console.error('Error requesting deletion:', error.message);
-      setNotification({ show: true, title: 'Error', message: 'Failed to submit delete request.', type: 'error' });
+      console.error('Error submitting delete request:', error.message);
+      alert('Failed to submit request.');
     }
   };
 
-  const filteredResidents = residents.filter((resident) => {
-    return searchTerm === '' || (
-      (resident.full_name?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
-      (resident.email?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
-      (resident.address?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
-      (resident.username?.toLowerCase() || '').includes(searchTerm.toLowerCase())
-    );
+  // Logic for filtering
+  const filteredResidents = residents.filter((r) => {
+    const matchesSearch = searchTerm === '' || 
+      (r.full_name?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
+      (r.email?.toLowerCase() || '').includes(searchTerm.toLowerCase());
+    
+    const matchesPending = showOnlyPending ? r.status === 'pending' : true;
+    
+    return matchesSearch && matchesPending;
   });
 
-  return (
-    <div className="p-8 bg-slate-50 min-h-screen relative font-sans text-slate-900">
-      
-      {/* --- Notification Modal --- */}
-      {notification.show && (
-        <div className="fixed inset-0 z-[400] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setNotification({...notification, show: false})}></div>
-          <div className="relative bg-white shadow-2xl rounded-3xl p-8 flex flex-col items-center text-center gap-4 max-w-sm w-full animate-in fade-in zoom-in duration-200">
-            <div className={`p-4 rounded-full mb-2 ${notification.type === 'success' ? 'bg-green-50 text-green-500' : 'bg-red-50 text-red-500'}`}>
-              {notification.type === 'success' ? <ShieldCheck size={40} /> : <AlertTriangle size={40} />}
-            </div>
-            <div>
-              <p className="text-xl font-bold text-slate-900">{notification.title}</p>
-              <p className="text-sm text-slate-500 mt-2">{notification.message}</p>
-            </div>
-            <button onClick={() => setNotification({...notification, show: false})} className="w-full px-4 py-3 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl cursor-pointer transition-colors">Close</button>
-          </div>
+  // ADDED: Smooth Loading Screen Animation (Early Return)
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-8">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-12 h-12 border-4 border-[#006837]/20 border-t-[#006837] rounded-full animate-spin"></div>
+          <p className="text-[#006837] font-semibold animate-pulse tracking-wide">Loading Residents...</p>
         </div>
-      )}
+      </div>
+    );
+  }
 
+  return (
+    <div className="p-8 bg-slate-50 min-h-screen relative font-sans text-slate-900 animate-in fade-in duration-500">
+      
+      {/* Deletion Toast */}
       {showToast && (
         <div className="fixed inset-0 z-[300] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowToast(false)}></div>
@@ -228,20 +273,35 @@ const logActivity = async (action, description) => {
             </div>
             <div>
               <p className="text-xl font-bold text-slate-900">Confirm Deletion</p>
-              <p className="text-sm text-slate-500 mt-2">Are you sure you want to request the removal of this resident? This will be sent to the Super Admin for approval.</p>
+              <p className="text-sm text-slate-500 mt-2">Are you sure you want to remove this resident? This action cannot be undone.</p>
             </div>
             <div className="flex gap-3 w-full mt-4">
               <button onClick={() => setShowToast(false)} className="flex-1 px-4 py-3 text-sm font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 rounded-xl cursor-pointer transition-colors">Cancel</button>
-              <button onClick={confirmDelete} className="flex-1 px-4 py-3 text-sm font-bold bg-red-500 text-white hover:bg-red-600 rounded-xl cursor-pointer transition-all shadow-lg shadow-red-200">Confirm Request</button>
+              <button onClick={confirmDelete} className="flex-1 px-4 py-3 text-sm font-bold bg-red-500 text-white hover:bg-red-600 rounded-xl cursor-pointer transition-all shadow-lg shadow-red-200">Remove</button>
             </div>
           </div>
         </div>
       )}
 
+      {/* Header */}
       <div className="flex justify-between items-start mb-8">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Resident Management</h1>
           <p className="text-slate-500 text-sm mt-1">Manage residents, approve registrations, and assign roles.</p>
+        </div>
+        <div className="flex gap-3">
+          <button 
+            onClick={() => setShowOnlyPending(!showOnlyPending)}
+            className={`px-4 py-2 rounded-xl text-sm font-bold border ${showOnlyPending ? 'bg-amber-100 border-amber-200 text-amber-700' : 'bg-white border-slate-200 text-slate-600'}`}
+          >
+            {showOnlyPending ? 'Showing Pending' : 'Show Pending Approval'}
+          </button>
+          <button 
+            onClick={() => setShowCreateModal(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 transition-all cursor-pointer"
+          >
+            <Plus size={18} /> Create User
+          </button>
         </div>
       </div>
 
@@ -249,11 +309,18 @@ const logActivity = async (action, description) => {
         <StatCard title="Total Residents" value={residents.length} icon={Users} iconBg="bg-blue-50" />
       </div>
 
+      {/* Table Container */}
       <div className="bg-white rounded-3xl shadow-sm border border-slate-100"> 
         <div className="px-6 py-4">
           <div className="relative max-w-sm">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-            <input type="text" placeholder="Search Residents..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all" />
+            <input 
+              type="text" 
+              placeholder="Search Residents..." 
+              value={searchTerm} 
+              onChange={(e) => setSearchTerm(e.target.value)} 
+              className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all" 
+            />
           </div>
         </div>
 
@@ -277,14 +344,14 @@ const logActivity = async (action, description) => {
             </thead>
             <tbody className="divide-y divide-slate-50">
               {loading ? (
-                <tr>
-                  <td colSpan="12" className="px-6 py-16">
-                    <div className="flex flex-col items-center justify-center gap-4">
-                      <div className="w-12 h-12 border-4 border-[#006837]/20 border-t-[#006837] rounded-full animate-spin"></div>
-                      <p className="text-[#006837] font-semibold animate-pulse tracking-wide">Loading residents...</p>
-                    </div>
-                  </td>
-                </tr>
+                 <tr>
+                   <td colSpan="12" className="px-6 py-12 text-center">
+                     <div className="flex flex-col items-center justify-center gap-3">
+                       <div className="w-8 h-8 border-4 border-[#006837]/20 border-t-[#006837] rounded-full animate-spin"></div>
+                       <p className="text-[#006837] font-semibold animate-pulse tracking-wide text-xs">Loading data...</p>
+                     </div>
+                   </td>
+                 </tr>
               ) : filteredResidents.length > 0 ? (
                 filteredResidents.map((resident) => (
                   <tr key={resident.id} className="group hover:bg-slate-50 transition-colors">
@@ -316,8 +383,8 @@ const logActivity = async (action, description) => {
                     <td className="py-4 px-2 text-sm text-slate-500">{resident.address || 'N/A'}</td>
                     <td className="py-4 px-2 text-sm text-slate-500">{resident.street || 'N/A'}</td>
                     <td className="py-4 px-2 text-sm text-slate-500">{resident.phone || 'N/A'}</td>
-                    <td className="py-4 px-2 text-sm text-slate-500">{new Date(resident.created_at).toLocaleDateString()}</td>
-                    {/* UPDATED: Action Buttons instead of Dropdown */}
+                    <td className="py-4 px-2 text-sm text-slate-500">{resident.created_at ? new Date(resident.created_at).toLocaleDateString() : 'N/A'}</td>
+                    {/* UPDATED: REPLACED MOREHORIZONTAL WITH ACTION BUTTONS */}
                     <td className="py-4 text-right flex justify-end gap-1">
                       <button onClick={() => handleViewProfile(resident)} title="View Profile" className="p-2 hover:bg-white rounded-lg transition-all text-slate-400 hover:text-blue-500 border border-transparent hover:border-slate-200 cursor-pointer">
                         <Eye size={18} />
@@ -343,10 +410,25 @@ const logActivity = async (action, description) => {
               )}
             </tbody>
           </table>
-          {/* REMOVED: Dropdown Menu Markup */}
+
+          {/* Menu Dropdown */}
+          {openMenuId && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setOpenMenuId(null)}></div>
+              <div 
+                className="fixed w-40 bg-white border border-slate-100 shadow-xl rounded-xl z-50 py-1 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200 text-left"
+                style={{ top: menuPosition.top, left: menuPosition.left }}
+              >
+                <button onClick={() => handleViewProfile(residents.find(r => r.id === openMenuId))} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 font-medium cursor-pointer">View Profile</button>
+                <button onClick={() => handleEdit(residents.find(r => r.id === openMenuId))} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 font-medium border-t border-slate-50 cursor-pointer">Edit</button>
+                <button onClick={() => handleRemoveRequest(openMenuId)} className="w-full text-left px-4 py-2.5 text-sm text-red-500 hover:bg-red-50 font-medium border-t border-slate-50 cursor-pointer">Remove</button>
+              </div>
+            </>
+          )}
         </div>
       </div>
 
+      {/* View Profile Modal */}
       {selectedResident && isViewingProfile && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setSelectedResident(null)}></div>
@@ -389,6 +471,7 @@ const logActivity = async (action, description) => {
         </div>
       )}
 
+      {/* Edit Modal */}
       {showAddModal && selectedResident && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => { setShowAddModal(false); setSelectedResident(null); }}></div>
@@ -414,7 +497,7 @@ const logActivity = async (action, description) => {
                         </div>
                         <div className="space-y-2">
                             <label className="text-[11px] uppercase font-bold text-slate-400 tracking-widest px-1">Middle Initial</label>
-                            <input type="text" value={editMiddleInitial} onChange={(e) => setEditMiddleInitial(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all" />
+                            <input type="text" maxLength="1" value={editMiddleInitial} onChange={(e) => setEditMiddleInitial(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all" />
                         </div>
                     </div>
                     <div className="space-y-4">
@@ -456,8 +539,92 @@ const logActivity = async (action, description) => {
           </div>
         </div>
       )}
+
+      {/* Create User Modal */}
+      {showCreateModal && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setShowCreateModal(false)}></div>
+          <div className="relative bg-white w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
+             <div className="p-6 border-b border-slate-50 bg-white">
+                <h3 className="font-bold text-xl text-slate-900">Create New Resident</h3>
+             </div>
+             <form className="p-8 max-h-[80vh] overflow-y-auto" onSubmit={handleCreateResident}>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-4">
+                        <div className="space-y-2">
+                            <label className="text-[11px] uppercase font-bold text-slate-400 tracking-widest px-1">First Name</label>
+                            <input type="text" required value={editFirstName} onChange={(e) => setEditFirstName(e.target.value)} placeholder="e.g. Juan" className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all" />
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-[11px] uppercase font-bold text-slate-400 tracking-widest px-1">Last Name</label>
+                            <input type="text" required value={editLastName} onChange={(e) => setEditLastName(e.target.value)} placeholder="e.g. Karlo" className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all" />
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-[11px] uppercase font-bold text-slate-400 tracking-widest px-1">Middle Initial</label>
+                            <input type="text" maxLength="1" value={editMiddleInitial} onChange={(e) => setEditMiddleInitial(e.target.value)} placeholder="e.g. A" className="w-20 px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all" />
+                        </div>
+                    </div>
+                    <div className="space-y-4">
+                        <div className="space-y-2">
+                            <label className="text-[11px] uppercase font-bold text-slate-400 tracking-widest px-1">Username</label>
+                            <input type="text" required value={editUsername} onChange={(e) => setEditUsername(e.target.value)} placeholder="e.g. juan karlos" className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all" />
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-[11px] uppercase font-bold text-slate-400 tracking-widest px-1">Email</label>
+                            <input type="email" required value={editEmail} onChange={(e) => setEditEmail(e.target.value)} placeholder="e.g. juan.karlo@example.com" className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all" />
+                        </div>
+
+                        {/* Password Input */}
+                        <div className="space-y-2">
+                          <label className="text-[11px] uppercase font-bold text-slate-400 tracking-widest px-1">Password</label>
+                          <input 
+                            type="password" 
+                            required 
+                            value={editPassword} 
+                            onChange={(e) => setEditPassword(e.target.value)} 
+                            placeholder="Enter a secure password"
+                            className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all" 
+                          />
+                        </div>
+
+                        {/* Resident Type Selector */}
+                        <div className="space-y-2">
+                          <label className="text-[11px] uppercase font-bold text-slate-400 tracking-widest px-1">Resident Type</label>
+                          <select 
+                            value={editResidentType} 
+                            onChange={(e) => setEditResidentType(e.target.value)} 
+                            className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all"
+                            required
+                          >
+                            <option value="" disabled>Select Type</option>
+                            <option value="Resident">Resident</option>
+                            <option value="Renter">Renter</option>
+                          </select>
+                        </div>
+                    </div>
+                </div>
+                <div className="space-y-4 mt-4">
+                    <div className="space-y-2">
+                        <label className="text-[11px] uppercase font-bold text-slate-400 tracking-widest px-1">Address</label>
+                        <input type="text" value={editAddress} onChange={(e) => setEditAddress(e.target.value)} placeholder="e.g. Blk 15 Lot 10 Phase 1" className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all" />
+                    </div>
+                    <div className="space-y-2">
+                        <label className="text-[11px] uppercase font-bold text-slate-400 tracking-widest px-1">Street</label>
+                        <input type="text" value={editStreet} onChange={(e) => setEditStreet(e.target.value)} placeholder="e.g. Gumamela St" className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all" />
+                    </div>
+                </div>
+                <div className="pt-8 flex gap-3">
+                  <button type="button" onClick={() => setShowCreateModal(false)} className="flex-1 py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-2xl font-bold text-sm transition-all cursor-pointer">Cancel</button>
+                  <button type="submit" disabled={isSaving} className="flex-1 py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-bold text-sm transition-all shadow-lg shadow-indigo-200 cursor-pointer disabled:opacity-50">
+                    {isSaving ? "Creating..." : "Create User"}
+                  </button>
+                </div>
+             </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
 
-export default ResidentManage;
+export default Residents;

@@ -19,13 +19,13 @@ import Announcements from './HOA Page/Announcements/Announcements.jsx';
 import Reports from './HOA Page/Residents Reports/Reports.jsx';
 import ProfileManage from './HOA Page/HOA Profile/ProfileManage.jsx';
 
-// --- ADDED SUPER ADMIN IMPORTS ---
-import SuperAdminLayout from './HOA Page/SuperAdmin/SuperAdminLayout';
-import SuperAdminDB from './HOA Page/SuperAdmin/SuperAdminDB';
-import SuperAdProfile from './HOA Page/SuperAdmin/SuperAdProfile'; 
-import AdminControl from './HOA Page/SuperAdmin/AdminControl'; 
-import Residents from './HOA Page/SuperAdmin/Residents'; 
-import SystemLogs from './HOA Page/SuperAdmin/SystemLogs';
+// --- ADDED SUPER ADMIN IMPORTS (UPDATED PATHS BASED ON FOLDERS) ---
+import SuperAdminLayout from './HOA Page/SuperAdmin/Super Admin Sidebar/SuperAdminLayout.jsx';
+import SuperAdminDB from './HOA Page/SuperAdmin/Super Admin Dashboard/SuperAdminDB.jsx';
+import SuperAdProfile from './HOA Page/SuperAdmin/Super Admin Profile/SuperAdProfile.jsx'; 
+import AdminControl from './HOA Page/SuperAdmin/Admin Profiles/AdminControl.jsx'; 
+import Residents from './HOA Page/SuperAdmin/Profiles Residents/Residents.jsx'; 
+import SystemLogs from './HOA Page/SuperAdmin/System AuditLogs/SystemLogs.jsx';
 
 // --- SUPABASE IMPORT ---
 import { supabase } from './HOA Page/supabaseAdmin'; 
