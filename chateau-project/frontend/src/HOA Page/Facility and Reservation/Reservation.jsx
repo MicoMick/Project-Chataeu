@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Calendar, Clock, CheckCircle2, XCircle, Search, MoreHorizontal, Plus, Users, Trash2, Edit, Eye, ChevronDown, ChevronLeft, ChevronRight, X, MapPin, Upload, Mail,
-  User, AlertTriangle
+  User, AlertTriangle, Loader2
 } from 'lucide-react';
 import Facility from './Facility'; 
 import { supabase } from '../supabaseAdmin'; 
@@ -22,8 +22,7 @@ const StatCard = ({ title, value, icon: Icon, iconColor, bgColor }) => (
 const Reservation = () => {
   const [reservationSearch, setReservationSearch] = useState('');
   const [filterTab, setFilterTab] = useState('all');
-  const [activeMenuId, setActiveMenuId] = useState(null);
-  const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 }); 
+  // REMOVED: activeMenuId and menuPosition are no longer needed
   const [selectedReservation, setSelectedReservation] = useState(null);
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -85,7 +84,6 @@ const Reservation = () => {
       setReservations(prev => prev.map(res => 
         res.id === id ? { ...res, status: newStatus } : res
       ));
-      setActiveMenuId(null);
       logger.info(`Successfully updated reservation ${id} to ${newStatus}`);
     } catch (error) {
       logger.error(`Error updating status for ${id}:`, error);
@@ -97,7 +95,6 @@ const Reservation = () => {
   const handleDelete = (id) => {
     setReservationToDelete(id);
     setIsDeleteModalOpen(true);
-    setActiveMenuId(null);
   };
 
   // ACTUAL DELETE EXECUTION
@@ -124,15 +121,7 @@ const Reservation = () => {
     }
   };
 
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (menuRef.current && !menuRef.current.contains(event.target)) {
-        setActiveMenuId(null);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+  // REMOVED: handleClickOutside useEffect (no longer needed without dropdown menus)
 
   // STAT CALCULATIONS BASED ON FETCHED DATA
   const stats = {
@@ -182,18 +171,7 @@ const Reservation = () => {
     }
   };
 
-  const handleToggleMenu = (e, id) => {
-    if (activeMenuId === id) {
-      setActiveMenuId(null);
-    } else {
-      const rect = e.currentTarget.getBoundingClientRect();
-      setMenuPosition({
-        top: rect.bottom + window.scrollY,
-        left: rect.right - 192, 
-      });
-      setActiveMenuId(id);
-    }
-  };
+  // REMOVED: handleToggleMenu function
 
   return (
     <div className="h-screen overflow-y-auto bg-slate-50 p-8 text-slate-900 custom-scrollbar relative">
@@ -257,12 +235,19 @@ const Reservation = () => {
                     <th className="px-6 py-4">End Time</th>
                     <th className="px-6 py-4">Status</th>
                     <th className="px-6 py-4">Requested On</th>
-                    <th className="px-6 py-4"></th>
+                    <th className="px-6 py-4 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
                   {loading ? (
-                    <tr><td colSpan="8" className="px-6 py-8 text-center text-slate-400">Loading reservations...</td></tr>
+                    <tr>
+                      <td colSpan="8" className="px-6 py-16">
+                        <div className="flex flex-col items-center justify-center gap-4">
+                          <div className="w-12 h-12 border-4 border-[#006837]/20 border-t-[#006837] rounded-full animate-spin"></div>
+                          <p className="text-[#006837] font-semibold animate-pulse tracking-wide">Loading reservations...</p>
+                        </div>
+                      </td>
+                    </tr>
                   ) : filteredReservations.length > 0 ? (
                     filteredReservations.map((res) => (
                       <tr key={res.id} className="hover:bg-slate-50/50 transition-colors">
@@ -279,12 +264,19 @@ const Reservation = () => {
                         <td className="px-6 py-4 text-sm text-slate-400">
                           {res.created_at ? new Date(res.created_at).toLocaleDateString() : 'N/A'}
                         </td>
-                        <td className="px-6 py-4 text-right">
-                          <button 
-                            onClick={(e) => handleToggleMenu(e, res.id)} 
-                            className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
-                          >
-                            < MoreHorizontal size={18} />
+                        {/* UPDATED: Action Buttons instead of Dropdown */}
+                        <td className="px-6 py-4 text-right flex justify-end gap-1">
+                          <button onClick={() => setSelectedReservation(res)} title="View Details" className="p-2 hover:bg-white rounded-lg transition-all text-slate-400 hover:text-blue-500 border border-transparent hover:border-slate-200 cursor-pointer">
+                            <Eye size={18} />
+                          </button>
+                          <button onClick={() => handleUpdateStatus(res.id, 'Approved')} title="Approve" className="p-2 hover:bg-white rounded-lg transition-all text-slate-400 hover:text-green-500 border border-transparent hover:border-slate-200 cursor-pointer">
+                            <CheckCircle2 size={18} />
+                          </button>
+                          <button onClick={() => handleUpdateStatus(res.id, 'Rejected')} title="Reject" className="p-2 hover:bg-white rounded-lg transition-all text-slate-400 hover:text-orange-500 border border-transparent hover:border-slate-200 cursor-pointer">
+                            <XCircle size={18} />
+                          </button>
+                          <button onClick={() => handleDelete(res.id)} title="Delete" className="p-2 hover:bg-white rounded-lg transition-all text-slate-400 hover:text-red-500 border border-transparent hover:border-slate-200 cursor-pointer">
+                            <Trash2 size={18} />
                           </button>
                         </td>
                       </tr>
@@ -305,43 +297,7 @@ const Reservation = () => {
         </div>
       </section>
 
-      {activeMenuId && (
-        <div 
-          ref={menuRef} 
-          className="fixed w-48 bg-white rounded-2xl shadow-2xl border border-slate-100 z-[9999] py-2 animate-in fade-in slide-in-from-top-2 duration-200"
-          style={{ top: `${menuPosition.top}px`, left: `${menuPosition.left}px` }}
-        >
-          {(() => {
-            const res = reservations.find(r => r.id === activeMenuId);
-            return (
-              <>
-                <button onClick={() => { setSelectedReservation(res); setActiveMenuId(null); }} className="w-full px-4 py-2.5 text-left text-xs font-bold text-slate-600 hover:bg-slate-50 flex items-center gap-3 cursor-pointer">
-                  View Details
-                </button>
-                {/* UPDATED BUTTONS WITH LIVE FUNCTIONS */}
-                <button 
-                  onClick={() => handleUpdateStatus(activeMenuId, 'Approved')}
-                  className="w-full px-4 py-2.5 text-left text-xs font-bold text-green-600 hover:bg-green-50 flex items-center gap-3 border-t border-slate-50 cursor-pointer"
-                >
-                  Approve
-                </button>
-                <button 
-                  onClick={() => handleUpdateStatus(activeMenuId, 'Rejected')}
-                  className="w-full px-4 py-2.5 text-left text-xs font-bold text-orange-600 hover:bg-orange-50 flex items-center gap-3 cursor-pointer"
-                >
-                  Reject
-                </button>
-                <button 
-                  onClick={() => handleDelete(activeMenuId)}
-                  className="w-full px-4 py-2.5 text-left text-xs font-bold text-red-600 hover:bg-red-50 flex items-center gap-3 border-t border-slate-50 cursor-pointer"
-                >
-                  Delete
-                </button>
-              </>
-            );
-          })()}
-        </div>
-      )}
+      {/* REMOVED: Dropdown Menu Markup */}
 
       {selectedReservation && (
         <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 overflow-hidden">

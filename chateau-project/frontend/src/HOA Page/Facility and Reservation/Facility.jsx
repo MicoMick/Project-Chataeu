@@ -143,15 +143,20 @@ const Facility = () => {
   });
   const [newItem, setNewItem] = useState({ name: '', description: '' });
   const [facilities, setFacilities] = useState([]);
+  
+  // ADDED: Loading state for initial data fetch
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     const fetchFacilities = async () => {
+      setIsLoading(true); // Set loading to true before fetching
       const { data, error } = await supabase
         .from('facilities')
         .select('*')
         .order('created_at', { ascending: false });
       if (error) console.error('Error fetching:', error);
       else setFacilities(data);
+      setIsLoading(false); // Set loading to false after fetching
     };
     fetchFacilities();
   }, []);
@@ -346,10 +351,10 @@ const Facility = () => {
             <Plus size={18} /> Add Amenity Item
           </button>
           <button 
-            onClick={() => setIsAddFacilityOpen(true)} 
-            className="bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white px-4 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 transition-all shadow-lg shadow-indigo-200 cursor-pointer"
-          >
-            <Plus size={18} /> Add Facility
+          onClick={() => setIsAddFacilityOpen(true)} 
+          style={{ backgroundColor: '#006837' }}
+          className="hover:opacity-90 active:scale-95 text-white px-4 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 transition-all shadow-lg cursor-pointer">
+          <Plus size={18} /> Add Facility
           </button>
         </div>
       </div>
@@ -388,8 +393,14 @@ const Facility = () => {
         </div>
       </div>
 
-      {/* --- GRID --- */}
-      {filteredFacilities.length > 0 ? (
+      {/* --- GRID / LOADING --- */}
+      {isLoading ? (
+        /* ADDED: Smooth Loading Animation */
+        <div className="flex flex-col items-center justify-center py-20 gap-4">
+          <div className="w-12 h-12 border-4 border-[#006837]/20 border-t-[#006837] rounded-full animate-spin"></div>
+          <p className="text-[#006837] font-semibold animate-pulse tracking-wide">Loading Amenities...</p>
+        </div>
+      ) : filteredFacilities.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
           {filteredFacilities.map((fac) => (
             <div key={fac.id} className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden flex flex-col group transition-all hover:shadow-md">

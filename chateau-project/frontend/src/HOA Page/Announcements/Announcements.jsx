@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Megaphone, Clock, FileEdit, Plus, Search, MoreVertical, Pin, AlertTriangle, X, Paperclip, Calendar, Trash2, Send, CheckCircle2, FileIcon, Loader2
+import { Megaphone, Clock, FileEdit, Plus, Search, MoreVertical, Pin, AlertTriangle, X, Paperclip, Calendar, Trash2, Send, CheckCircle2, FileIcon, Loader2, MessageSquare, Eye
 } from 'lucide-react';
 import { supabase } from '../supabaseAdmin';
 import logger from '../auditlogger';
@@ -303,14 +303,30 @@ const logAction = async (action, details) => {
   };
 
   const handleTogglePin = async (id) => {
-    const target = announcements.find(a => a.id === id);
-    await logAction('Pin Toggle', `${target.isPinned ? 'Unpinned' : 'Pinned'} announcement: ${target.title}`);
+    try {
+      const target = announcements.find(a => a.id === id);
+      // UPDATED: Use the snake_case naming for the DB property
+      const newPinnedStatus = !target.is_pinned;
+      
+      // Update database
+      const { error } = await supabase
+        .from('announcements')
+        .update({ is_pinned: newPinnedStatus })
+        .eq('id', id);
 
-    setAnnouncements(announcements.map(ann => 
-      ann.id === id ? { ...ann, isPinned: !ann.isPinned } : ann
-    ));
-    setOpenMenuId(null);
-    showToast("Pin status updated");
+      if (error) throw error;
+
+      await logAction('Pin Toggle', `${newPinnedStatus ? 'Pinned' : 'Unpinned'} announcement: ${target.title}`);
+
+      // Update local state
+      setAnnouncements(announcements.map(ann => 
+        ann.id === id ? { ...ann, is_pinned: newPinnedStatus } : ann
+      ));
+      setOpenMenuId(null);
+      showToast("Pin status updated");
+    } catch (error) {
+      showToast("Error updating pin status: " + error.message, "error");
+    }
   };
 
   const stats = [
@@ -329,7 +345,8 @@ const logAction = async (action, details) => {
                             (activeStatus === 'Drafts' && item.status === 'draft');
       return matchesSearch && matchesCategory && matchesStatus;
     })
-    .sort((a, b) => (a.isPinned === b.isPinned ? 0 : a.isPinned ? -1 : 1));
+    // UPDATED: Make sure sort logic also uses is_pinned
+    .sort((a, b) => (a.is_pinned === b.is_pinned ? 0 : a.is_pinned ? -1 : 1));
 
   return (
     <div className="p-8 bg-slate-50 min-h-screen relative">
@@ -363,12 +380,12 @@ const logAction = async (action, details) => {
           <h1 className="text-2xl font-bold text-slate-900">Announcements</h1>
           <p className="text-slate-500 text-sm">Post and manage community announcements.</p>
         </div>
-        <button 
-          onClick={() => { resetForm(); setShowModal(true); }}
-          className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all cursor-pointer"
-        >
-          <Plus size={18} /> New Announcement
-        </button>
+      <button 
+        onClick={() => { resetForm(); setShowModal(true); }}
+        style={{ backgroundColor: '#006837' }}
+        className="flex items-center gap-2 px-4 py-2.5 text-white rounded-xl text-sm font-bold hover:opacity-90 shadow-lg transition-all cursor-pointer">
+      <Plus size={18} /> New Announcement
+      </button>
       </div>
 
       {/* Stats Cards */}
@@ -415,7 +432,11 @@ const logAction = async (action, details) => {
       {/* List */}
       <div className="space-y-4">
         {loading ? (
-           <div className="text-center py-20 text-slate-400 font-medium">Loading Announcements...</div>
+          /* ADDED: Smooth Loading Animation */
+          <div className="flex flex-col items-center justify-center py-20 gap-4">
+            <div className="w-12 h-12 border-4 border-[#006837]/20 border-t-[#006837] rounded-full animate-spin"></div>
+            <p className="text-[#006837] font-semibold animate-pulse tracking-wide">Loading Announcements...</p>
+          </div>
         ) : filteredAnnouncements.length === 0 ? (
           <div className="bg-white p-12 rounded-[24px] border border-dashed border-slate-200 text-center">
             <FileEdit size={48} className="mx-auto text-slate-300 mb-4" />
@@ -427,7 +448,8 @@ const logAction = async (action, details) => {
               <div className="flex justify-between items-start">
                 <div className="flex-1">
                   <div className="flex items-center gap-3 mb-2">
-                    {item.isPinned && <Pin size={16} className="text-indigo-600 fill-indigo-600 rotate-45" />}
+                    {/* UPDATED: Changed isPinned to is_pinned */}
+                    {item.is_pinned && <Pin size={16} className="text-indigo-600 fill-indigo-600 rotate-45" />}
                     {item.is_emergency && <AlertTriangle size={16} className="text-red-500" />}
                     <h3 className="font-bold text-slate-900 text-lg">{item.title}</h3>
                     <span className={`px-2.5 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider ${item.status === 'draft' ? 'bg-slate-100 text-slate-600' : 'bg-green-100 text-green-600'}`}>
@@ -443,43 +465,51 @@ const logAction = async (action, details) => {
                   </div>
                 </div>
 
-                <div className="relative">
-                  <button onClick={() => setOpenMenuId(openMenuId === item.id ? null : item.id)} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded-lg cursor-pointer">
-                    <MoreVertical size={20} />
+                <div className="flex items-center gap-1">
+                  <button 
+                    onClick={() => { setSelectedAnnouncement(item); setShowDetailsOverlay(true); }} 
+                    title="View Details"
+                    className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer"
+                  >
+                    <Eye size={18} />
                   </button>
-                  {openMenuId === item.id && (
-                    <>
-                      <div className="fixed inset-0 z-10" onClick={() => setOpenMenuId(null)}></div>
-                      <div className="absolute right-0 mt-2 w-48 bg-white rounded-2xl shadow-xl border border-slate-100 py-2 z-20">
-                        <button onClick={() => { setSelectedAnnouncement(item); setShowDetailsOverlay(true); setOpenMenuId(null); }} className="w-full flex items-center px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 cursor-pointer">View Details</button>
-                        <button onClick={() => handleOpenEdit(item)} className="w-full flex items-center px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 cursor-pointer">Edit Announcement</button>
-                        {item.status === 'draft' && (
-                          <button 
-                            onClick={() => {
-                              setPendingPublishItem(item);
-                              setShowPublishConfirm(true);
-                              setOpenMenuId(null);
-                            }} 
-                            className="w-full flex items-center px-4 py-2.5 text-sm text-indigo-600 hover:bg-indigo-50 font-medium cursor-pointer"
-                          >
-                            <Send size={16} className="mr-2"/> Publish Now
-                          </button>
-                        )}
-                        <button onClick={() => handleTogglePin(item.id)} className="w-full flex items-center px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 cursor-pointer">{item.isPinned ? 'Unpin' : 'Pin to Top'}</button>
-                        <div className="my-1 border-t border-slate-50"></div>
-                        <button 
-                          onClick={() => { 
-                            setPendingDeleteItem(item.id); 
-                            setShowDeleteConfirm(true); 
-                            setOpenMenuId(null); 
-                          }} 
-                          className="w-full flex items-center px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 font-medium cursor-pointer"
-                        >
-                          <Trash2 size={16} className="mr-2"/> Delete
-                        </button>
-                      </div>
-                    </>
+                  <button 
+                    onClick={() => handleOpenEdit(item)} 
+                    title="Edit Announcement"
+                    className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
+                  >
+                    <FileEdit size={18} />
+                  </button>
+                  {item.status === 'draft' && (
+                    <button 
+                      onClick={() => {
+                        setPendingPublishItem(item);
+                        setShowPublishConfirm(true);
+                      }} 
+                      title="Publish Now"
+                      className="p-2 text-slate-400 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors cursor-pointer"
+                    >
+                      <Send size={18} />
+                    </button>
                   )}
+                  <button 
+                    onClick={() => handleTogglePin(item.id)} 
+                    title={item.is_pinned ? 'Unpin' : 'Pin to Top'}
+                    className="p-2 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors cursor-pointer"
+                  >
+                    {/* UPDATED: Changed isPinned to is_pinned */}
+                    <Pin size={18} className={item.is_pinned ? "fill-amber-600 text-amber-600" : ""} />
+                  </button>
+                  <button 
+                    onClick={() => { 
+                      setPendingDeleteItem(item.id); 
+                      setShowDeleteConfirm(true); 
+                    }} 
+                    title="Delete"
+                    className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
+                  >
+                    <Trash2 size={18} />
+                  </button>
                 </div>
               </div>
             </div>

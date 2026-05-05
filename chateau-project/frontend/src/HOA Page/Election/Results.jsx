@@ -27,15 +27,35 @@ const Results = ({ electionId, onBack }) => {
       
       setElection(electionData);
 
-      // Fetch Candidates & Votes
-      const { data, error } = await supabase
+      // 1. Fetch Candidates first
+      const { data: candidates, error: candError } = await supabase
         .from("candidates")
-        .select("full_name, position, vote_count, photo_url")
-        .eq("election_id", electionId)
-        .order("vote_count", { ascending: false });
+        .select("id, full_name, position, photo_url")
+        .eq("election_id", electionId);
 
-      if (error) throw error;
-      setResults(data || []);
+      if (candError) throw candError;
+
+      // 2. Fetch all votes for this specific election
+      const { data: votes, error: voteError } = await supabase
+        .from("votes")
+        .select("candidate_id")
+        .eq("election_id", electionId);
+
+      if (voteError) throw voteError;
+
+      // 3. Map candidates to include their actual vote counts
+      const resultsWithCounts = candidates.map(candidate => {
+        const count = votes.filter(v => v.candidate_id === candidate.id).length;
+        return {
+          ...candidate,
+          vote_count: count
+        };
+      });
+
+      // 4. Sort by vote count descending
+      resultsWithCounts.sort((a, b) => b.vote_count - a.vote_count);
+
+      setResults(resultsWithCounts || []);
     } catch (error) {
       logger.error("Error fetching results", { error: error.message });
     } finally {
@@ -54,27 +74,27 @@ const Results = ({ electionId, onBack }) => {
 
       {loading ? (
         <div className="flex flex-col items-center justify-center py-20">
-          <Loader2 className="text-indigo-600 animate-spin mb-4" size={40} />
+          <Loader2 className="text-[#006837] animate-spin mb-4" size={40} />
           <p className="text-gray-500 font-bold">Calculating results...</p>
         </div>
       ) : results.length > 0 ? (
         <div className="grid grid-cols-1 gap-6">
-          {/* Winner Highlight Card */}
-          <div className="bg-gradient-to-r from-indigo-600 to-purple-700 rounded-3xl p-8 text-white shadow-xl flex items-center gap-6">
+          {/* Winner Highlight Card - Updated to #006837 Palette */}
+          <div className="bg-gradient-to-r from-[#006837] to-[#004d29] rounded-3xl p-8 text-white shadow-xl flex items-center gap-6">
             <div className="p-4 bg-white/20 rounded-2xl backdrop-blur-md">
               <Trophy size={48} className="text-yellow-300" />
             </div>
             <div>
-              <p className="text-indigo-100 font-black uppercase tracking-widest text-xs">Current Leader</p>
+              <p className="text-green-100 font-black uppercase tracking-widest text-xs">Current Leader</p>
               <h2 className="text-3xl font-black">{results[0].full_name}</h2>
-              <p className="text-indigo-200 font-bold">{results[0].vote_count} Votes</p>
+              <p className="text-green-200 font-bold">{results[0].vote_count} Votes</p>
             </div>
           </div>
 
           {/* Results List */}
           <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-6">
             <div className="flex items-center gap-2 mb-6">
-              <BarChart3 className="text-indigo-600" />
+              <BarChart3 className="text-[#006837]" />
               <h3 className="font-black text-gray-900 text-lg">Detailed Standings</h3>
             </div>
             
@@ -89,12 +109,12 @@ const Results = ({ electionId, onBack }) => {
                         <span className="font-bold text-gray-900">{candidate.full_name}</span>
                         <span className="text-[10px] bg-gray-100 px-2 py-0.5 rounded-md font-bold text-gray-500">{candidate.position}</span>
                       </div>
-                      <span className="font-black text-indigo-600">{candidate.vote_count} votes ({percentage}%)</span>
+                      <span className="font-black text-[#006837]">{candidate.vote_count} votes ({percentage}%)</span>
                     </div>
-                    {/* Progress Bar */}
+                    {/* Progress Bar - Updated to #006837 */}
                     <div className="w-full bg-gray-100 rounded-full h-3 overflow-hidden">
                       <div 
-                        className="bg-indigo-600 h-full rounded-full transition-all duration-1000 ease-out" 
+                        className="bg-[#006837] h-full rounded-full transition-all duration-1000 ease-out" 
                         style={{ width: `${percentage}%` }}
                       />
                     </div>

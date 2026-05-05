@@ -1,10 +1,24 @@
 import React from 'react';
-import { Monitor, Smartphone, Download, ChevronRight } from 'lucide-react';
+import { Download } from 'lucide-react';
 import ChateauGate from '../../assets/Chateau_Gate.jpg'; 
 
 const Mainpage = () => {
   return (
     <div className="relative min-h-screen w-full flex items-center justify-center overflow-hidden">
+      {/* ADDED: Internal CSS for Animations since the Tailwind Plugin might be missing */}
+      <style dangerouslySetInnerHTML={{ __html: `
+        @keyframes popupSlide {
+          0% { opacity: 0; transform: translateY(20px) scale(0.9); }
+          100% { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        .animate-pop-up {
+          animation: popupSlide 1s ease-out forwards;
+        }
+        .delay-300 { animation-delay: 300ms; }
+        .delay-500 { animation-delay: 500ms; }
+        .fill-mode-both { animation-fill-mode: both; }
+      `}} />
+
       {/* Background Image with Overlay */}
       <div 
         className="absolute inset-0 z-0"
@@ -20,43 +34,27 @@ const Mainpage = () => {
       {/* Content Container */}
       <div className="relative z-10 container mx-auto px-6 text-center text-white">
         
-        {/* Welcome Text */}
-        <h1 className="text-4xl md:text-6xl lg:text-7xl font-black tracking-wider uppercase mb-6 animate-in fade-in slide-in-from-bottom-4 duration-1000">
+        {/* Welcome Text with Pop-up Animation - Added custom .animate-pop-up */}
+        <h1 className="text-4xl md:text-6xl lg:text-7xl font-black tracking-wider uppercase mb-6 animate-pop-up animate-in fade-in zoom-in-50 slide-in-from-bottom-6 duration-1000 fill-mode-both">
           Welcome to Chateau Real
         </h1>
 
-        {/* Subtitle */}
-        <p className="max-w-2xl mx-auto text-sm md:text-base text-gray-200 leading-relaxed mb-10">
+        {/* Subtitle with Pop-up Animation - Added custom .animate-pop-up and .delay-300 */}
+        <p className="max-w-2xl mx-auto text-sm md:text-base text-gray-200 leading-relaxed mb-10 animate-pop-up delay-300 animate-in fade-in zoom-in-95 slide-in-from-bottom-4 duration-1000 fill-mode-both">
           Your trusted homeowners association dedicated to maintaining property values, 
           fostering community spirit, and ensuring a safe, beautiful neighborhood for all residents.
         </p>
 
-        {/* Info Tags */}
-        <div className="flex flex-col md:flex-row items-center justify-center gap-4 mb-12">
-          <div className="flex items-center gap-3 px-5 py-2 bg-white/10 backdrop-blur-md border border-white/20 rounded-full text-sm font-medium text-gray-100 select-none">
-            <Monitor size={16} className="text-blue-400" />
-            Web for HOA
-          </div>
-          <div className="flex items-center gap-3 px-5 py-2 bg-white/10 backdrop-blur-md border border-white/20 rounded-full text-sm font-medium text-gray-100 select-none">
-            <Smartphone size={16} className="text-blue-400" />
-            Mobile for Residents
-          </div>
-        </div>
-
-        {/* Action Buttons with Routing */}
-        <div className="flex flex-col md:flex-row items-center justify-center gap-4">
+        {/* Action Button with Pop-up Animation - Added custom .animate-pop-up and .delay-500 */}
+        <div className="flex flex-col md:flex-row items-center justify-center gap-4 animate-pop-up delay-500 animate-in fade-in zoom-in-90 slide-in-from-bottom-2 duration-1000 fill-mode-both">
           
           {/* Routes to DownloadPage section */}
           <a href="#download" className="w-full md:w-auto cursor-pointer">
-            <button className="w-full px-8 py-4 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl flex items-center justify-center gap-2 transition-all active:scale-95 shadow-lg shadow-blue-900/20 cursor-pointer">
+            <button 
+              style={{ backgroundColor: '#006837' }} 
+              className="w-full px-10 py-4 text-white font-bold rounded-xl flex items-center justify-center gap-2 transition-all hover:opacity-90 active:scale-95 shadow-lg cursor-pointer"
+            >
               Download Mobile App <Download size={18} />
-            </button>
-          </a>
-
-          {/* Routes to Features section */}
-          <a href="#features" className="w-full md:w-auto cursor-pointer">
-            <button className="w-full px-8 py-4 bg-white/10 hover:bg-white/20 backdrop-blur-sm text-white border border-white/30 font-bold rounded-xl flex items-center justify-center gap-2 transition-all active:scale-95 cursor-pointer">
-              Explore Features <ChevronRight size={18} />
             </button>
           </a>
 
