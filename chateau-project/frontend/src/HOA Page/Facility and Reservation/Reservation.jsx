@@ -7,6 +7,117 @@ import Facility from './Facility';
 import { supabase } from '../supabaseAdmin'; 
 import logger from '../auditlogger'; 
 
+// --- ADDED: RequireRole Component ---
+const RequireRole = ({ userRole, allowedRoles, children }) => {
+  if (allowedRoles.includes(userRole) || userRole === 'super_admin') {
+    return children;
+  }
+  return null; 
+};
+
+const logActivity = async (supabase, userEmail, activity, severity, details) => {
+  try {
+    await supabase.from('system_logs').insert([{
+      user_email: userEmail,
+      activity: activity,
+      severity: severity,
+      details: details,
+      created_at: new Date().toISOString()
+    }]);
+  } catch (err) {
+    console.error("Failed to log activity:", err);
+  }
+};
+
+const formatTo12Hour = (timeStr) => {
+  if (!timeStr) return "";
+  if (timeStr.includes('-')) {
+    return timeStr.split('-').map(t => formatTo12Hour(t.trim())).join(' - ');
+  }
+  
+  const [hours, minutes] = timeStr.split(':');
+  let h = parseInt(hours, 10);
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  h = h % 12 || 12;
+  return `${h}:${minutes} ${ampm}`;
+};
+
+// ... [Keep your existing ConfirmModal and TransactionModal components exactly as they were] ...
+const ConfirmModal = ({ isOpen, title, message, onConfirm, onCancel }) => {
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[500] flex items-center justify-center p-4">
+      <div className="bg-white rounded-[32px] p-8 w-full max-w-sm text-center shadow-2xl animate-in zoom-in-95 duration-200">
+        <div className="w-20 h-20 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-6">
+          <HelpCircle className="w-12 h-12 text-amber-500" />
+        </div>
+        <h3 className="text-xl font-bold text-slate-900 mb-2">{title}</h3>
+        <p className="text-slate-500 text-sm mb-8">{message}</p>
+        <div className="flex gap-3">
+          <button 
+            onClick={onCancel}
+            className="flex-1 py-4 bg-slate-100 text-slate-600 font-bold rounded-2xl hover:bg-slate-200 transition-all"
+          >
+            Cancel
+          </button>
+          <button 
+            onClick={onConfirm}
+            className="flex-1 py-4 bg-red-500 text-white font-bold rounded-2xl hover:bg-red-600 transition-all shadow-lg shadow-red-200"
+          >
+            Delete
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const TransactionModal = ({ status, message, onClose }) => {
+  if (!status) return null;
+
+  const configs = {
+    loading: {
+      icon: <Loader2 className="w-12 h-12 text-indigo-600 animate-spin" />,
+      title: "Processing...",
+      bgColor: "bg-indigo-50"
+    },
+    success: {
+      icon: <CheckCircle2 className="w-12 h-12 text-green-600" />,
+      title: "Success!",
+      bgColor: "bg-green-50"
+    },
+    error: {
+      icon: <AlertCircle className="w-12 h-12 text-red-600" />,
+      title: "Action Failed",
+      bgColor: "bg-red-50"
+    }
+  };
+
+  const current = configs[status];
+
+  return (
+    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[500] flex items-center justify-center p-4">
+      <div className="bg-white rounded-[32px] p-8 w-full max-w-sm text-center shadow-2xl animate-in zoom-in-95 duration-200">
+        <div className={`w-20 h-20 ${current.bgColor} rounded-full flex items-center justify-center mx-auto mb-6`}>
+          {current.icon}
+        </div>
+        <h3 className="text-xl font-bold text-slate-900 mb-2">{current.title}</h3>
+        <p className="text-slate-500 text-sm mb-8">{message}</p>
+        
+        {status !== 'loading' && (
+          <button 
+            onClick={onClose}
+            className="w-full py-4 bg-slate-900 text-white font-bold rounded-2xl hover:bg-slate-800 transition-all"
+          >
+            Continue
+          </button>
+        )}
+      </div>
+    </div>
+  );
+};
+
 const StatCard = ({ title, value, icon: Icon, iconColor, bgColor }) => (
   <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center justify-between">
     <div>
@@ -38,6 +149,9 @@ const Reservation = () => {
   // UPDATED STATE FOR DATABASE DATA
   const [reservations, setReservations] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  // --- ADDED: Get Current Role ---
+  const currentUserRole = localStorage.getItem('userRole') || 'resident';
 
   // FETCH DATA FROM SUPABASE
   const fetchReservations = async () => {
@@ -264,20 +378,31 @@ const Reservation = () => {
                         <td className="px-6 py-4 text-sm text-slate-400">
                           {res.created_at ? new Date(res.created_at).toLocaleDateString() : 'N/A'}
                         </td>
-                        {/* UPDATED: Action Buttons instead of Dropdown */}
                         <td className="px-6 py-4 text-right flex justify-end gap-1">
+                          
                           <button onClick={() => setSelectedReservation(res)} title="View Details" className="p-2 hover:bg-white rounded-lg transition-all text-slate-400 hover:text-blue-500 border border-transparent hover:border-slate-200 cursor-pointer">
                             <Eye size={18} />
                           </button>
-                          <button onClick={() => handleUpdateStatus(res.id, 'Approved')} title="Approve" className="p-2 hover:bg-white rounded-lg transition-all text-slate-400 hover:text-green-500 border border-transparent hover:border-slate-200 cursor-pointer">
-                            <CheckCircle2 size={18} />
-                          </button>
-                          <button onClick={() => handleUpdateStatus(res.id, 'Rejected')} title="Reject" className="p-2 hover:bg-white rounded-lg transition-all text-slate-400 hover:text-orange-500 border border-transparent hover:border-slate-200 cursor-pointer">
-                            <XCircle size={18} />
-                          </button>
-                          <button onClick={() => handleDelete(res.id)} title="Delete" className="p-2 hover:bg-white rounded-lg transition-all text-slate-400 hover:text-red-500 border border-transparent hover:border-slate-200 cursor-pointer">
-                            <Trash2 size={18} />
-                          </button>
+                          
+                          {/* --- ADDED RequireRole WRAPPERS --- */}
+                          <RequireRole userRole={currentUserRole} allowedRoles={['president', 'vice_president', 'secretary']}>
+                            <button onClick={() => handleUpdateStatus(res.id, 'Approved')} title="Approve" className="p-2 hover:bg-white rounded-lg transition-all text-slate-400 hover:text-green-500 border border-transparent hover:border-slate-200 cursor-pointer">
+                              <CheckCircle2 size={18} />
+                            </button>
+                          </RequireRole>
+
+                          <RequireRole userRole={currentUserRole} allowedRoles={['president', 'vice_president', 'secretary']}>
+                            <button onClick={() => handleUpdateStatus(res.id, 'Rejected')} title="Reject" className="p-2 hover:bg-white rounded-lg transition-all text-slate-400 hover:text-orange-500 border border-transparent hover:border-slate-200 cursor-pointer">
+                              <XCircle size={18} />
+                            </button>
+                          </RequireRole>
+
+                          <RequireRole userRole={currentUserRole} allowedRoles={['president', 'vice_president', 'secretary']}>
+                            <button onClick={() => handleDelete(res.id)} title="Delete" className="p-2 hover:bg-white rounded-lg transition-all text-slate-400 hover:text-red-500 border border-transparent hover:border-slate-200 cursor-pointer">
+                              <Trash2 size={18} />
+                            </button>
+                          </RequireRole>
+
                         </td>
                       </tr>
                     ))

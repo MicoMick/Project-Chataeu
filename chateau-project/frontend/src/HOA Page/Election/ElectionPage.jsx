@@ -6,6 +6,26 @@ import CandidatesPage from "./CandidatesPage.jsx";
 import Results from "./Results.jsx";
 import logger from '../auditlogger';
 
+// --- ADDED: RequireRole Component ---
+const RequireRole = ({ userRole, allowedRoles, children }) => {
+  if (allowedRoles.includes(userRole) || userRole === 'super_admin') {
+    return children;
+  }
+  return null; 
+};
+
+const StatCard = ({ title, value, icon: Icon, iconColor, bgColor }) => (
+  <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center justify-between">
+    <div>
+      <p className="text-slate-500 text-xs font-bold uppercase tracking-wider">{title}</p>
+      <h3 className="text-3xl font-bold text-slate-900 mt-1">{value}</h3>
+    </div>
+    <div className={`p-3 rounded-xl ${bgColor}`}>
+      <Icon size={24} className={iconColor} />
+    </div>
+  </div>
+);
+
 const ElectionPage = () => {
   const [elections, setElections] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -30,6 +50,9 @@ const ElectionPage = () => {
 
   // ADDED: Fetch total eligible residents to calculate participation percentage
   const [totalEligible, setTotalEligible] = useState(0);
+
+  // --- ADDED: Get Current Role ---
+  const currentUserRole = localStorage.getItem('userRole') || 'resident';
 
   useEffect(() => {
     const fetchTotalEligible = async () => {
@@ -474,9 +497,12 @@ const ElectionPage = () => {
           <h1 className="text-2xl font-bold text-gray-800 tracking-tight">Election Management</h1>
           <p className="text-gray-500 text-sm">Create and manage HOA elections and view results.</p>
         </div>
-        <button onClick={() => setIsModalOpen(true)} style={{backgroundColor: '#006837'}} className="flex items-center gap-2 text-white px-5 py-2.5 rounded-lg hover:opacity-90 shadow-md transition font-bold cursor-pointer">
-          <Plus size={18} /> Create Election
-        </button>
+        
+        <RequireRole userRole={currentUserRole} allowedRoles={['president', 'vice_president', 'secretary']}>
+          <button onClick={() => setIsModalOpen(true)} style={{backgroundColor: '#006837'}} className="flex items-center gap-2 text-white px-5 py-2.5 rounded-lg hover:opacity-90 shadow-md transition font-bold cursor-pointer">
+            <Plus size={18} /> Create Election
+          </button>
+        </RequireRole>
       </div>
 
       {activeElection ? (
@@ -542,7 +568,6 @@ const ElectionPage = () => {
           });
 
           return loading ? (
-            /* ADDED: Smooth Loading Animation */
             <div className="flex flex-col items-center justify-center py-20 gap-4">
               <div className="w-12 h-12 border-4 border-[#006837]/20 border-t-[#006837] rounded-full animate-spin"></div>
               <p className="text-[#006837] font-semibold animate-pulse tracking-wide">Loading Elections...</p>
@@ -556,9 +581,13 @@ const ElectionPage = () => {
                           <CheckCircle size={22} />
                       </div>
                       <div className="flex gap-2">
+                        <RequireRole userRole={currentUserRole} allowedRoles={['president', 'vice_president', 'secretary']}>
                           <button onClick={() => handleEditClick(election)} className="p-1.5 text-gray-400 hover:text-[#006837] hover:bg-green-50 rounded-lg transition-colors cursor-pointer"><Pencil size={16} /></button>
+                        </RequireRole>
+                        <RequireRole userRole={currentUserRole} allowedRoles={['president', 'vice_president', 'secretary']}>
                           <button onClick={() => setDeleteConfirm({ show: true, id: election.id })} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"><Trash2 size={16} /></button>
-                          <span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider ${election.status === 'active' ? 'bg-green-100 text-green-700' : election.status === 'pending' ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-600'}`}>{election.status}</span>
+                        </RequireRole>
+                        <span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider ${election.status === 'active' ? 'bg-green-100 text-green-700' : election.status === 'pending' ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-600'}`}>{election.status}</span>
                       </div>
                   </div>
                   <h4 className="text-lg font-bold text-gray-900 mb-1 leading-tight">{election.title}</h4>
@@ -581,7 +610,9 @@ const ElectionPage = () => {
               <h3 className="text-xl font-bold text-gray-800 mb-2">
                 {activeTab === "results" ? "No Results Found" : "No Elections Found"}
               </h3>
-              <button onClick={() => setIsModalOpen(true)} className="flex items-center gap-2 bg-green-50 text-[#006837] px-6 py-2.5 rounded-xl hover:bg-green-100 transition font-bold cursor-pointer"><Plus size={18} /> Create your first election</button>
+              <RequireRole userRole={currentUserRole} allowedRoles={['president', 'vice_president', 'secretary']}>
+                <button onClick={() => setIsModalOpen(true)} className="flex items-center gap-2 bg-green-50 text-[#006837] px-6 py-2.5 rounded-xl hover:bg-green-100 transition font-bold cursor-pointer"><Plus size={18} /> Create your first election</button>
+              </RequireRole>
             </div>
           );
         })()}

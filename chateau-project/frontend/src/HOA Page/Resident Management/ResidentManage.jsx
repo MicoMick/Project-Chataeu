@@ -6,6 +6,14 @@ import {
   Eye, Edit2, Trash2 
 } from 'lucide-react';
 
+// --- ADDED: RequireRole Component ---
+const RequireRole = ({ userRole, allowedRoles, children }) => {
+  if (allowedRoles.includes(userRole) || userRole === 'super_admin') {
+    return children;
+  }
+  return null; // Don't render the button if they don't have the role
+};
+
 const StatCard = ({ title, value, icon: Icon, iconBg }) => (
   <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col justify-between">
     <div className="flex justify-between items-start">
@@ -46,6 +54,9 @@ const ResidentManage = () => {
   const [editStreet, setEditStreet] = useState('');
   const [editPhone, setEditPhone] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+
+  // --- ADDED: Get Current Role ---
+  const currentUserRole = localStorage.getItem('userRole') || 'resident';
 
 // --- NEW: Helper for Audit Logs ---
 const logActivity = async (action, description) => {
@@ -317,17 +328,24 @@ const logActivity = async (action, description) => {
                     <td className="py-4 px-2 text-sm text-slate-500">{resident.street || 'N/A'}</td>
                     <td className="py-4 px-2 text-sm text-slate-500">{resident.phone || 'N/A'}</td>
                     <td className="py-4 px-2 text-sm text-slate-500">{new Date(resident.created_at).toLocaleDateString()}</td>
-                    {/* UPDATED: Action Buttons instead of Dropdown */}
+                    {/* UPDATED: Action Buttons with RequireRole */}
                     <td className="py-4 text-right flex justify-end gap-1">
                       <button onClick={() => handleViewProfile(resident)} title="View Profile" className="p-2 hover:bg-white rounded-lg transition-all text-slate-400 hover:text-blue-500 border border-transparent hover:border-slate-200 cursor-pointer">
                         <Eye size={18} />
                       </button>
-                      <button onClick={() => handleEdit(resident)} title="Edit Resident" className="p-2 hover:bg-white rounded-lg transition-all text-slate-400 hover:text-emerald-500 border border-transparent hover:border-slate-200 cursor-pointer">
-                        <Edit2 size={18} />
-                      </button>
-                      <button onClick={() => handleRemoveRequest(resident.id)} title="Remove Resident" className="p-2 hover:bg-white rounded-lg transition-all text-slate-400 hover:text-red-500 border border-transparent hover:border-slate-200 cursor-pointer">
-                        <Trash2 size={18} />
-                      </button>
+                      
+                      <RequireRole userRole={currentUserRole} allowedRoles={['president', 'vice_president', 'secretary']}>
+                        <button onClick={() => handleEdit(resident)} title="Edit Resident" className="p-2 hover:bg-white rounded-lg transition-all text-slate-400 hover:text-emerald-500 border border-transparent hover:border-slate-200 cursor-pointer">
+                          <Edit2 size={18} />
+                        </button>
+                      </RequireRole>
+
+                      <RequireRole userRole={currentUserRole} allowedRoles={['president', 'vice_president', 'secretary']}>
+                        <button onClick={() => handleRemoveRequest(resident.id)} title="Remove Resident" className="p-2 hover:bg-white rounded-lg transition-all text-slate-400 hover:text-red-500 border border-transparent hover:border-slate-200 cursor-pointer">
+                          <Trash2 size={18} />
+                        </button>
+                      </RequireRole>
+
                     </td>
                   </tr>
                 ))
@@ -343,7 +361,6 @@ const logActivity = async (action, description) => {
               )}
             </tbody>
           </table>
-          {/* REMOVED: Dropdown Menu Markup */}
         </div>
       </div>
 

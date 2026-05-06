@@ -7,6 +7,14 @@ import { supabase } from '../supabaseAdmin';
 import { Pannellum } from "pannellum-react";
 import logger from '../auditLogger'; 
 
+// --- ADDED: RequireRole Component ---
+const RequireRole = ({ userRole, allowedRoles, children }) => {
+  if (allowedRoles.includes(userRole) || userRole === 'super_admin') {
+    return children;
+  }
+  return null; 
+};
+
 const logActivity = async (supabase, userEmail, activity, severity, details) => {
   try {
     await supabase.from('system_logs').insert([{
@@ -39,7 +47,7 @@ const ConfirmModal = ({ isOpen, title, message, onConfirm, onCancel }) => {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[250] flex items-center justify-center p-4">
+    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[500] flex items-center justify-center p-4">
       <div className="bg-white rounded-[32px] p-8 w-full max-w-sm text-center shadow-2xl animate-in zoom-in-95 duration-200">
         <div className="w-20 h-20 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-6">
           <HelpCircle className="w-12 h-12 text-amber-500" />
@@ -89,7 +97,7 @@ const TransactionModal = ({ status, message, onClose }) => {
   const current = configs[status];
 
   return (
-    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
+    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[500] flex items-center justify-center p-4">
       <div className="bg-white rounded-[32px] p-8 w-full max-w-sm text-center shadow-2xl animate-in zoom-in-95 duration-200">
         <div className={`w-20 h-20 ${current.bgColor} rounded-full flex items-center justify-center mx-auto mb-6`}>
           {current.icon}
@@ -100,7 +108,7 @@ const TransactionModal = ({ status, message, onClose }) => {
         {status !== 'loading' && (
           <button 
             onClick={onClose}
-            className="w-full py-4 bg-slate-900 text-white font-bold rounded-2xl hover:bg-slate-800 transition-all"
+            className="w-full py-4 bg-slate-900 text-white font-bold rounded-2xl hover:bg-slate-800 transition-all cursor-pointer"
           >
             Continue
           </button>
@@ -138,32 +146,36 @@ const Facility = () => {
   const [confirmData, setConfirmData] = useState({ isOpen: false, id: null });
   
   const [file, setFile] = useState(null);
+  // ADDED: State to track if the uploaded image is 360
+  const [is360Image, setIs360Image] = useState(false);
+
   const [newFacility, setNewFacility] = useState({
     name: '', description: '', capacity: '', rate: '', opening_time: '', closing_time: ''
   });
   const [newItem, setNewItem] = useState({ name: '', description: '' });
   const [facilities, setFacilities] = useState([]);
   
-  // ADDED: Loading state for initial data fetch
   const [isLoading, setIsLoading] = useState(true);
+
+  // --- ADDED: Get Current Role ---
+  const currentUserRole = localStorage.getItem('userRole') || 'resident';
 
   useEffect(() => {
     const fetchFacilities = async () => {
-      setIsLoading(true); // Set loading to true before fetching
+      setIsLoading(true); 
       const { data, error } = await supabase
         .from('facilities')
         .select('*')
         .order('created_at', { ascending: false });
       if (error) console.error('Error fetching:', error);
       else setFacilities(data);
-      setIsLoading(false); // Set loading to false after fetching
+      setIsLoading(false); 
     };
     fetchFacilities();
   }, []);
 
   const handleAddFacility = async () => {
     setTransaction({ status: 'loading', message: 'Creating your new facility...' });
-    // Get user email
     const { data: { user } } = await supabase.auth.getUser();
     const userEmail = user?.email;
 
@@ -189,7 +201,8 @@ const Facility = () => {
         hours: `${newFacility.opening_time} - ${newFacility.closing_time}`,
         status: isFacilityAvailable ? 'Available' : 'Not Available',
         category: 'Amenity Facility',
-        image_360_url: publicUrl
+        image_360_url: publicUrl,
+        is_360: is360Image // ADDED: Save boolean to DB
       };
 
       const { data, error } = await supabase.from('facilities').insert([facilityData]).select();
@@ -200,6 +213,7 @@ const Facility = () => {
       setFacilities([data[0], ...facilities]);
       setIsAddFacilityOpen(false);
       setFile(null);
+      setIs360Image(false);
       setNewFacility({ name: '', description: '', capacity: '', rate: '', opening_time: '', closing_time: '' });
       setTransaction({ status: 'success', message: 'Facility has been created successfully!' });
     } catch (error) {
@@ -230,7 +244,8 @@ const Facility = () => {
         description: newItem.description,
         status: isItemAvailable ? 'Available' : 'Not Available',
         category: 'Amenity Item',
-        image_360_url: publicUrl
+        image_360_url: publicUrl,
+        is_360: is360Image // ADDED: Save boolean to DB
       };
 
       const { data, error } = await supabase.from('facilities').insert([itemData]).select();
@@ -241,6 +256,7 @@ const Facility = () => {
       setFacilities([data[0], ...facilities]);
       setIsAddAmenityItemOpen(false);
       setFile(null);
+      setIs360Image(false);
       setNewItem({ name: '', description: '' });
       setTransaction({ status: 'success', message: 'Amenity item added successfully!' });
     } catch (error) {
@@ -266,7 +282,11 @@ const Facility = () => {
         publicUrl = urlData.publicUrl;
       }
 
-      const updatedData = { ...editingFacility, image_360_url: publicUrl };
+      const updatedData = { 
+        ...editingFacility, 
+        image_360_url: publicUrl,
+        is_360: is360Image // ADDED: Update boolean in DB
+      };
       const { error } = await supabase.from('facilities').update(updatedData).eq('id', editingFacility.id);
       if (error) throw error;
 
@@ -275,6 +295,7 @@ const Facility = () => {
       setFacilities(facilities.map(f => f.id === editingFacility.id ? updatedData : f));
       setEditingFacility(null);
       setFile(null);
+      setIs360Image(false);
       setTransaction({ status: 'success', message: 'Changes have been saved!' });
     } catch (error) {
       await logActivity(supabase, userEmail, 'Update Facility Failed', 'error', error.message);
@@ -288,7 +309,7 @@ const Facility = () => {
 
   const executeDelete = async () => {
     const idToDelete = confirmData.id;
-    const itemToDelete = facilities.find(f => f.id === idToDelete); // Find item for log details
+    const itemToDelete = facilities.find(f => f.id === idToDelete); 
     
     setConfirmData({ isOpen: false, id: null });
     setTransaction({ status: 'loading', message: 'Deleting item from database...' });
@@ -315,7 +336,6 @@ const Facility = () => {
     }
   };
 
-  // ... [The rest of your JSX remains exactly as it was] ...
   const filteredFacilities = facilities.filter((fac) => {
     const matchesSearch = fac.name.toLowerCase().includes(facilitySearch.toLowerCase());
     const matchesCategory = categoryFilter === 'All' || fac.category === categoryFilter;
@@ -344,18 +364,25 @@ const Facility = () => {
           <p className="text-slate-500 text-sm">Manage community amenities, set rates, and availability rules.</p>
         </div>
         <div className="flex gap-3">
-          <button 
-            onClick={() => setIsAddAmenityItemOpen(true)} 
-            className="bg-white border border-slate-200 hover:bg-slate-50 active:scale-95 text-slate-900 px-4 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 transition-all shadow-sm cursor-pointer"
-          >
-            <Plus size={18} /> Add Amenity Item
-          </button>
-          <button 
-          onClick={() => setIsAddFacilityOpen(true)} 
-          style={{ backgroundColor: '#006837' }}
-          className="hover:opacity-90 active:scale-95 text-white px-4 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 transition-all shadow-lg cursor-pointer">
-          <Plus size={18} /> Add Facility
-          </button>
+          {/* --- ADDED RequireRole WRAPPER FOR ADD ITEM --- */}
+          <RequireRole userRole={currentUserRole} allowedRoles={['president', 'vice_president', 'secretary']}>
+            <button 
+              onClick={() => { setIsAddAmenityItemOpen(true); setIs360Image(false); setFile(null); }} 
+              className="bg-white border border-slate-200 hover:bg-slate-50 active:scale-95 text-slate-900 px-4 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 transition-all shadow-sm cursor-pointer"
+            >
+              <Plus size={18} /> Add Amenity Item
+            </button>
+          </RequireRole>
+
+          {/* --- ADDED RequireRole WRAPPER FOR ADD FACILITY --- */}
+          <RequireRole userRole={currentUserRole} allowedRoles={['president', 'vice_president', 'secretary']}>
+            <button 
+            onClick={() => { setIsAddFacilityOpen(true); setIs360Image(false); setFile(null); }} 
+            style={{ backgroundColor: '#006837' }}
+            className="hover:opacity-90 active:scale-95 text-white px-4 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 transition-all shadow-lg cursor-pointer">
+            <Plus size={18} /> Add Facility
+            </button>
+          </RequireRole>
         </div>
       </div>
 
@@ -395,7 +422,6 @@ const Facility = () => {
 
       {/* --- GRID / LOADING --- */}
       {isLoading ? (
-        /* ADDED: Smooth Loading Animation */
         <div className="flex flex-col items-center justify-center py-20 gap-4">
           <div className="w-12 h-12 border-4 border-[#006837]/20 border-t-[#006837] rounded-full animate-spin"></div>
           <p className="text-[#006837] font-semibold animate-pulse tracking-wide">Loading Amenities...</p>
@@ -427,8 +453,25 @@ const Facility = () => {
               </div>
               <div className="p-4 border-t border-slate-50 grid grid-cols-3 gap-2">
                 <button onClick={() => setViewingFacility(fac)} className="flex items-center justify-center gap-2 py-2 bg-slate-100 hover:bg-slate-200 active:scale-95 rounded-lg text-slate-600 text-xs font-bold transition-all cursor-pointer"><Eye size={14} /> View</button>
-                <button onClick={() => setEditingFacility(fac)} className="flex items-center justify-center gap-2 py-2 bg-slate-100 hover:bg-slate-200 active:scale-95 rounded-lg text-slate-600 text-xs font-bold transition-all cursor-pointer"><Edit size={14} /> Edit</button>
-                <button onClick={() => handleDelete(fac.id)} className="flex items-center justify-center py-2 bg-red-50 hover:bg-red-100 active:scale-95 rounded-lg text-red-500 transition-all border border-red-100 cursor-pointer"><Trash2 size={14} /></button>
+                
+                {/* --- ADDED RequireRole WRAPPER FOR EDIT --- */}
+                <RequireRole userRole={currentUserRole} allowedRoles={['president', 'vice_president', 'secretary']}>
+                  <button 
+                    onClick={() => { 
+                      setEditingFacility(fac); 
+                      setIs360Image(fac.is_360 || false); 
+                      setFile(null); 
+                    }} 
+                    className="flex items-center justify-center gap-2 py-2 bg-slate-100 hover:bg-slate-200 active:scale-95 rounded-lg text-slate-600 text-xs font-bold transition-all cursor-pointer"
+                  >
+                    <Edit size={14} /> Edit
+                  </button>
+                </RequireRole>
+
+                {/* --- ADDED RequireRole WRAPPER FOR DELETE --- */}
+                <RequireRole userRole={currentUserRole} allowedRoles={['president', 'vice_president', 'secretary']}>
+                  <button onClick={() => handleDelete(fac.id)} className="flex items-center justify-center py-2 bg-red-50 hover:bg-red-100 active:scale-95 rounded-lg text-red-500 transition-all border border-red-100 cursor-pointer"><Trash2 size={14} /></button>
+                </RequireRole>
               </div>
             </div>
           ))}
@@ -518,19 +561,33 @@ const Facility = () => {
                 </div>
               </div>
 
-              <div className="p-4 bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200 hover:bg-slate-100 transition-colors">
+              {/* ADDED: Checkbox to specify 360 image */}
+              <div className="p-4 bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200">
                 <input 
                   type="file" 
                   id="facility-image" 
                   className="hidden" 
                   onChange={(e) => setFile(e.target.files[0])}
                 />
-                <label htmlFor="facility-image" className="flex flex-col items-center justify-center cursor-pointer">
+                <label htmlFor="facility-image" className="flex flex-col items-center justify-center cursor-pointer mb-3 hover:bg-slate-100 transition-colors p-2 rounded-xl">
                   <Upload className="text-slate-400 mb-2" />
                   <span className="text-sm font-bold text-slate-500 text-center">
-                    {file ? file.name : "Upload 360° Image or Photo"}
+                    {file ? file.name : "Upload Image or Photo"}
                   </span>
                 </label>
+                
+                <div className="flex items-center gap-2 justify-center border-t border-slate-200 pt-3">
+                  <input 
+                    type="checkbox" 
+                    id="is-360-facility" 
+                    className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500 cursor-pointer"
+                    checked={is360Image}
+                    onChange={(e) => setIs360Image(e.target.checked)}
+                  />
+                  <label htmlFor="is-360-facility" className="text-xs font-bold text-slate-600 cursor-pointer">
+                    This is a 360° image
+                  </label>
+                </div>
               </div>
             </div>
 
@@ -594,19 +651,32 @@ const Facility = () => {
                 </div>
               </div>
 
-              <div className="p-4 bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200 hover:bg-slate-100 transition-colors">
+              {/* ADDED: Checkbox to specify 360 image */}
+              <div className="p-4 bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200">
                 <input 
                   type="file" 
                   id="item-image" 
                   className="hidden" 
                   onChange={(e) => setFile(e.target.files[0])}
                 />
-                <label htmlFor="item-image" className="flex flex-col items-center justify-center cursor-pointer">
+                <label htmlFor="item-image" className="flex flex-col items-center justify-center cursor-pointer mb-3 hover:bg-slate-100 transition-colors p-2 rounded-xl">
                   <Upload className="text-slate-400 mb-1" size={20} />
-                  <span className="text-[11px] font-bold text-slate-500 uppercase">
+                  <span className="text-[11px] font-bold text-slate-500 uppercase text-center">
                     {file ? file.name : "Upload Item Photo"}
                   </span>
                 </label>
+                <div className="flex items-center gap-2 justify-center border-t border-slate-200 pt-3">
+                  <input 
+                    type="checkbox" 
+                    id="is-360-item" 
+                    className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500 cursor-pointer"
+                    checked={is360Image}
+                    onChange={(e) => setIs360Image(e.target.checked)}
+                  />
+                  <label htmlFor="is-360-item" className="text-xs font-bold text-slate-600 cursor-pointer">
+                    This is a 360° image
+                  </label>
+                </div>
               </div>
             </div>
 
@@ -629,7 +699,7 @@ const Facility = () => {
                 <h2 className="text-2xl font-bold text-slate-900">Edit Details</h2>
                 <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">{editingFacility.category}</p>
               </div>
-              <button onClick={() => setEditingFacility(null)} className="p-2 hover:bg-slate-100 active:scale-90 rounded-full transition-all cursor-pointer">
+              <button onClick={() => { setEditingFacility(null); setFile(null); }} className="p-2 hover:bg-slate-100 active:scale-90 rounded-full transition-all cursor-pointer">
                 <X size={20} className="text-slate-400" />
               </button>
             </div>
@@ -694,11 +764,47 @@ const Facility = () => {
                   <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={18} />
                 </div>
               </div>
+
+              {/* ADDED: Checkbox to specify 360 image */}
+              <div>
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1.5">Update Image</label>
+                <div className="p-4 bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200">
+                  <input 
+                    type="file" 
+                    id="edit-facility-image" 
+                    className="hidden" 
+                    onChange={(e) => setFile(e.target.files[0])}
+                  />
+                  <label htmlFor="edit-facility-image" className="flex flex-col items-center justify-center cursor-pointer mb-3 hover:bg-slate-100 transition-colors p-2 rounded-xl">
+                    <Upload className="text-slate-400 mb-2" />
+                    <span className="text-sm font-bold text-slate-500 text-center">
+                      {file ? file.name : "Upload New Image or Photo"}
+                    </span>
+                    {editingFacility.image_360_url && !file && (
+                      <span className="text-[10px] text-slate-400 mt-1">(Leave empty to keep current image)</span>
+                    )}
+                  </label>
+                  
+                  <div className="flex items-center gap-2 justify-center border-t border-slate-200 pt-3">
+                    <input 
+                      type="checkbox" 
+                      id="is-360-edit" 
+                      className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500 cursor-pointer"
+                      checked={is360Image}
+                      onChange={(e) => setIs360Image(e.target.checked)}
+                    />
+                    <label htmlFor="is-360-edit" className="text-xs font-bold text-slate-600 cursor-pointer">
+                      This is a 360° image
+                    </label>
+                  </div>
+                </div>
+              </div>
+
             </div>
 
             <div className="flex gap-3 mt-8">
               <button 
-                onClick={() => setEditingFacility(null)}
+                onClick={() => { setEditingFacility(null); setFile(null); }}
                 className="flex-1 py-4 bg-slate-100 text-slate-600 font-bold rounded-2xl hover:bg-slate-200 active:scale-95 transition-all cursor-pointer"
               >
                 Discard
@@ -728,16 +834,20 @@ const Facility = () => {
             <div className="flex flex-col lg:flex-row h-[80vh]">
               <div className="lg:w-2/3 bg-slate-100 relative group">
                 <div className="absolute top-6 left-6 z-[410] flex gap-2">
-                   <button 
-                    onClick={() => setViewingFacility({...viewingFacility, show360: !viewingFacility.show360})}
-                    className={`px-4 py-2 rounded-full font-bold text-xs flex items-center gap-2 transition-all active:scale-95 shadow-lg cursor-pointer ${viewingFacility.show360 ? 'bg-indigo-600 text-white hover:bg-indigo-700' : 'bg-white text-slate-900 hover:bg-slate-50'}`}
-                   >
-                     {viewingFacility.show360 ? 'Exit 360° View' : 'Switch to 360° View'}
-                   </button>
+                  {/* UPDATED: Only show the 360 switch button if is_360 is true in the database */}
+                  {viewingFacility.is_360 && (
+                     <button 
+                      onClick={() => setViewingFacility({...viewingFacility, show360: !viewingFacility.show360})}
+                      className={`px-4 py-2 rounded-full font-bold text-xs flex items-center gap-2 transition-all active:scale-95 shadow-lg cursor-pointer ${viewingFacility.show360 ? 'bg-indigo-600 text-white hover:bg-indigo-700' : 'bg-white text-slate-900 hover:bg-slate-50'}`}
+                     >
+                       {viewingFacility.show360 ? 'Exit 360° View' : 'Switch to 360° View'}
+                     </button>
+                  )}
                 </div>
 
                 {viewingFacility.image_360_url ? (
-                  viewingFacility.show360 ? (
+                  /* UPDATED: Force normal image view if is_360 is false, otherwise respect show360 state */
+                  (viewingFacility.is_360 && viewingFacility.show360) ? (
                     <Pannellum
                       width="100%"
                       height="100%"
