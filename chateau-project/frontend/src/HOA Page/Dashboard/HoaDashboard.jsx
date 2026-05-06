@@ -10,6 +10,14 @@ import {
   FileTerminal 
 } from 'lucide-react';
 
+// --- ADDED: RequireRole Component ---
+const RequireRole = ({ userRole, allowedRoles, children }) => {
+  if (allowedRoles.includes(userRole) || userRole === 'super_admin') {
+    return children;
+  }
+  return null; 
+};
+
 // --- RESTORED COMPONENTS ---
 const StatCard = ({ title, value, icon: Icon, iconBg }) => (
   <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col justify-between transition-shadow">
@@ -26,15 +34,18 @@ const StatCard = ({ title, value, icon: Icon, iconBg }) => (
   </div>
 );
 
-const SectionHeader = ({ title, linkText, onClick }) => (
+// --- UPDATED: Added allowedRoles to conditionally render the link ---
+const SectionHeader = ({ title, linkText, onClick, userRole, allowedRoles }) => (
   <div className="flex justify-between items-center mb-4">
     <h4 className="text-lg font-bold text-slate-800">{title}</h4>
-    <button 
-      onClick={onClick} 
-      className="text-blue-600 text-sm font-semibold hover:underline focus:outline-none cursor-pointer"
-    >
-      {linkText}
-    </button>
+    <RequireRole userRole={userRole} allowedRoles={allowedRoles}>
+      <button 
+        onClick={onClick} 
+        className="text-blue-600 text-sm font-semibold hover:underline focus:outline-none cursor-pointer"
+      >
+        {linkText}
+      </button>
+    </RequireRole>
   </div>
 );
 
@@ -43,12 +54,17 @@ const HoaDashboard = () => {
   const [liveReports, setLiveReports] = useState([]);
   const [liveAnnouncements, setLiveAnnouncements] = useState([]); 
   const [liveElections, setLiveElections] = useState([]); 
-  // ADDED: State for live reservations and residents count
   const [liveReservations, setLiveReservations] = useState([]);
   const [totalResidents, setTotalResidents] = useState(0);
 
+  // ADDED: State for live payments
+  const [livePayments, setLivePayments] = useState([]);
+
   // ADDED: Loading state
   const [isLoading, setIsLoading] = useState(true);
+
+  // --- ADDED: Get Current Role ---
+  const currentUserRole = localStorage.getItem('userRole') || 'resident';
 
   useEffect(() => {
     // ADDED: Wrapper to handle the loading state properly
@@ -61,7 +77,8 @@ const HoaDashboard = () => {
         fetchLiveAnnouncements(),
         fetchLiveElections(),
         fetchLiveReservations(),
-        fetchTotalResidents()
+        fetchTotalResidents(),
+        fetchLivePayments() // Added fetch call for payments
       ]);
 
       setIsLoading(false);
@@ -162,15 +179,52 @@ const HoaDashboard = () => {
     }
   };
 
-  const handleNavigate = (path) => {
-    navigate(`/hoa/${path}`);
+  // --- ADDED: FETCH LIVE PAYMENTS ---
+  const fetchLivePayments = async () => {
+    try {
+      const { data: paymentsData, error: paymentsError } = await supabase
+        .from('payments')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(4); // Only fetch the 4 most recent payments for the dashboard
+
+      if (paymentsError) throw paymentsError;
+
+      if (!paymentsData || paymentsData.length === 0) {
+        setLivePayments([]);
+        return;
+      }
+
+      const userIds = [...new Set(paymentsData.map(p => p.user_id).filter(Boolean))];
+      let profilesData = [];
+
+      if (userIds.length > 0) {
+        const { data: pData, error: pError } = await supabase
+          .from('profiles')
+          .select('id, full_name')
+          .in('id', userIds);
+
+        if (!pError) {
+          profilesData = pData || [];
+        }
+      }
+
+      const mergedData = paymentsData.map(payment => {
+        const profile = profilesData.find(p => p.id === payment.user_id);
+        return {
+          ...payment,
+          profiles: profile || null
+        };
+      });
+
+      setLivePayments(mergedData);
+    } catch (error) {
+      console.error("Error fetching live payments:", error.message);
+    }
   };
 
-  const mockData = {
-    payments: [
-      { id: 1, user: "Juan Dela Cruz", amount: "₱2,500", type: "Monthly Dues", status: "Paid", date: "Jan 15, 2024" },
-      { id: 4, user: "Ana Garcia", amount: "₱2,500", type: "Monthly Dues", status: "Overdue", date: "Jan 15, 2024" }
-    ]
+  const handleNavigate = (path) => {
+    navigate(`/hoa/${path}`);
   };
 
   // ADDED: Loading Screen Animation
@@ -193,17 +247,34 @@ const HoaDashboard = () => {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-        <StatCard title="Total Reservations" value={liveReservations.length} icon={Calendar} iconBg="bg-blue-50" />
-        <StatCard title="Overdue Payments" value="1" icon={CreditCard} iconBg="bg-red-50" />
-        <StatCard title="Active Elections" value={liveElections.length} icon={Vote} iconBg="bg-orange-50" />
-        <StatCard title="Residents" value={totalResidents} icon={Users} iconBg="bg-purple-50" />
+        <RequireRole userRole={currentUserRole} allowedRoles={['president', 'vice_president', 'secretary', 'auditor']}>
+          <StatCard title="Total Reservations" value={liveReservations.length} icon={Calendar} iconBg="bg-blue-50" />
+        </RequireRole>
+
+        <RequireRole userRole={currentUserRole} allowedRoles={['president', 'treasurer', 'auditor']}>
+          <StatCard title="Overdue Payments" value="1" icon={CreditCard} iconBg="bg-red-50" />
+        </RequireRole>
+
+        <RequireRole userRole={currentUserRole} allowedRoles={['president', 'vice_president', 'secretary', 'auditor']}>
+          <StatCard title="Active Elections" value={liveElections.length} icon={Vote} iconBg="bg-orange-50" />
+        </RequireRole>
+
+        <RequireRole userRole={currentUserRole} allowedRoles={['president', 'vice_president', 'secretary', 'auditor']}>
+          <StatCard title="Residents" value={totalResidents} icon={Users} iconBg="bg-purple-50" />
+        </RequireRole>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* Left Column */}
         <div className="space-y-8">
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-            <SectionHeader title="Recent Reservations" linkText="View All" onClick={() => handleNavigate('reservations')} />
+            <SectionHeader 
+              title="Recent Reservations" 
+              linkText="View All" 
+              onClick={() => handleNavigate('reservations')} 
+              userRole={currentUserRole}
+              allowedRoles={['president', 'vice_president', 'secretary', 'auditor', 'board_member']} 
+            />
             <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
               {liveReservations.length > 0 ? (
                 liveReservations.map((item) => (
@@ -224,7 +295,13 @@ const HoaDashboard = () => {
           </div>
 
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-            <SectionHeader title="Residents Reports" linkText="View All" onClick={() => handleNavigate('reports')} />
+            <SectionHeader 
+              title="Residents Reports" 
+              linkText="View All" 
+              onClick={() => handleNavigate('reports')}
+              userRole={currentUserRole}
+              allowedRoles={['president', 'secretary', 'auditor', 'board_member']} 
+            />
             <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
               {liveReports.length > 0 ? (
                 liveReports.map((item) => (
@@ -254,25 +331,54 @@ const HoaDashboard = () => {
         {/* Right Column */}
         <div className="space-y-8">
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-            <SectionHeader title="Recent Payments" linkText="View All" onClick={() => handleNavigate('payments')} />
+            <SectionHeader 
+              title="Recent Payments" 
+              linkText="View All" 
+              onClick={() => handleNavigate('payments')} 
+              userRole={currentUserRole}
+              allowedRoles={['president', 'treasurer', 'auditor', 'board_member']} 
+            />
             <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
-              {mockData.payments.map((item) => (
-                <div key={item.id} className="flex justify-between items-center p-3 border border-slate-50 rounded-xl hover:bg-slate-50 transition-colors">
-                  <div>
-                    <p className="text-sm font-semibold text-slate-800">{item.user}</p>
-                    <p className="text-xs text-slate-500">{item.type} • {item.date}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-sm font-bold text-slate-900">{item.amount}</p>
-                    <p className={`text-[10px] font-bold uppercase ${item.status === 'Overdue' ? 'text-red-500' : 'text-green-500'}`}>{item.status}</p>
-                  </div>
-                </div>
-              ))}
+              {livePayments.length > 0 ? (
+                livePayments.map((item) => {
+                  const fullName = item.profiles?.full_name || 'Unknown Resident';
+                  const amount = item.amount ? `₱${Number(item.amount).toLocaleString()}` : '₱0';
+                  const date = item.due_date ? new Date(item.due_date).toLocaleDateString() : 'N/A';
+                  const status = (item.status || 'unpaid').toLowerCase();
+                  
+                  // Same styling logic as the main payments page
+                  let statusColor = 'text-slate-500';
+                  if (status === 'paid') statusColor = 'text-green-500';
+                  if (status === 'pending') statusColor = 'text-orange-500';
+                  if (status === 'overdue') statusColor = 'text-red-500';
+
+                  return (
+                    <div key={item.id} className="flex justify-between items-center p-3 border border-slate-50 rounded-xl hover:bg-slate-50 transition-colors">
+                      <div>
+                        <p className="text-sm font-semibold text-slate-800">{fullName}</p>
+                        <p className="text-xs text-slate-500">Due: {date}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-sm font-bold text-slate-900">{amount}</p>
+                        <p className={`text-[10px] font-bold uppercase ${statusColor}`}>{status}</p>
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                <p className="text-sm text-slate-400 text-center py-4 italic">No recent payments found.</p>
+              )}
             </div>
           </div>
 
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-            <SectionHeader title="Recent Announcements" linkText="View All" onClick={() => handleNavigate('announcements')} />
+            <SectionHeader 
+              title="Recent Announcements" 
+              linkText="View All" 
+              onClick={() => handleNavigate('announcements')} 
+              userRole={currentUserRole}
+              allowedRoles={['president', 'secretary', 'auditor', 'board_member']} 
+            />
             <div className="space-y-4 max-h-[350px] overflow-y-auto pr-2 custom-scrollbar">
               {liveAnnouncements.length > 0 ? (
                 liveAnnouncements.map((item) => (
@@ -293,14 +399,19 @@ const HoaDashboard = () => {
           </div>
 
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-            <SectionHeader title="Active Elections" linkText="View All" onClick={() => handleNavigate('elections')} />
+            <SectionHeader 
+              title="Active Elections" 
+              linkText="View All" 
+              onClick={() => handleNavigate('elections')} 
+              userRole={currentUserRole}
+              allowedRoles={['president', 'vice_president', 'secretary', 'auditor', 'board_member']} 
+            />
             <div className="space-y-3 max-h-[250px] overflow-y-auto pr-2 custom-scrollbar">
               {liveElections.length > 0 ? (
                 liveElections.map((item) => (
                   <div key={item.id} className="p-4 border-2 border-orange-100 rounded-xl bg-orange-50/30">
                     <p className="text-sm font-bold text-slate-900 mb-1">{item.title}</p>
                     <div className="flex justify-between items-center">
-                      {/* UPDATED: Displays actual count of rows from votes table */}
                       <p className="text-xs text-orange-600 font-medium">{item.actual_votes || 0} Residents Voted</p>
                       <span className="text-xs font-bold text-orange-700 bg-orange-100 px-2 py-0.5 rounded uppercase tracking-tighter">LIVE</span>
                     </div>

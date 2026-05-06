@@ -4,6 +4,14 @@ import { Megaphone, Clock, FileEdit, Plus, Search, MoreVertical, Pin, AlertTrian
 import { supabase } from '../supabaseAdmin';
 import logger from '../auditlogger';
 
+// --- ADDED: RequireRole Component ---
+const RequireRole = ({ userRole, allowedRoles, children }) => {
+  if (allowedRoles.includes(userRole) || userRole === 'super_admin') {
+    return children;
+  }
+  return null; 
+};
+
 const Announcements = () => {
   const [activeCategory, setActiveCategory] = useState('All Categories');
   const [activeStatus, setActiveStatus] = useState('All Status');
@@ -23,6 +31,9 @@ const Announcements = () => {
   const [pendingDeleteItem, setPendingDeleteItem] = useState(null);
 
   const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
+
+  // --- ADDED: Get Current Role ---
+  const currentUserRole = localStorage.getItem('userRole') || 'resident';
 
   const showToast = (message, type = 'success') => {
     setToast({ show: true, message, type });
@@ -305,7 +316,6 @@ const logAction = async (action, details) => {
   const handleTogglePin = async (id) => {
     try {
       const target = announcements.find(a => a.id === id);
-      // UPDATED: Use the snake_case naming for the DB property
       const newPinnedStatus = !target.is_pinned;
       
       // Update database
@@ -345,7 +355,6 @@ const logAction = async (action, details) => {
                             (activeStatus === 'Drafts' && item.status === 'draft');
       return matchesSearch && matchesCategory && matchesStatus;
     })
-    // UPDATED: Make sure sort logic also uses is_pinned
     .sort((a, b) => (a.is_pinned === b.is_pinned ? 0 : a.is_pinned ? -1 : 1));
 
   return (
@@ -380,12 +389,16 @@ const logAction = async (action, details) => {
           <h1 className="text-2xl font-bold text-slate-900">Announcements</h1>
           <p className="text-slate-500 text-sm">Post and manage community announcements.</p>
         </div>
-      <button 
-        onClick={() => { resetForm(); setShowModal(true); }}
-        style={{ backgroundColor: '#006837' }}
-        className="flex items-center gap-2 px-4 py-2.5 text-white rounded-xl text-sm font-bold hover:opacity-90 shadow-lg transition-all cursor-pointer">
-      <Plus size={18} /> New Announcement
-      </button>
+        
+        {/* --- ADDED RequireRole WRAPPER FOR NEW ANNOUNCEMENT --- */}
+        <RequireRole userRole={currentUserRole} allowedRoles={['president', 'secretary']}>
+          <button 
+            onClick={() => { resetForm(); setShowModal(true); }}
+            style={{ backgroundColor: '#006837' }}
+            className="flex items-center gap-2 px-4 py-2.5 text-white rounded-xl text-sm font-bold hover:opacity-90 shadow-lg transition-all cursor-pointer">
+            <Plus size={18} /> New Announcement
+          </button>
+        </RequireRole>
       </div>
 
       {/* Stats Cards */}
@@ -432,7 +445,6 @@ const logAction = async (action, details) => {
       {/* List */}
       <div className="space-y-4">
         {loading ? (
-          /* ADDED: Smooth Loading Animation */
           <div className="flex flex-col items-center justify-center py-20 gap-4">
             <div className="w-12 h-12 border-4 border-[#006837]/20 border-t-[#006837] rounded-full animate-spin"></div>
             <p className="text-[#006837] font-semibold animate-pulse tracking-wide">Loading Announcements...</p>
@@ -448,7 +460,6 @@ const logAction = async (action, details) => {
               <div className="flex justify-between items-start">
                 <div className="flex-1">
                   <div className="flex items-center gap-3 mb-2">
-                    {/* UPDATED: Changed isPinned to is_pinned */}
                     {item.is_pinned && <Pin size={16} className="text-indigo-600 fill-indigo-600 rotate-45" />}
                     {item.is_emergency && <AlertTriangle size={16} className="text-red-500" />}
                     <h3 className="font-bold text-slate-900 text-lg">{item.title}</h3>
@@ -473,43 +484,55 @@ const logAction = async (action, details) => {
                   >
                     <Eye size={18} />
                   </button>
-                  <button 
-                    onClick={() => handleOpenEdit(item)} 
-                    title="Edit Announcement"
-                    className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
-                  >
-                    <FileEdit size={18} />
-                  </button>
-                  {item.status === 'draft' && (
+                  
+                  {/* --- ADDED RequireRole WRAPPER FOR ROW ACTIONS --- */}
+                  <RequireRole userRole={currentUserRole} allowedRoles={['president', 'secretary']}>
                     <button 
-                      onClick={() => {
-                        setPendingPublishItem(item);
-                        setShowPublishConfirm(true);
-                      }} 
-                      title="Publish Now"
-                      className="p-2 text-slate-400 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors cursor-pointer"
+                      onClick={() => handleOpenEdit(item)} 
+                      title="Edit Announcement"
+                      className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
                     >
-                      <Send size={18} />
+                      <FileEdit size={18} />
                     </button>
-                  )}
-                  <button 
-                    onClick={() => handleTogglePin(item.id)} 
-                    title={item.is_pinned ? 'Unpin' : 'Pin to Top'}
-                    className="p-2 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors cursor-pointer"
-                  >
-                    {/* UPDATED: Changed isPinned to is_pinned */}
-                    <Pin size={18} className={item.is_pinned ? "fill-amber-600 text-amber-600" : ""} />
-                  </button>
-                  <button 
-                    onClick={() => { 
-                      setPendingDeleteItem(item.id); 
-                      setShowDeleteConfirm(true); 
-                    }} 
-                    title="Delete"
-                    className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
-                  >
-                    <Trash2 size={18} />
-                  </button>
+                  </RequireRole>
+
+                  <RequireRole userRole={currentUserRole} allowedRoles={['president', 'secretary']}>
+                    {item.status === 'draft' && (
+                      <button 
+                        onClick={() => {
+                          setPendingPublishItem(item);
+                          setShowPublishConfirm(true);
+                        }} 
+                        title="Publish Now"
+                        className="p-2 text-slate-400 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors cursor-pointer"
+                      >
+                        <Send size={18} />
+                      </button>
+                    )}
+                  </RequireRole>
+
+                  <RequireRole userRole={currentUserRole} allowedRoles={['president', 'secretary']}>
+                    <button 
+                      onClick={() => handleTogglePin(item.id)} 
+                      title={item.is_pinned ? 'Unpin' : 'Pin to Top'}
+                      className="p-2 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors cursor-pointer"
+                    >
+                      <Pin size={18} className={item.is_pinned ? "fill-amber-600 text-amber-600" : ""} />
+                    </button>
+                  </RequireRole>
+
+                  <RequireRole userRole={currentUserRole} allowedRoles={['president', 'secretary']}>
+                    <button 
+                      onClick={() => { 
+                        setPendingDeleteItem(item.id); 
+                        setShowDeleteConfirm(true); 
+                      }} 
+                      title="Delete"
+                      className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
+                    >
+                      <Trash2 size={18} />
+                    </button>
+                  </RequireRole>
                 </div>
               </div>
             </div>

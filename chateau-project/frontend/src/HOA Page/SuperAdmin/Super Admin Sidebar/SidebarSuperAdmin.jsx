@@ -34,10 +34,12 @@ const SidebarSuperAdmin = () => {
         .single();
         
       if (adminData) {
-        setDisplayName(adminData.display_name || user.user_metadata?.display_name || user.email?.split('@')[0] || "Super Admin");
+        // FIXED: Removed email split so it properly defaults to "Super Admin" if display_name is empty
+        setDisplayName(adminData.display_name || user.user_metadata?.display_name || "Super Admin");
         if (adminData.avatar_url) setAvatarUrl(adminData.avatar_url);
       } else {
-        setDisplayName(user.user_metadata?.display_name || user.email?.split('@')[0] || "Super Admin");
+        // FIXED: Removed email split
+        setDisplayName(user.user_metadata?.display_name || "Super Admin");
       }
     }
   };
@@ -52,8 +54,8 @@ const SidebarSuperAdmin = () => {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (session?.user) {
-        // Fallback for real-time auth change
-        setDisplayName(session.user.user_metadata?.display_name || session.user.email?.split('@')[0] || "Super Admin");
+        // FIXED: Fallback for real-time auth change without the email split
+        setDisplayName(session.user.user_metadata?.display_name || "Super Admin");
       }
     });
 
@@ -143,7 +145,6 @@ const SidebarSuperAdmin = () => {
                   <UserCircle size={18} /> System Profile
                 </Link>
                 <div className="h-px bg-slate-100 my-2 mx-2"></div>
-                {/* Changed to open the modal instead of handleLogout directly */}
                 <button 
                   onClick={() => setIsLogoutModalOpen(true)}
                   className="w-full flex items-center gap-3 px-3 py-2.5 text-sm font-semibold text-red-500 hover:bg-red-50 rounded-xl transition-all text-left cursor-pointer"
@@ -187,7 +188,7 @@ const SidebarSuperAdmin = () => {
         </div>
       </aside>
 
-      {/* ADDED: Logout Confirmation Modal */}
+      {/* Logout Confirmation Modal */}
       {isLogoutModalOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm px-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl animate-in zoom-in-95 duration-200">

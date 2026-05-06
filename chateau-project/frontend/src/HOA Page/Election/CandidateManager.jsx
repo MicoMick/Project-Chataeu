@@ -1,12 +1,21 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "../supabaseAdmin";
-import { UserPlus, Trash2, User, Camera, X, CheckCircle, AlertCircle, Briefcase } from "lucide-react"; 
+import { UserPlus, Trash2, User, Camera, X, CheckCircle, AlertCircle, Briefcase, Loader2 } from "lucide-react"; 
 import logger from '../auditlogger';
+
+// --- ADDED: RequireRole Component ---
+const RequireRole = ({ userRole, allowedRoles, children }) => {
+  if (allowedRoles.includes(userRole) || userRole === 'super_admin') {
+    return children;
+  }
+  return null; 
+};
 
 const CandidateManager = ({ electionId }) => {
   const [candidates, setCandidates] = useState([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false); // ADDED: Submission state
   
   // ADDED: State to store the current election's title
   const [electionTitle, setElectionTitle] = useState("");
@@ -21,6 +30,9 @@ const CandidateManager = ({ electionId }) => {
     manifesto: "",
     photo_url: "" 
   });
+
+  // --- ADDED: Get Current Role ---
+  const currentUserRole = localStorage.getItem('userRole') || 'resident';
 
   // ADDED: Position options for the dropdown
   const positions = ["President", "Vice President", "Secretary", "Treasurer", "Auditor"];
@@ -90,6 +102,8 @@ const CandidateManager = ({ electionId }) => {
 
   const handleAddCandidate = async (e) => {
     e.preventDefault();
+    setIsSubmitting(true); // Start loading
+    
     const { data, error } = await supabase
       .from("candidates")
       .insert([{ 
@@ -106,6 +120,7 @@ const CandidateManager = ({ electionId }) => {
         message: "Failed to add candidate: " + error.message,
         type: "error"
       });
+      setIsSubmitting(false); // Stop loading on error
     } else {
       fetchCandidates();
       logger.info("Candidate added successfully", { electionId, candidateName: newCandidate.full_name });
@@ -116,20 +131,20 @@ const CandidateManager = ({ electionId }) => {
         message: "The candidate has been successfully registered for this election.",
         type: "success"
       });
+      setIsSubmitting(false); // Stop loading on success
     }
   };
 
   const handleDeleteCandidate = async () => {
     const id = deleteConfirm.id;
     
-    // UPDATED: Added error logging and count check to verify if deletion actually happened
     const { error, status } = await supabase
       .from("candidates")
       .delete()
       .eq("id", id);
     
     if (error) {
-      console.error("Supabase Delete Error:", error); // This will show why it failed in the console
+      console.error("Supabase Delete Error:", error); 
       logger.error("Failed to delete candidate", { electionId, id, error });
       setNotification({
         show: true,
@@ -138,7 +153,6 @@ const CandidateManager = ({ electionId }) => {
         type: "error"
       });
     } else if (status === 403 || status === 401) {
-       // If no error but row still exists, it's usually an RLS issue
        setNotification({
         show: true,
         title: "Permission Denied",
@@ -163,7 +177,7 @@ const CandidateManager = ({ electionId }) => {
   return (
     <div className="mt-8 bg-white p-6 rounded-xl border border-gray-100 shadow-sm animate-in fade-in duration-500">
       
-      {/* UPDATED: Dynamic Filter Header Placeholder with #006837 */}
+      {/* Dynamic Filter Header */}
       <div className="mb-8 p-6 bg-[#006837] rounded-[2rem] text-white shadow-xl shadow-green-100 relative overflow-hidden group">
         <div className="absolute top-0 right-0 p-8 opacity-10 group-hover:scale-110 transition-transform duration-700">
           <Briefcase size={120} />
@@ -226,119 +240,129 @@ const CandidateManager = ({ electionId }) => {
         </div>
       )}
 
-      <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
-        <UserPlus size={20} className="text-indigo-600" />
-        Candidate Entry
-      </h3>
+      <RequireRole userRole={currentUserRole} allowedRoles={['president', 'vice_president', 'secretary']}>
+        <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
+          <UserPlus size={20} className="text-indigo-600" />
+          Candidate Entry
+        </h3>
 
-      <form onSubmit={handleAddCandidate} className="space-y-4 mb-8 bg-gray-50 p-4 rounded-xl border border-gray-200">
-        <div className="flex flex-col md:flex-row gap-6 items-center mb-4">
-          <div className="relative group">
-            <div className="w-24 h-24 bg-gray-200 rounded-full overflow-hidden border-2 border-indigo-100 flex items-center justify-center">
-              {newCandidate.photo_url ? (
-                <img src={newCandidate.photo_url} alt="Preview" className="w-full h-full object-cover" />
-              ) : (
-                <User size={40} className="text-gray-400" />
+        <form onSubmit={handleAddCandidate} className="space-y-4 mb-8 bg-gray-50 p-4 rounded-xl border border-gray-200">
+          <div className="flex flex-col md:flex-row gap-6 items-center mb-4">
+            <div className="relative group">
+              <div className="w-24 h-24 bg-gray-200 rounded-full overflow-hidden border-2 border-indigo-100 flex items-center justify-center">
+                {newCandidate.photo_url ? (
+                  <img src={newCandidate.photo_url} alt="Preview" className="w-full h-full object-cover" />
+                ) : (
+                  <User size={40} className="text-gray-400" />
+                )}
+              </div>
+              
+              <label className="absolute bottom-0 right-0 bg-indigo-600 p-2 rounded-full text-white cursor-pointer hover:bg-indigo-700 transition shadow-lg">
+                <Camera size={16} />
+                <input type="file" className="hidden" accept="image/*" onChange={handleImageUpload} disabled={uploading} />
+              </label>
+
+              {newCandidate.photo_url && (
+                <button
+                  type="button"
+                  onClick={() => setNewCandidate({ ...newCandidate, photo_url: "" })}
+                  className="absolute top-0 right-0 bg-red-500 text-white p-1 rounded-full hover:bg-red-600 transition shadow-md cursor-pointer"
+                >
+                  <X size={14} />
+                </button>
               )}
-            </div>
-            
-            <label className="absolute bottom-0 right-0 bg-indigo-600 p-2 rounded-full text-white cursor-pointer hover:bg-indigo-700 transition shadow-lg">
-              <Camera size={16} />
-              <input type="file" className="hidden" accept="image/*" onChange={handleImageUpload} disabled={uploading} />
-            </label>
 
-            {newCandidate.photo_url && (
-              <button
-                type="button"
-                onClick={() => setNewCandidate({ ...newCandidate, photo_url: "" })}
-                className="absolute top-0 right-0 bg-red-500 text-white p-1 rounded-full hover:bg-red-600 transition shadow-md cursor-pointer"
-              >
-                <X size={14} />
-              </button>
+              {uploading && <div className="absolute inset-0 bg-white/50 flex items-center justify-center rounded-full text-[10px] font-bold">Uploading...</div>}
+            </div>
+
+            <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4 w-full">
+              <div>
+                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Candidate Name</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Enter full name"
+                  className="w-full p-2.5 bg-white border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
+                  value={newCandidate.full_name}
+                  onChange={(e) => setNewCandidate({...newCandidate, full_name: e.target.value})}
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Position</label>
+                <select
+                  className="w-full p-2.5 bg-white border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                  value={newCandidate.position}
+                  onChange={(e) => setNewCandidate({...newCandidate, position: e.target.value})}
+                  required
+                >
+                  <option value="" disabled>Select Position</option>
+                  {positions.map((pos) => (
+                    <option key={pos} value={pos}>{pos}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Candidate Manifesto</label>
+            <textarea
+              placeholder="What are their goals for the community?"
+              className="w-full p-2.5 bg-white border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
+              rows="2"
+              value={newCandidate.manifesto}
+              onChange={(e) => setNewCandidate({...newCandidate, manifesto: e.target.value})}
+            />
+          </div>
+
+          <button 
+            type="submit" 
+            disabled={uploading || isSubmitting}
+            className="w-full bg-indigo-600 text-white py-2.5 rounded-lg font-bold hover:bg-indigo-700 transition shadow-md shadow-indigo-100 disabled:bg-gray-400 cursor-pointer flex items-center justify-center gap-2"
+          >
+            {isSubmitting ? (
+              <>
+                <Loader2 size={18} className="animate-spin" />
+                Registering...
+              </>
+            ) : (
+              "Confirm Candidate"
             )}
-
-            {uploading && <div className="absolute inset-0 bg-white/50 flex items-center justify-center rounded-full text-[10px] font-bold">Uploading...</div>}
-          </div>
-
-          <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4 w-full">
-            <div>
-              <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Candidate Name</label>
-              <input
-                type="text"
-                required
-                placeholder="Enter full name"
-                className="w-full p-2.5 bg-white border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
-                value={newCandidate.full_name}
-                onChange={(e) => setNewCandidate({...newCandidate, full_name: e.target.value})}
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Position</label>
-              {/* UPDATED: Changed input to select for better UX */}
-              <select
-                className="w-full p-2.5 bg-white border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
-                value={newCandidate.position}
-                onChange={(e) => setNewCandidate({...newCandidate, position: e.target.value})}
-                required
-              >
-                <option value="" disabled>Select Position</option>
-                {positions.map((pos) => (
-                  <option key={pos} value={pos}>{pos}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-        </div>
-
-        <div>
-          <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Candidate Manifesto</label>
-          <textarea
-            placeholder="What are their goals for the community?"
-            className="w-full p-2.5 bg-white border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
-            rows="2"
-            value={newCandidate.manifesto}
-            onChange={(e) => setNewCandidate({...newCandidate, manifesto: e.target.value})}
-          />
-        </div>
-
-        <button 
-          type="submit" 
-          disabled={uploading}
-          className="w-full bg-indigo-600 text-white py-2.5 rounded-lg font-bold hover:bg-indigo-700 transition shadow-md shadow-indigo-100 disabled:bg-gray-400 cursor-pointer"
-        >
-          {uploading ? "Waiting for upload..." : "Confirm Candidate"}
-        </button>
-      </form>
+          </button>
+        </form>
+      </RequireRole>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {candidates.map((c) => (
           <div key={c.id} className="group flex flex-col p-5 bg-white border border-gray-100 rounded-2xl shadow-sm hover:border-indigo-200 transition-all relative min-h-[160px]">
-             <div className="flex items-center gap-4 mb-3">
-               <div className="w-14 h-14 bg-indigo-50 rounded-full overflow-hidden flex items-center justify-center text-indigo-600 shrink-0 border border-indigo-100">
-                  {c.photo_url ? (
-                    <img src={c.photo_url} alt={c.full_name} className="w-full h-full object-cover" />
-                  ) : (
-                    <User size={24} />
-                  )}
-               </div>
-               <div className="flex-1 min-w-0">
-                  <p className="font-bold text-gray-900 leading-tight truncate">{c.full_name}</p>
-                  <p className="text-[10px] text-indigo-600 font-black uppercase tracking-wider">{c.position}</p>
-               </div>
-               <button 
-                 onClick={() => setDeleteConfirm({ show: true, id: c.id })}
-                 className="p-2 text-gray-300 hover:text-red-500 transition-colors cursor-pointer"
-               >
-                 <Trash2 size={18} />
-               </button>
-             </div>
-             
-             <div className="mt-auto">
-                <p className="text-xs text-gray-500 line-clamp-3 italic leading-relaxed bg-gray-50 p-3 rounded-xl border border-gray-50">
-                  "{c.manifesto || "No manifesto provided."}"
-                </p>
-             </div>
+              <div className="flex items-center gap-4 mb-3">
+                <div className="w-14 h-14 bg-indigo-50 rounded-full overflow-hidden flex items-center justify-center text-indigo-600 shrink-0 border border-indigo-100">
+                   {c.photo_url ? (
+                     <img src={c.photo_url} alt={c.full_name} className="w-full h-full object-cover" />
+                   ) : (
+                     <User size={24} />
+                   )}
+                </div>
+                <div className="flex-1 min-w-0">
+                   <p className="font-bold text-gray-900 leading-tight truncate">{c.full_name}</p>
+                   <p className="text-[10px] text-indigo-600 font-black uppercase tracking-wider">{c.position}</p>
+                </div>
+                <RequireRole userRole={currentUserRole} allowedRoles={['president', 'vice_president', 'secretary']}>
+                  <button 
+                    onClick={() => setDeleteConfirm({ show: true, id: c.id })}
+                    className="p-2 text-gray-300 hover:text-red-500 transition-colors cursor-pointer"
+                  >
+                    <Trash2 size={18} />
+                  </button>
+                </RequireRole>
+              </div>
+              
+              <div className="mt-auto">
+                 <p className="text-xs text-gray-500 line-clamp-3 italic leading-relaxed bg-gray-50 p-3 rounded-xl border border-gray-50">
+                   "{c.manifesto || "No manifesto provided."}"
+                 </p>
+              </div>
           </div>
         ))}
       </div>

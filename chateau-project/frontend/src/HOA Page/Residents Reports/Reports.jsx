@@ -7,6 +7,14 @@ import {
 } from 'lucide-react';
 import { supabase } from '../supabaseAdmin';
 
+// --- ADDED: RequireRole Component ---
+const RequireRole = ({ userRole, allowedRoles, children }) => {
+  if (allowedRoles.includes(userRole) || userRole === 'super_admin') {
+    return children;
+  }
+  return null; 
+};
+
 const Reports = () => {
   const [activeFilter, setActiveFilter] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
@@ -23,6 +31,9 @@ const Reports = () => {
   const [previousFeedback, setPreviousFeedback] = useState([]); 
 
   const filters = ['All', 'Pending', 'In Progress', 'Resolved', 'On Hold'];
+
+  // --- ADDED: Get Current Role ---
+  const currentUserRole = localStorage.getItem('userRole') || 'resident';
 
   // --- ADDED AUDIT LOGGER HELPER ---
   const logActivity = async (action, details) => {
@@ -384,16 +395,21 @@ const Reports = () => {
                               >
                                 View Details
                               </button>
-                              <div className="my-1 border-t border-slate-50"></div>
-                              <button 
-                                onClick={() => {
-                                  setDeleteConfirmation({ show: true, id: report.id });
-                                  setOpenMenuId(null);
-                                }}
-                                className="w-full flex items-center px-4 py-2.5 text-[11px] font-bold text-red-500 hover:bg-red-50 rounded-xl transition-colors cursor-pointer"
-                              >
-                                Delete
-                              </button>
+                              
+                              {/* --- UPDATED: Wrapped Delete button in RequireRole --- */}
+                              <RequireRole userRole={currentUserRole} allowedRoles={['president', 'secretary']}>
+                                <div className="my-1 border-t border-slate-50"></div>
+                                <button 
+                                  onClick={() => {
+                                    setDeleteConfirmation({ show: true, id: report.id });
+                                    setOpenMenuId(null);
+                                  }}
+                                  className="w-full flex items-center px-4 py-2.5 text-[11px] font-bold text-red-500 hover:bg-red-50 rounded-xl transition-colors cursor-pointer"
+                                >
+                                  Delete
+                                </button>
+                              </RequireRole>
+
                             </div>
                           </div>
                         </>
@@ -474,35 +490,39 @@ const Reports = () => {
 
                 <div className="border-t border-slate-100 my-8"></div>
 
-                <div className="space-y-4">
-                    <h3 className="text-sm font-bold text-slate-700 mb-4">Send Feedback to Resident</h3>
-                    <div className="relative w-48">
-                        <select 
-                          value={selectedReport.status}
-                          onChange={(e) => handleStatusChange(selectedReport.id, e.target.value)}
-                          className="w-full appearance-none bg-white border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold text-slate-700 focus:ring-2 focus:ring-indigo-500/20 outline-none transition-all cursor-pointer"
-                        >
-                            <option value="Pending">Pending</option>
-                            <option value="In Progress">In Progress</option>
-                            <option value="Resolved">Resolved</option>
-                            <option value="On Hold">On Hold</option>
-                        </select>
-                        <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={16} />
-                    </div>
-                    <textarea 
-                        className="w-full bg-white border border-slate-200 rounded-2xl p-4 text-sm font-medium placeholder:text-slate-300 focus:ring-2 focus:ring-indigo-500/20 outline-none transition-all resize-none"
-                        rows="4"
-                        placeholder="Write your feedback or response to the resident..."
-                        value={feedbackText}
-                        onChange={(e) => setFeedbackText(e.target.value)}
-                    ></textarea>
-                    <button 
-                      onClick={handleSendFeedback}
-                      className="flex items-center gap-2 bg-[#1e3a6a] hover:bg-[#152a4d] text-white px-6 py-3 rounded-xl text-sm font-bold transition-all active:scale-95 shadow-lg shadow-indigo-900/10 cursor-pointer"
-                    >
-                        <Send size={16} /> Send Feedback
-                    </button>
-                </div>
+                {/* --- UPDATED: Wrapped the Feedback action panel in RequireRole --- */}
+                <RequireRole userRole={currentUserRole} allowedRoles={['president', 'secretary']}>
+                  <div className="space-y-4">
+                      <h3 className="text-sm font-bold text-slate-700 mb-4">Send Feedback to Resident</h3>
+                      <div className="relative w-48">
+                          <select 
+                            value={selectedReport.status}
+                            onChange={(e) => handleStatusChange(selectedReport.id, e.target.value)}
+                            className="w-full appearance-none bg-white border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold text-slate-700 focus:ring-2 focus:ring-indigo-500/20 outline-none transition-all cursor-pointer"
+                          >
+                              <option value="Pending">Pending</option>
+                              <option value="In Progress">In Progress</option>
+                              <option value="Resolved">Resolved</option>
+                              <option value="On Hold">On Hold</option>
+                          </select>
+                          <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={16} />
+                      </div>
+                      <textarea 
+                          className="w-full bg-white border border-slate-200 rounded-2xl p-4 text-sm font-medium placeholder:text-slate-300 focus:ring-2 focus:ring-indigo-500/20 outline-none transition-all resize-none"
+                          rows="4"
+                          placeholder="Write your feedback or response to the resident..."
+                          value={feedbackText}
+                          onChange={(e) => setFeedbackText(e.target.value)}
+                      ></textarea>
+                      <button 
+                        onClick={handleSendFeedback}
+                        className="flex items-center gap-2 bg-[#1e3a6a] hover:bg-[#152a4d] text-white px-6 py-3 rounded-xl text-sm font-bold transition-all active:scale-95 shadow-lg shadow-indigo-900/10 cursor-pointer"
+                      >
+                          <Send size={16} /> Send Feedback
+                      </button>
+                  </div>
+                </RequireRole>
+
               </div>
             </div>
           </div>

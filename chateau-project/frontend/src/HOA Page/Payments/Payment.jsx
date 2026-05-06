@@ -2,8 +2,17 @@ import React, { useState, useEffect } from 'react';
 import { 
   Search, Download, Plus, MoreHorizontal, 
   CreditCard, AlertCircle, CheckCircle2, DollarSign,
-  Edit2, Trash2, Bell, FileText, Upload, XCircle, X, Filter // Added Filter icon
+  Edit2, Trash2, Bell, FileText, Upload, XCircle, X, Filter, Loader2
 } from 'lucide-react';
+import { supabase } from '../supabaseAdmin'; // IMPORTED SUPABASE
+
+// --- ADDED: RequireRole Component ---
+const RequireRole = ({ userRole, allowedRoles, children }) => {
+  if (allowedRoles.includes(userRole) || userRole === 'super_admin') {
+    return children;
+  }
+  return null; 
+};
 
 const StatCard = ({ title, value, icon: Icon, iconColor, bgColor }) => (
   <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center justify-between flex-1">
@@ -17,18 +26,131 @@ const StatCard = ({ title, value, icon: Icon, iconColor, bgColor }) => (
   </div>
 );
 
+// ADDED: TransactionModal component definition so it can be used below
+const TransactionModal = ({ status, message, onClose }) => {
+  if (!status) return null;
+
+  const configs = {
+    loading: {
+      icon: <Loader2 className="w-12 h-12 text-indigo-600 animate-spin" />,
+      title: "Processing...",
+      bgColor: "bg-indigo-50"
+    },
+    success: {
+      icon: <CheckCircle2 className="w-12 h-12 text-green-600" />,
+      title: "Success!",
+      bgColor: "bg-green-50"
+    },
+    error: {
+      icon: <AlertCircle className="w-12 h-12 text-red-600" />,
+      title: "Action Failed",
+      bgColor: "bg-red-50"
+    }
+  };
+
+  const current = configs[status];
+
+  return (
+    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[10000] flex items-center justify-center p-4">
+      <div className="bg-white rounded-[32px] p-8 w-full max-w-sm text-center shadow-2xl animate-in zoom-in-95 duration-200">
+        <div className={`w-20 h-20 ${current.bgColor} rounded-full flex items-center justify-center mx-auto mb-6`}>
+          {current.icon}
+        </div>
+        <h3 className="text-xl font-bold text-slate-900 mb-2">{current.title}</h3>
+        <p className="text-slate-500 text-sm mb-8">{message}</p>
+        
+        {status !== 'loading' && (
+          <button 
+            onClick={onClose}
+            className="w-full py-4 bg-slate-900 text-white font-bold rounded-2xl hover:bg-slate-800 transition-all cursor-pointer"
+          >
+            Continue
+          </button>
+        )}
+      </div>
+    </div>
+  );
+};
+
 const Payment = () => {
-  const [activeTab, setActiveTab] = useState('all-payments');
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState('All'); // Added statusFilter state
+  const [statusFilter, setStatusFilter] = useState('All'); 
   const [openMenuId, setOpenMenuId] = useState(null);
   const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
   
   // Modal States
-  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isEditTransactionOpen, setIsEditTransactionOpen] = useState(false); 
-  const [autoNotify, setAutoNotify] = useState(true);
+  const [selectedPayment, setSelectedPayment] = useState(null); 
+
+  // State for managing the transaction popup message
+  const [transaction, setTransaction] = useState({ status: null, message: '' });
+
+  // State for managing the edit form data
+  const [editFormData, setEditFormData] = useState({
+    amount: '',
+    status: '',
+    due_date: '',
+    reference_no: ''
+  });
+
+  const [payments, setPayments] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  // --- ADDED: Get Current Role ---
+  const currentUserRole = localStorage.getItem('userRole') || 'resident';
+
+  useEffect(() => {
+    fetchPayments();
+  }, []);
+
+  const fetchPayments = async () => {
+    try {
+      setLoading(true);
+      
+      const { data: paymentsData, error: paymentsError } = await supabase
+        .from('payments')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (paymentsError) throw paymentsError;
+
+      console.log("Supabase returned this data for payments:", paymentsData);
+
+      if (!paymentsData || paymentsData.length === 0) {
+        setPayments([]);
+        return;
+      }
+
+      const userIds = [...new Set(paymentsData.map(p => p.user_id).filter(Boolean))];
+      let profilesData = [];
+
+      if (userIds.length > 0) {
+        const { data: pData, error: pError } = await supabase
+          .from('profiles')
+          .select('id, full_name, address, street')
+          .in('id', userIds);
+
+        if (!pError) {
+          profilesData = pData || [];
+        }
+      }
+
+      const mergedData = paymentsData.map(payment => {
+        const profile = profilesData.find(p => p.id === payment.user_id);
+        return {
+          ...payment,
+          profiles: profile || null
+        };
+      });
+
+      console.log("Merged data with profiles:", mergedData);
+      setPayments(mergedData);
+    } catch (error) {
+      console.error("Error fetching payments:", error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
     const handleClickOutside = () => setOpenMenuId(null);
@@ -36,7 +158,7 @@ const Payment = () => {
     return () => window.removeEventListener('click', handleClickOutside);
   }, []);
 
-  const handleActionClick = (e, id) => {
+  const handleActionClick = (e, id, paymentRecord) => {
     e.stopPropagation();
     if (openMenuId === id) {
       setOpenMenuId(null);
@@ -57,32 +179,100 @@ const Payment = () => {
         left: rect.left + window.scrollX - 190 
       });
       setOpenMenuId(id);
+      setSelectedPayment(paymentRecord); 
     }
   };
 
-  // Updated payments array
-  const payments = [
-    { id: 1, name: "Juan Dela Cruz", address: "Blk 15 Lot 18 Gumamela St. Phase 1", type: "Monthly Dues", amount: "₱2,500", dueDate: "Jan 15, 2024", status: "Paid", paidDate: "Jan 15, 2024" },
-    { id: 4, name: "Ana Garcia", address: "Blk 12 Lot 5 Jasmine St. Phase 2", type: "Monthly Dues", amount: "₱2,500", dueDate: "Jan 15, 2024", status: "Overdue", paidDate: "Jan 15, 2024" },
-  ];
+  const handleEditChange = (e) => {
+    const { name, value } = e.target;
+    setEditFormData(prev => ({
+      ...prev,
+      [name]: value
+    }));
+  };
 
-  // Logic updated to filter based on name AND status
+  const submitEditTransaction = async () => {
+    if (!selectedPayment) return;
+
+    setTransaction({ status: 'loading', message: 'Updating transaction details...' });
+
+    try {
+      const updatePayload = {
+        amount: editFormData.amount ? Number(editFormData.amount) : null,
+        status: editFormData.status,
+        due_date: editFormData.due_date || null,
+        reference_no: editFormData.reference_no || null,
+      };
+
+      if (editFormData.status === 'paid' && selectedPayment.status !== 'paid') {
+        updatePayload.paid_at = new Date().toISOString();
+      }
+
+      const { error } = await supabase
+        .from('payments')
+        .update(updatePayload)
+        .eq('id', selectedPayment.id);
+
+      if (error) throw error;
+
+      setIsEditTransactionOpen(false);
+      fetchPayments();
+      
+      setTransaction({ status: 'success', message: 'Transaction has been successfully updated.' });
+
+    } catch (error) {
+      console.error("Error updating transaction:", error.message);
+      setTransaction({ status: 'error', message: "Failed to update transaction: " + error.message });
+    }
+  };
+
+  const openEditModal = () => {
+    if (selectedPayment) {
+      setEditFormData({
+        amount: selectedPayment.amount || '',
+        status: selectedPayment.status || 'unpaid',
+        due_date: selectedPayment.due_date || '',
+        reference_no: selectedPayment.reference_no || ''
+      });
+      setIsEditTransactionOpen(true);
+      setOpenMenuId(null);
+    }
+  };
+
   const filteredPayments = payments.filter(p => {
-    const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesStatus = statusFilter === 'All' || p.status === statusFilter;
+    const name = p.profiles?.full_name || 'Unknown Resident';
+    const matchesSearch = name.toLowerCase().includes(searchTerm.toLowerCase());
+    
+    const matchesStatus = statusFilter === 'All' || 
+                          (p.status && p.status.toLowerCase() === statusFilter.toLowerCase());
+    
     return matchesSearch && matchesStatus;
   });
 
   const getStatusStyle = (status) => {
-    switch (status) {
-      case 'Paid': return 'bg-green-100 text-green-600';
-      case 'Pending': return 'bg-orange-100 text-orange-600';
-      case 'Overdue': return 'bg-red-100 text-red-600';
+    const s = (status || '').toLowerCase();
+    switch (s) {
+      case 'paid': return 'bg-green-100 text-green-600';
+      case 'pending': return 'bg-orange-100 text-orange-600';
+      case 'overdue': return 'bg-red-100 text-red-600';
+      case 'unpaid': return 'bg-slate-100 text-slate-600';
       default: return 'bg-slate-100 text-slate-600';
     }
   };
 
-  const ModalOverlay = ({ title, subtitle, isOpen, onClose, children, actionLabel }) => {
+  const totalCollected = payments
+    .filter(p => (p.status || '').toLowerCase() === 'paid')
+    .reduce((sum, p) => sum + Number(p.amount || 0), 0);
+
+  const pendingCount = payments.filter(p => {
+      const s = (p.status || '').toLowerCase();
+      return s === 'pending' || s === 'unpaid';
+  }).length;
+  
+  const overdueCount = payments.filter(p => (p.status || '').toLowerCase() === 'overdue').length;
+  const paidCount = payments.filter(p => (p.status || '').toLowerCase() === 'paid').length;
+
+  const ModalOverlay = ({ title, subtitle, isOpen, onClose, children, actionLabel, onAction }) => {
     if (!isOpen) return null;
     return (
       <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4">
@@ -107,7 +297,10 @@ const Payment = () => {
               <button onClick={onClose} className="flex-1 px-6 py-3 bg-slate-100 text-slate-700 rounded-xl font-bold hover:bg-slate-200 transition-all">
                 Cancel
               </button>
-              <button className="flex-1 px-6 py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all">
+              <button 
+                onClick={onAction} 
+                className="flex-1 px-6 py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all"
+              >
                 {actionLabel}
               </button>
             </div>
@@ -119,95 +312,12 @@ const Payment = () => {
 
   return (
     <div className="p-8 bg-slate-50 min-h-screen">
-      <ModalOverlay 
-        isOpen={isAddModalOpen} 
-        onClose={() => setIsAddModalOpen(false)}
-        title="Add Fee Category"
-        subtitle="Adding Fee Category"
-        actionLabel="Add Category"
-      >
-        <div className="grid gap-4">
-          <div>
-            <label className="block text-sm font-bold text-slate-700 mb-2">Category Name</label>
-            <input type="text" placeholder="e.g Monthly Dues" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20" />
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-bold text-slate-700 mb-2">Standard Rate (₱)</label>
-              <input type="text" placeholder="0.00" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20" />
-            </div>
-            <div>
-              <label className="block text-sm font-bold text-slate-700 mb-2">Billing Cycle</label>
-              <select className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 appearance-none">
-                <option>Monthly</option>
-                <option>Quarterly</option>
-                <option>One-time</option>
-              </select>
-            </div>
-          </div>
-          <div>
-            <label className="block text-sm font-bold text-slate-700 mb-2">Grace Period (days)</label>
-            <input type="text" placeholder="e.g 5" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20" />
-          </div>
-          <div className="bg-slate-50 p-4 rounded-xl flex items-center justify-between">
-            <div>
-              <p className="text-sm font-bold text-slate-900">Automated Notifications</p>
-              <p className="text-xs text-slate-500">Send reminder 3 days before due date</p>
-            </div>
-            <button 
-              onClick={() => setAutoNotify(!autoNotify)}
-              className={`w-12 h-6 rounded-full transition-colors relative ${autoNotify ? 'bg-indigo-600' : 'bg-slate-300'}`}
-            >
-              <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${autoNotify ? 'right-1' : 'left-1'}`} />
-            </button>
-          </div>
-        </div>
-      </ModalOverlay>
 
-      <ModalOverlay 
-        isOpen={isEditModalOpen} 
-        onClose={() => setIsEditModalOpen(false)}
-        title="Edit Due settings"
-        subtitle="Residents Transaction Details"
-        actionLabel="Save Changes"
-      >
-        <div className="grid gap-4">
-          <div>
-            <label className="block text-sm font-bold text-slate-700 mb-2">Category Name</label>
-            <input type="text" defaultValue="Juan Dela Cruz" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20" />
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-bold text-slate-700 mb-2">Standard Rate (₱)</label>
-              <input type="text" defaultValue="2,500" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20" />
-            </div>
-            <div>
-              <label className="block text-sm font-bold text-slate-700 mb-2">Billing Cycle</label>
-              <select className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20">
-                <option>Monthly</option>
-                <option>Quarterly</option>
-                <option>One-time</option>
-              </select>
-            </div>
-          </div>
-          <div>
-            <label className="block text-sm font-bold text-slate-700 mb-2">Grace Period (days)</label>
-            <input type="text" defaultValue="5%" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20" />
-          </div>
-          <div className="bg-slate-50 p-4 rounded-xl flex items-center justify-between">
-            <div>
-              <p className="text-sm font-bold text-slate-900">Automated Notifications</p>
-              <p className="text-xs text-slate-500">Send reminder 3 days before due date</p>
-            </div>
-            <button 
-              onClick={() => setAutoNotify(!autoNotify)}
-              className={`w-12 h-6 rounded-full transition-colors relative ${autoNotify ? 'bg-indigo-600' : 'bg-slate-300'}`}
-            >
-              <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${autoNotify ? 'right-1' : 'left-1'}`} />
-            </button>
-          </div>
-        </div>
-      </ModalOverlay>
+      <TransactionModal 
+        status={transaction.status} 
+        message={transaction.message} 
+        onClose={() => setTransaction({ status: null, message: '' })} 
+      />
 
       <ModalOverlay 
         isOpen={isEditTransactionOpen} 
@@ -215,38 +325,60 @@ const Payment = () => {
         title="Edit Transaction"
         subtitle="Update Resident Payment Details"
         actionLabel="Update Transaction"
+        onAction={submitEditTransaction} 
       >
         <div className="grid gap-4">
           <div>
             <label className="block text-sm font-bold text-slate-700 mb-2">Resident Name</label>
-            <input type="text" defaultValue="Juan Dela Cruz" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20" />
+            <input type="text" readOnly defaultValue={(Array.isArray(selectedPayment?.profiles) ? selectedPayment?.profiles[0]?.full_name : selectedPayment?.profiles?.full_name) || "Unknown Resident"} className="w-full px-4 py-3 bg-slate-100 text-slate-500 border border-slate-200 rounded-xl focus:outline-none cursor-not-allowed" />
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-bold text-slate-700 mb-2">Amount (₱)</label>
-              <input type="text" defaultValue="2,500" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20" />
+              <input 
+                type="number" 
+                name="amount"
+                value={editFormData.amount} 
+                onChange={handleEditChange}
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20" 
+              />
             </div>
             <div>
               <label className="block text-sm font-bold text-slate-700 mb-2">Payment Status</label>
-              <select className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20">
-                <option>Paid</option>
-                <option>Pending</option>
-                <option>Overdue</option>
+              <select 
+                name="status"
+                value={editFormData.status} 
+                onChange={handleEditChange}
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+              >
+                <option value="paid">Paid</option>
+                <option value="unpaid">Unpaid</option>
+                <option value="pending">Pending</option>
+                <option value="overdue">Overdue</option>
               </select>
             </div>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-bold text-slate-700 mb-2">Due Date</label>
-              <input type="date" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20" />
+              <input 
+                type="date" 
+                name="due_date"
+                value={editFormData.due_date} 
+                onChange={handleEditChange}
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20" 
+              />
             </div>
             <div>
-              <label className="block text-sm font-bold text-slate-700 mb-2">Payment Type</label>
-              <select className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20">
-                <option>Monthly Dues</option>
-                <option>Parking Fee</option>
-                <option>Special Assessment</option>
-              </select>
+              <label className="block text-sm font-bold text-slate-700 mb-2">Reference No.</label>
+              <input 
+                type="text" 
+                name="reference_no"
+                value={editFormData.reference_no} 
+                onChange={handleEditChange}
+                placeholder="Ref Number" 
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20" 
+              />
             </div>
           </div>
         </div>
@@ -260,32 +392,14 @@ const Payment = () => {
 
       {/* Updated Stats Grid */}
       <div className="flex flex-wrap gap-6 mb-8">
-        <StatCard title="Total Collected" value="₱5,000" icon={DollarSign} iconColor="text-indigo-600" bgColor="bg-indigo-50" />
-        <StatCard title="Pending Payments" value="0" icon={CreditCard} iconColor="text-blue-600" bgColor="bg-blue-50" />
-        <StatCard title="Overdue" value="1" icon={AlertCircle} iconColor="text-red-600" bgColor="bg-red-50" />
-        <StatCard title="Paid This Month" value="1" icon={CheckCircle2} iconColor="text-indigo-600" bgColor="bg-indigo-50" />
-      </div>
-
-      {/* Tabs */}
-      <div className="flex gap-4 mb-6">
-        <button 
-          onClick={() => setActiveTab('all-payments')}
-          className={`px-6 py-2 rounded-xl text-sm font-bold transition-all ${activeTab === 'all-payments' ? 'bg-white shadow-sm border border-slate-200 text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}
-        >
-          All Payments
-        </button>
-        <button 
-          onClick={() => setActiveTab('due-settings')}
-          className={`px-6 py-2 rounded-xl text-sm font-bold transition-all ${activeTab === 'due-settings' ? 'bg-white shadow-sm border border-slate-200 text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}
-        >
-          Due Settings
-        </button>
+        <StatCard title="Total Collected" value={`₱${totalCollected.toLocaleString()}`} icon={DollarSign} iconColor="text-indigo-600" bgColor="bg-indigo-50" />
+        <StatCard title="Pending Payments" value={pendingCount} icon={CreditCard} iconColor="text-blue-600" bgColor="bg-blue-50" />
+        <StatCard title="Overdue" value={overdueCount} icon={AlertCircle} iconColor="text-red-600" bgColor="bg-red-50" />
+        <StatCard title="Paid This Month" value={paidCount} icon={CheckCircle2} iconColor="text-indigo-600" bgColor="bg-indigo-50" />
       </div>
 
       {/* Content Area */}
-      <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
-        {activeTab === 'all-payments' ? (
-          <>
+      <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden mt-6">
             <div className="p-6 border-b border-slate-50 flex flex-wrap justify-between items-center gap-4">
               <div className="flex items-center gap-4 flex-1 min-w-[300px]">
                 {/* Search Bar */}
@@ -312,11 +426,12 @@ const Payment = () => {
                     <option value="Paid">Paid</option>
                     <option value="Pending">Pending</option>
                     <option value="Overdue">Overdue</option>
+                    <option value="Unpaid">Unpaid</option>
                   </select>
                 </div>
               </div>
 
-              <button className="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700 hover:bg-slate-50 shadow-sm transition-all">
+              <button className="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700 hover:bg-slate-50 shadow-sm transition-all cursor-pointer">
                 <Download size={18} /> Export CSV
               </button>
             </div>
@@ -327,45 +442,67 @@ const Payment = () => {
                   <tr className="bg-slate-50/50">
                     <th className="px-6 py-4 text-[11px] font-bold text-slate-400 uppercase tracking-wider">Name</th>
                     <th className="px-6 py-4 text-[11px] font-bold text-slate-400 uppercase tracking-wider">Address</th>
-                    <th className="px-6 py-4 text-[11px] font-bold text-slate-400 uppercase tracking-wider">Payment Type</th>
                     <th className="px-6 py-4 text-[11px] font-bold text-slate-400 uppercase tracking-wider">Amount</th>
                     <th className="px-6 py-4 text-[11px] font-bold text-slate-400 uppercase tracking-wider">Due Date</th>
+                    <th className="px-6 py-4 text-[11px] font-bold text-slate-400 uppercase tracking-wider">Ref No.</th>
                     <th className="px-6 py-4 text-[11px] font-bold text-slate-400 uppercase tracking-wider">Status</th>
                     <th className="px-6 py-4 text-[11px] font-bold text-slate-400 uppercase tracking-wider">Paid Date</th>
                     <th className="px-6 py-4 text-[11px] font-bold text-slate-400 uppercase tracking-wider"></th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {filteredPayments.map((p) => (
-                    <tr key={p.id} className="hover:bg-slate-50/50 transition-colors group">
-                      <td className="px-6 py-4 text-sm font-bold text-slate-900">{p.name}</td>
-                      <td className="px-6 py-4 text-sm text-slate-600">{p.address}</td>
-                      <td className="px-6 py-4 text-sm text-slate-600 font-medium">{p.type}</td>
-                      <td className="px-6 py-4 text-sm text-slate-900 font-bold">{p.amount}</td>
-                      <td className="px-6 py-4 text-sm text-slate-600">{p.dueDate}</td>
-                      <td className="px-6 py-4">
-                        <span className={`px-3 py-1 rounded-lg text-[10px] font-bold uppercase ${getStatusStyle(p.status)}`}>
-                          {p.status}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-sm text-slate-600">{p.paidDate}</td>
-                      <td className="px-6 py-4 text-right">
-                        <button 
-                          onClick={(e) => handleActionClick(e, p.id)}
-                          className="text-slate-400 hover:text-slate-600 p-1"
-                        >
-                          <MoreHorizontal size={20} />
-                        </button>
+                  {loading ? (
+                    <tr>
+                       <td colSpan="8" className="px-6 py-12 text-center">
+                         <div className="flex flex-col items-center justify-center gap-3">
+                           <div className="w-8 h-8 border-4 border-[#006837]/20 border-t-[#006837] rounded-full animate-spin"></div>
+                           <p className="text-[#006837] font-semibold animate-pulse tracking-wide text-xs">Loading records...</p>
+                         </div>
+                       </td>
+                    </tr>
+                  ) : filteredPayments.length > 0 ? (
+                    filteredPayments.map((p) => {
+                      const profile = Array.isArray(p.profiles) ? p.profiles[0] : p.profiles;
+                      const fullName = profile?.full_name || 'Unknown Resident';
+                      const fullAddress = profile ? `${profile.address || ''} ${profile.street || ''}`.trim() : 'N/A';
+                      
+                      return (
+                        <tr key={p.id} className="hover:bg-slate-50/50 transition-colors group">
+                          <td className="px-6 py-4 text-sm font-bold text-slate-900">{fullName}</td>
+                          <td className="px-6 py-4 text-sm text-slate-600 max-w-[200px] truncate">{fullAddress || 'N/A'}</td>
+                          <td className="px-6 py-4 text-sm text-slate-900 font-bold">₱{Number(p.amount).toLocaleString()}</td>
+                          <td className="px-6 py-4 text-sm text-slate-600">{p.due_date ? new Date(p.due_date).toLocaleDateString() : 'N/A'}</td>
+                          <td className="px-6 py-4 text-sm text-slate-600">{p.reference_no || '---'}</td>
+                          <td className="px-6 py-4">
+                            <span className={`px-3 py-1 rounded-lg text-[10px] font-bold uppercase ${getStatusStyle(p.status)}`}>
+                              {p.status || 'unpaid'}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 text-sm text-slate-600">
+                            {p.paid_at ? new Date(p.paid_at).toLocaleDateString() : '---'}
+                          </td>
+                          <td className="px-6 py-4 text-right">
+                            <button 
+                              onClick={(e) => handleActionClick(e, p.id, p)}
+                              className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+                            >
+                              <MoreHorizontal size={20} />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  ) : (
+                    <tr>
+                      <td colSpan="8">
+                        <div className="p-12 text-center">
+                          <p className="text-slate-500 font-medium">No payments found matching your criteria.</p>
+                        </div>
                       </td>
                     </tr>
-                  ))}
+                  )}
                 </tbody>
               </table>
-              {filteredPayments.length === 0 && (
-                <div className="p-12 text-center">
-                  <p className="text-slate-500 font-medium">No payments found matching your criteria.</p>
-                </div>
-              )}
             </div>
 
             {openMenuId && (
@@ -374,84 +511,40 @@ const Payment = () => {
                 style={{ top: menuPosition.top, left: menuPosition.left }}
                 onClick={(e) => e.stopPropagation()}
               >
-                <button className="w-full px-4 py-2.5 text-left text-sm font-semibold text-slate-700 hover:bg-slate-50 flex items-center">
-                  Send Reminder
-                </button>
-                <button className="w-full px-4 py-2.5 text-left text-sm font-semibold text-slate-700 hover:bg-slate-50 flex items-center">
+                {/* --- ADDED RequireRole WRAPPERS HERE --- */}
+                <RequireRole userRole={currentUserRole} allowedRoles={['president', 'treasurer']}>
+                  <button className="w-full px-4 py-2.5 text-left text-sm font-semibold text-slate-700 hover:bg-slate-50 flex items-center cursor-pointer">
+                    Send Reminder
+                  </button>
+                </RequireRole>
+
+                {/* Left available for Auditors to view/download records */}
+                <button className="w-full px-4 py-2.5 text-left text-sm font-semibold text-slate-700 hover:bg-slate-50 flex items-center cursor-pointer">
                   Download Receipt
                 </button>
-                <button className="w-full px-4 py-2.5 text-left text-sm font-semibold text-slate-700 hover:bg-slate-50 flex items-center">
-                  Upload Proof Payment
-                </button>
-                <button 
-                  onClick={() => { setIsEditTransactionOpen(true); setOpenMenuId(null); }}
-                  className="w-full px-4 py-2.5 text-left text-sm font-semibold text-slate-700 hover:bg-slate-50 flex items-center border-t border-slate-50 mt-1 pt-3"
-                >
-                  Edit Transaction
-                </button>
-                <button className="w-full px-4 py-2.5 text-left text-sm font-bold text-red-500 hover:bg-red-50 flex items-center">
-                  Void / Cancel
-                </button>
+
+                <RequireRole userRole={currentUserRole} allowedRoles={['president', 'treasurer']}>
+                  <button className="w-full px-4 py-2.5 text-left text-sm font-semibold text-slate-700 hover:bg-slate-50 flex items-center cursor-pointer">
+                    Upload Proof Payment
+                  </button>
+                </RequireRole>
+
+                <RequireRole userRole={currentUserRole} allowedRoles={['president', 'treasurer']}>
+                  <button 
+                    onClick={openEditModal} 
+                    className="w-full px-4 py-2.5 text-left text-sm font-semibold text-slate-700 hover:bg-slate-50 flex items-center border-t border-slate-50 mt-1 pt-3 cursor-pointer"
+                  >
+                    Edit Transaction
+                  </button>
+                </RequireRole>
+
+                <RequireRole userRole={currentUserRole} allowedRoles={['president', 'treasurer']}>
+                  <button className="w-full px-4 py-2.5 text-left text-sm font-bold text-red-500 hover:bg-red-50 flex items-center cursor-pointer">
+                    Void / Cancel
+                  </button>
+                </RequireRole>
               </div>
             )}
-          </>
-        ) : (
-          <div className="p-8">
-            <div className="flex justify-between items-start mb-6">
-              <div>
-                <h2 className="text-xl font-bold text-slate-900">Fee Categories & Rules</h2>
-                <p className="text-slate-500 text-sm mt-1">Define payment types, rates, penalties and notification settings.</p>
-              </div>
-              <button 
-                onClick={() => setIsAddModalOpen(true)}
-                className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all"
-              >
-                <Plus size={18} /> Add Category
-              </button>
-            </div>
-
-            <div className="border border-slate-100 rounded-2xl overflow-hidden">
-              <table className="w-full text-left">
-                <thead className="bg-slate-50/50">
-                  <tr>
-                    <th className="px-6 py-4 text-[11px] font-bold text-slate-400 uppercase tracking-wider">Category</th>
-                    <th className="px-6 py-4 text-[11px] font-bold text-slate-400 uppercase tracking-wider">Rate (₱)</th>
-                    <th className="px-6 py-4 text-[11px] font-bold text-slate-400 uppercase tracking-wider">Billing Cycle</th>
-                    <th className="px-6 py-4 text-[11px] font-bold text-slate-400 uppercase tracking-wider">Grace Period</th>
-                    <th className="px-6 py-4 text-[11px] font-bold text-slate-400 uppercase tracking-wider text-center">Auto Notify</th>
-                    <th className="px-6 py-4"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr className="border-t border-slate-100">
-                    <td className="px-6 py-6 text-sm font-bold text-slate-900">Monthly Dues</td>
-                    <td className="px-6 py-6 text-sm font-bold text-slate-900">₱2,500</td>
-                    <td className="px-6 py-6 text-sm text-slate-600">Monthly</td>
-                    <td className="px-6 py-6 text-sm text-slate-600">5%</td>
-                    <td className="px-6 py-6 text-center">
-                        <div className="inline-flex items-center cursor-pointer">
-                          <div className={`w-10 h-5 rounded-full relative transition-colors ${autoNotify ? 'bg-indigo-600' : 'bg-slate-300'}`}>
-                               <div className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${autoNotify ? 'right-1' : 'left-1'}`}></div>
-                          </div>
-                        </div>
-                    </td>
-                    <td className="px-6 py-6 text-right">
-                        <div className="flex gap-4 justify-end">
-                          <button 
-                            onClick={() => setIsEditModalOpen(true)}
-                            className="text-slate-400 hover:text-indigo-600 transition-colors"
-                          >
-                            <Edit2 size={18} />
-                          </button>
-                          <button className="text-red-400 hover:text-red-600 transition-colors"><Trash2 size={18} /></button>
-                        </div>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );
