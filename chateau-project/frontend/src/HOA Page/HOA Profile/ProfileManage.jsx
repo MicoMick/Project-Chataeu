@@ -134,8 +134,7 @@ const ProfileManage = () => {
     const { error: authError } = await supabase.auth.updateUser({
       data: { 
         first_name: firstName,
-        last_name: lastName,
-        bio: bio 
+        last_name: lastName
       }
     });
 
@@ -299,15 +298,6 @@ const ProfileManage = () => {
                 <div className="space-y-2 md:col-span-2">
                   <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Email Address</label>
                   <input type="email" value={userEmail} disabled className="w-full px-5 py-3.5 bg-slate-100 border border-slate-100 rounded-2xl text-sm font-medium text-slate-500 cursor-not-allowed" />
-                </div>
-                <div className="space-y-2 md:col-span-2">
-                  <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Bio / Designation</label>
-                  <textarea 
-                    rows="3" 
-                    value={bio} 
-                    onChange={(e) => setBio(e.target.value)}
-                    className="w-full px-5 py-3.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/10 transition-all font-medium resize-none" 
-                  />
                 </div>
               </div>
             ) : (

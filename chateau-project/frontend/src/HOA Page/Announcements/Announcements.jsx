@@ -56,18 +56,19 @@ const Announcements = () => {
   const [announcements, setAnnouncements] = useState([]);
   const [loading, setLoading] = useState(true);
 
-const logAction = async (action, details) => {
-  try {
-    await supabase.from('system_logs').insert([{
-      activity: action,      
-      severity: 'info',       
-      user_email: 'chateauadmin@gmail.com', 
-      details: details        
-    }]);
-  } catch (err) {
-    console.error("Logging error:", err);
-  }
-};
+  // --- EXISTING LOG ACTION FUNCTION ---
+  const logAction = async (action, details) => {
+    try {
+      await supabase.from('system_logs').insert([{
+        activity: action,      
+        severity: 'info',       
+        user_email: 'chateauadmin@gmail.com', 
+        details: details        
+      }]);
+    } catch (err) {
+      console.error("Logging error:", err);
+    }
+  };
 
   const handleFileUpload = async (event) => {
     const file = event.target.files[0];
@@ -90,6 +91,10 @@ const logAction = async (action, details) => {
         .getPublicUrl(filePath);
 
       setAttachmentUrl(data.publicUrl);
+      
+      // --- ADDED: Audit Trail for File Upload ---
+      await logAction('File Upload', `Uploaded an attachment to announcements: ${fileName}`);
+
       showToast("File uploaded successfully");
     } catch (error) {
       showToast(error.message, "error");
@@ -271,7 +276,7 @@ const logAction = async (action, details) => {
 
       if (error) throw error;
       
-      await logAction('Create', `Created new announcement: ${newTitle}`);
+      await logAction('Create', `Created new announcement: ${newTitle} (Status: ${status})`);
 
       if (status === 'published') {
         const { error: notifError } = await supabase
@@ -307,7 +312,9 @@ const logAction = async (action, details) => {
     setAttachmentUrl(pendingPublishItem.attachment_url); 
     
     await handleUpdateAnnouncement('published');
-    await logAction('Publish', `Published announcement: ${pendingPublishItem.title}`);
+    // Note: Logging is already handled inside handleUpdateAnnouncement, 
+    // but leaving this explicit log here for extra clarity if needed, though it might log twice.
+    // await logAction('Publish', `Published announcement: ${pendingPublishItem.title}`); 
     
     setShowPublishConfirm(false);
     setPendingPublishItem(null);

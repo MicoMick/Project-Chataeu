@@ -66,12 +66,13 @@ const Sidebar = () => {
   const handleLogout = async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (user) {
+      // --- UPDATED: Enhanced Audit Trail to include the specific role ---
       await supabase.from('system_logs').insert([
         { 
           user_email: user.email, 
           activity: 'User Logged Out', 
           severity: 'info', 
-          details: 'Admin/Super Admin session terminated' 
+          details: `Session terminated for role: ${currentUserRole}` 
         }
       ]);
     }
@@ -134,7 +135,8 @@ const Sidebar = () => {
 
   return (
     <>
-      <aside className={`relative min-h-screen transition-all duration-300 ease-in-out shadow-2xl z-40
+      {/* --- FIXED: Added 'flex flex-col' so the layout flexes perfectly when zoomed --- */}
+      <aside className={`relative flex flex-col min-h-screen transition-all duration-300 ease-in-out shadow-2xl z-40
         ${isCollapsed ? 'w-20' : 'w-72'} 
         bg-gradient-to-b from-[#006837] to-[#004d29]`}>
         
@@ -153,7 +155,8 @@ const Sidebar = () => {
           <div className="h-px w-full bg-white/20 mt-6"></div>
         </div>
 
-        <nav className="mt-4 px-3 space-y-2">
+        {/* --- FIXED: Added 'flex-1 overflow-y-auto' so the menu can safely scroll if the screen is tiny --- */}
+        <nav className="mt-4 px-3 space-y-2 flex-1 overflow-y-auto overflow-x-hidden pb-6">
           {menuItems.map((item, index) => {
             const isActive = location.pathname === item.path;
             return (
@@ -178,9 +181,11 @@ const Sidebar = () => {
           })}
         </nav>
 
-        <div className="absolute bottom-8 left-0 w-full px-3">
+        {/* --- FIXED: Replaced 'absolute bottom-8' with 'mt-auto mb-8 relative' to prevent overlapping --- */}
+        <div className="mt-auto mb-8 w-full px-3 relative z-50">
           {isProfileOpen && !isCollapsed && (
-            <div className="absolute bottom-24 left-3 right-3 bg-white rounded-2xl shadow-2xl border border-slate-100 overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-200 z-50">
+            // --- FIXED: Updated 'bottom-24' to 'bottom-[calc(100%+16px)]' to safely pop up relative to the button below ---
+            <div className="absolute bottom-[calc(100%+16px)] left-3 right-3 bg-white rounded-2xl shadow-2xl border border-slate-100 overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-200 z-50">
               <div className="p-4 border-b border-slate-50 bg-slate-50/50">
                 <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Account</p>
               </div>

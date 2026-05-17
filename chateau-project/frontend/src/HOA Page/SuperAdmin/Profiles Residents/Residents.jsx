@@ -4,7 +4,7 @@ import { supabase } from '../../supabaseAdmin';
 import { 
   Search, Plus, Trash2, Edit2, User, Home, AlertTriangle, 
   X, UserCircle, Briefcase, Calendar, MapPin, Phone, MoreHorizontal, Clock, Users,
-  Eye // ADDED: Imported Eye icon
+  Eye, UserCheck, UserPlus, ShieldCheck // ADDED: Imported ShieldCheck for success notifications
 } from 'lucide-react';
 
 // Added StatCard helper for the UI
@@ -36,6 +36,9 @@ const Residents = () => {
   const [showToast, setShowToast] = useState(false);
   const [residentToDelete, setResidentToDelete] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
+
+  // --- ADDED: Custom Notification State ---
+  const [notification, setNotification] = useState({ show: false, title: '', message: '', type: 'success' });
 
   // Edit/Create States
   const [editFullName, setEditFullName] = useState('');
@@ -90,53 +93,58 @@ const Residents = () => {
     e.preventDefault();
     setIsSaving(true);
     try {
-      const { error } = await supabase
-        .from('approval_requests')
-        .insert([{
-          target_table: 'profiles',
-          target_id: selectedResident.id,
-          action_type: 'UPDATE',
-          requested_data: { 
-            full_name: `${editFirstName} ${editLastName}`,
-            email: editEmail,
-            first_name: editFirstName,
-            last_name: editLastName,
-            middle_initial: editMiddleInitial,
-            username: editUsername,
-            resident_type: editResidentType,
-            address: editAddress,
-            street: editStreet,
-            phone: editPhone
-          },
-          status: 'PENDING'
-        }]);
+      const { data, error } = await supabase
+        .from('profiles')
+        .update({ 
+          full_name: `${editFirstName} ${editLastName}`,
+          email: editEmail,
+          first_name: editFirstName,
+          last_name: editLastName,
+          middle_initial: editMiddleInitial,
+          username: editUsername,
+          resident_type: editResidentType,
+          address: editAddress,
+          street: editStreet,
+          phone: editPhone
+        })
+        .eq('id', selectedResident.id)
+        .select(); 
 
       if (error) throw error;
+
+      if (!data || data.length === 0) {
+        throw new Error("Update blocked by Supabase Row-Level Security (RLS) Policy.");
+      }
       
-      alert('Update request submitted for Super Admin approval.');
+      await supabase.from('audit_logs').insert([{
+        action: 'UPDATE_USER',
+        description: `Super Admin directly updated resident: ${editEmail}`,
+        created_at: new Date().toISOString()
+      }]);
+      
+      setNotification({ show: true, title: 'Success', message: 'Resident updated successfully.', type: 'success' });
+      await fetchResidents(); 
       setShowAddModal(false);
       setSelectedResident(null);
     } catch (error) {
-      console.error('Error submitting request:', error.message);
-      alert('Failed to submit request.');
+      console.error('Error updating resident:', error.message);
+      setNotification({ show: true, title: 'Update Failed', message: error.message, type: 'error' });
     } finally {
       setIsSaving(false);
     }
   };
 
-  // Added Create Resident Handler
   const handleCreateResident = async (e) => {
     e.preventDefault();
     
     // Validation
     if (editPassword.length < 6) {
-      alert("Password must be at least 6 characters long.");
+      setNotification({ show: true, title: 'Weak Password', message: 'Password must be at least 6 characters long.', type: 'error' });
       return;
     }
 
     setIsSaving(true);
     try {
-      // 1. Authenticate the User
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email: editEmail,
         password: editPassword,
@@ -144,11 +152,10 @@ const Residents = () => {
 
       if (authError) throw authError;
 
-      // 2. Create the Profile record linked to the Auth ID
       const { error: profileError } = await supabase
         .from('profiles')
         .insert([{ 
-          id: authData.user.id, // Linking the profile to the Auth ID
+          id: authData.user.id, 
           full_name: `${editFirstName} ${editLastName}`,
           email: editEmail,
           first_name: editFirstName,
@@ -164,7 +171,6 @@ const Residents = () => {
 
       if (profileError) throw profileError;
 
-      // 3. Add Audit Log
       await supabase.from('audit_logs').insert([{
         action: 'CREATE_USER',
         description: `New user created: ${editEmail}`,
@@ -173,13 +179,13 @@ const Residents = () => {
 
       await fetchResidents();
       setShowCreateModal(false);
+      setNotification({ show: true, title: 'Resident Created', message: 'The new resident account has been successfully created.', type: 'success' });
       
-      // Reset form
       setEditFirstName(''); setEditLastName(''); setEditEmail(''); 
       setEditPassword(''); setEditUsername('');
     } catch (error) {
       console.error('Error creating resident:', error.message);
-      alert('Failed to create resident: ' + error.message);
+      setNotification({ show: true, title: 'Creation Failed', message: `Failed to create resident: ${error.message}`, type: 'error' });
     } finally {
       setIsSaving(false);
     }
@@ -217,23 +223,32 @@ const Residents = () => {
 
   const confirmDelete = async () => {
     try {
-      const { error } = await supabase
-        .from('approval_requests')
-        .insert([{
-          target_table: 'profiles',
-          target_id: residentToDelete,
-          action_type: 'DELETE',
-          status: 'PENDING'
-        }]);
+      const { data, error } = await supabase
+        .from('profiles')
+        .delete()
+        .eq('id', residentToDelete)
+        .select(); 
 
       if (error) throw error;
 
-      alert('Delete request submitted for Super Admin approval.');
+      if (!data || data.length === 0) {
+        throw new Error("Delete blocked by Supabase Row-Level Security (RLS) Policy.");
+      }
+
+      await supabase.from('audit_logs').insert([{
+        action: 'DELETE_USER',
+        description: `Super Admin directly deleted resident ID: ${residentToDelete}`,
+        created_at: new Date().toISOString()
+      }]);
+
       setShowToast(false);
       setResidentToDelete(null);
+      setNotification({ show: true, title: 'Resident Removed', message: 'The resident has been successfully deleted from the system.', type: 'success' });
+      await fetchResidents(); 
     } catch (error) {
-      console.error('Error submitting delete request:', error.message);
-      alert('Failed to submit request.');
+      console.error('Error deleting resident:', error.message);
+      setShowToast(false);
+      setNotification({ show: true, title: 'Deletion Failed', message: error.message, type: 'error' });
     }
   };
 
@@ -248,7 +263,19 @@ const Residents = () => {
     return matchesSearch && matchesPending;
   });
 
-  // ADDED: Smooth Loading Screen Animation (Early Return)
+  // Advanced Stats Calculations
+  const homeownersCount = residents.filter(r => (r.resident_type || '').toLowerCase().includes('homeowner')).length;
+  const tenantsCount = residents.filter(r => (r.resident_type || '').toLowerCase().includes('tenant')).length;
+  
+  const currentMonth = new Date().getMonth();
+  const currentYear = new Date().getFullYear();
+  const newThisMonth = residents.filter(r => {
+    if (!r.created_at) return false;
+    const d = new Date(r.created_at);
+    return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+  }).length;
+
+  // Smooth Loading Screen Animation
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-8">
@@ -263,6 +290,23 @@ const Residents = () => {
   return (
     <div className="p-8 bg-slate-50 min-h-screen relative font-sans text-slate-900 animate-in fade-in duration-500">
       
+      {/* Custom Notification Modal UI */}
+      {notification.show && (
+        <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setNotification({...notification, show: false})}></div>
+          <div className="relative bg-white shadow-2xl rounded-3xl p-8 flex flex-col items-center text-center gap-4 max-w-sm w-full animate-in fade-in zoom-in duration-200">
+            <div className={`p-4 rounded-full mb-2 ${notification.type === 'success' ? 'bg-green-50 text-green-500' : 'bg-red-50 text-red-500'}`}>
+              {notification.type === 'success' ? <ShieldCheck size={40} /> : <AlertTriangle size={40} />}
+            </div>
+            <div>
+              <p className="text-xl font-bold text-slate-900">{notification.title}</p>
+              <p className="text-sm text-slate-500 mt-2">{notification.message}</p>
+            </div>
+            <button onClick={() => setNotification({...notification, show: false})} className="w-full px-4 py-3 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl cursor-pointer transition-colors">Close</button>
+          </div>
+        </div>
+      )}
+
       {/* Deletion Toast */}
       {showToast && (
         <div className="fixed inset-0 z-[300] flex items-center justify-center p-4">
@@ -289,24 +333,13 @@ const Residents = () => {
           <h1 className="text-2xl font-bold text-slate-900">Resident Management</h1>
           <p className="text-slate-500 text-sm mt-1">Manage residents, approve registrations, and assign roles.</p>
         </div>
-        <div className="flex gap-3">
-          <button 
-            onClick={() => setShowOnlyPending(!showOnlyPending)}
-            className={`px-4 py-2 rounded-xl text-sm font-bold border ${showOnlyPending ? 'bg-amber-100 border-amber-200 text-amber-700' : 'bg-white border-slate-200 text-slate-600'}`}
-          >
-            {showOnlyPending ? 'Showing Pending' : 'Show Pending Approval'}
-          </button>
-          <button 
-            onClick={() => setShowCreateModal(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 transition-all cursor-pointer"
-          >
-            <Plus size={18} /> Create User
-          </button>
-        </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-1 gap-6 mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
         <StatCard title="Total Residents" value={residents.length} icon={Users} iconBg="bg-blue-50" />
+        <StatCard title="Homeowners" value={homeownersCount} icon={Home} iconBg="bg-emerald-50" />
+        <StatCard title="Tenants" value={tenantsCount} icon={UserCheck} iconBg="bg-indigo-50" />
+        <StatCard title="New This Month" value={newThisMonth} icon={UserPlus} iconBg="bg-orange-50" />
       </div>
 
       {/* Table Container */}
@@ -383,8 +416,10 @@ const Residents = () => {
                     <td className="py-4 px-2 text-sm text-slate-500">{resident.address || 'N/A'}</td>
                     <td className="py-4 px-2 text-sm text-slate-500">{resident.street || 'N/A'}</td>
                     <td className="py-4 px-2 text-sm text-slate-500">{resident.phone || 'N/A'}</td>
-                    <td className="py-4 px-2 text-sm text-slate-500">{resident.created_at ? new Date(resident.created_at).toLocaleDateString() : 'N/A'}</td>
-                    {/* UPDATED: REPLACED MOREHORIZONTAL WITH ACTION BUTTONS */}
+                    {/* --- FIXED: Enforced MM/DD/YYYY Format using 2-digit options --- */}
+                    <td className="py-4 px-2 text-sm text-slate-500">
+                      {resident.created_at ? new Date(resident.created_at).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }) : 'N/A'}
+                    </td>
                     <td className="py-4 text-right flex justify-end gap-1">
                       <button onClick={() => handleViewProfile(resident)} title="View Profile" className="p-2 hover:bg-white rounded-lg transition-all text-slate-400 hover:text-blue-500 border border-transparent hover:border-slate-200 cursor-pointer">
                         <Eye size={18} />
@@ -532,7 +567,7 @@ const Residents = () => {
                 <div className="pt-8 flex gap-3">
                   <button type="button" onClick={() => { setShowAddModal(false); setSelectedResident(null); }} className="flex-1 py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-2xl font-bold text-sm transition-all cursor-pointer">Cancel</button>
                   <button type="submit" disabled={isSaving} className="flex-1 py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-bold text-sm transition-all shadow-lg shadow-indigo-200 cursor-pointer disabled:opacity-50">
-                    {isSaving ? "Submitting..." : "Submit for Approval"}
+                    {isSaving ? "Saving..." : "Save Changes"}
                   </button>
                 </div>
                </form>

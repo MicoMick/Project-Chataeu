@@ -6,7 +6,7 @@ import {
 } from 'react-router-dom';
 import { 
   LayoutDashboard, Users, ShieldCheck, UserCircle, Globe, Settings, LogOut, 
-  Menu, ChevronLeft, ChevronDown, Activity, ShieldAlert
+  Menu, ChevronLeft, ChevronDown, Activity, ShieldAlert, Clock // ADDED: Clock icon for pending approvals
 } from 'lucide-react';
 // UPDATED: Added an extra '../' to reach the assets folder
 import ChateauLogo from '../../../assets/ChataueLogo.png';
@@ -86,6 +86,7 @@ const SidebarSuperAdmin = () => {
     { icon: <LayoutDashboard size={22} />, label: "Master Dashboard", path: "/super-admin/dashboard" },
     { icon: <ShieldAlert size={22} />, label: "Admin Control", path: "/super-admin/admins" },
     { icon: <Users size={22} />, label: "All Residents", path: "/super-admin/residents" },
+    { icon: <Clock size={22} />, label: "Pending Approvals", path: "/super-admin/pending-approvals" }, // --- ADDED: Pending Approvals Route ---
     { icon: <Activity size={22} />, label: "System Logs", path: "/super-admin/logs" },
   ];
 

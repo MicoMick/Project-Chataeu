@@ -1,7 +1,36 @@
-import React from 'react';
+import React, { useState, useEffect, useRef } from 'react'; // UPDATED: Added hooks for scroll animation
 import { Smartphone, Star, Download } from 'lucide-react';
 
 const Downloadpage = () => {
+  // --- ADDED: Scroll reveal animation logic ---
+  const [isVisible, setIsVisible] = useState(false);
+  const sectionRef = useRef(null);
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setIsVisible(true);
+          observer.unobserve(entry.target); // Runs once to keep it revealed
+        }
+      },
+      {
+        threshold: 0.15, // Triggers when 15% of the section is visible
+      }
+    );
+
+    if (sectionRef.current) {
+      observer.observe(sectionRef.current);
+    }
+
+    return () => {
+      if (sectionRef.current) {
+        observer.unobserve(sectionRef.current);
+      }
+    };
+  }, []);
+  // ---------------------------------------------
+
   const residentFeatures = [
     "Reserve facilities with Panorama view",
     "Track dues",
@@ -11,11 +40,17 @@ const Downloadpage = () => {
   ];
 
   return (
-    <section id="download" className="relative py-24 md:py-32 bg-gradient-to-br from-[#006837] to-[#FFF200] overflow-hidden">
+    <section 
+      id="download" 
+      ref={sectionRef} // ADDED: reference for the observer
+      // FIXED: Removed the animation from the section so the background stays completely static
+      className="relative py-24 md:py-32 bg-gradient-to-br from-[#006837] to-[#FFF200] overflow-hidden"
+    >
       <div className="container mx-auto px-6 lg:px-16 relative z-10">
         <div className="flex flex-col lg:flex-row items-center justify-between gap-16 lg:gap-24">
           
-          <div className="w-full lg:w-1/2 text-white text-left animate-in fade-in slide-in-from-left-6 duration-700">
+          {/* FIXED: Moved the scroll animation classes here for the text and button */}
+          <div className={`w-full lg:w-1/2 text-white text-left transition-all duration-1000 transform ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-24'}`}>
             <div className="inline-flex items-center gap-2.5 px-4 py-2 bg-black/20 backdrop-blur-md border border-white/20 rounded-full text-xs font-semibold mb-6 tracking-wide shadow-inner">
               <Smartphone size={15} className="text-[#FFF200]" />
               <span className="text-white">Mobile App for Residents</span>
@@ -47,7 +82,8 @@ const Downloadpage = () => {
             </button>
           </div>
 
-          <div className="w-full lg:w-1/3 flex justify-center lg:justify-end perspective">
+          {/* FIXED: Moved the scroll animation classes here for the phone, with a slight 300ms delay so it slides in right after the text */}
+          <div className={`w-full lg:w-1/3 flex justify-center lg:justify-end perspective transition-all duration-1000 delay-300 transform ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-24'}`}>
             <div className="relative group">
               <div className="w-[300px] h-[600px] bg-slate-900 border-4 border-slate-800 rounded-[3rem] p-3 shadow-2xl transition-transform duration-500 group-hover:scale-105">
                 <div className="w-full h-full bg-[#f8fafc] rounded-[2.2rem] flex flex-col items-center justify-center p-6 text-center border-2 border-slate-800">
