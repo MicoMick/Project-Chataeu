@@ -210,12 +210,25 @@ const logActivity = async (action, description) => {
     );
   });
 
+  // --- ADDED: Advanced Stats Calculations ---
+  const homeownersCount = residents.filter(r => (r.resident_type || '').toLowerCase().includes('homeowner')).length;
+  const tenantsCount = residents.filter(r => (r.resident_type || '').toLowerCase().includes('tenant')).length;
+  
+  const currentMonth = new Date().getMonth();
+  const currentYear = new Date().getFullYear();
+  const newThisMonth = residents.filter(r => {
+    if (!r.created_at) return false;
+    const d = new Date(r.created_at);
+    return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+  }).length;
+
   return (
     <div className="p-8 bg-slate-50 min-h-screen relative font-sans text-slate-900">
       
       {/* --- Notification Modal --- */}
       {notification.show && (
-        <div className="fixed inset-0 z-[400] flex items-center justify-center p-4">
+        // FIXED: Bumped z-index to 99999 so it sits perfectly over any other UI
+        <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setNotification({...notification, show: false})}></div>
           <div className="relative bg-white shadow-2xl rounded-3xl p-8 flex flex-col items-center text-center gap-4 max-w-sm w-full animate-in fade-in zoom-in duration-200">
             <div className={`p-4 rounded-full mb-2 ${notification.type === 'success' ? 'bg-green-50 text-green-500' : 'bg-red-50 text-red-500'}`}>
@@ -231,7 +244,7 @@ const logActivity = async (action, description) => {
       )}
 
       {showToast && (
-        <div className="fixed inset-0 z-[300] flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowToast(false)}></div>
           <div className="relative bg-white shadow-2xl rounded-3xl p-8 flex flex-col items-center text-center gap-4 max-w-sm w-full animate-in fade-in zoom-in duration-200">
             <div className="bg-red-50 p-4 rounded-full text-red-500 mb-2">
@@ -256,8 +269,12 @@ const logActivity = async (action, description) => {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-1 gap-6 mb-8">
+      {/* --- UPDATED: Replaced single stat card with a 4-column dashboard layout --- */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
         <StatCard title="Total Residents" value={residents.length} icon={Users} iconBg="bg-blue-50" />
+        <StatCard title="Homeowners" value={homeownersCount} icon={Home} iconBg="bg-emerald-50" />
+        <StatCard title="Tenants" value={tenantsCount} icon={UserCheck} iconBg="bg-indigo-50" />
+        <StatCard title="New This Month" value={newThisMonth} icon={UserPlus} iconBg="bg-orange-50" />
       </div>
 
       <div className="bg-white rounded-3xl shadow-sm border border-slate-100"> 

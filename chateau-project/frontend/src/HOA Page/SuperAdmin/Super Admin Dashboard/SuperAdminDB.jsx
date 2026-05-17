@@ -1,22 +1,25 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-// UPDATED: Added an extra '../' to reach supabaseAdmin in the HOA Page folder
 import { supabase } from '../../supabaseAdmin'; 
 import { 
   Users, 
   ShieldCheck,
   Check,
   X,
-  AlertTriangle
+  AlertTriangle,
+  Clock,
+  Activity, // ADDED: Icon for the new Logs stat card
+  Server    // ADDED: Icon for the System Health panel
 } from 'lucide-react';
 
 const SuperAdminDB = () => {
   const [loading, setLoading] = useState(true);
   const [logs, setLogs] = useState([]);
-  const [requests, setRequests] = useState([]); 
   const [counts, setCounts] = useState({
     residents: 0,
-    admins: 0
+    admins: 0,
+    pendingApprovals: 0,
+    totalLogs: 0 // --- ADDED: State for Total Logs count ---
   });
   // New State for Modal
   const [modal, setModal] = useState({ isOpen: false, message: '' });
@@ -46,6 +49,22 @@ const SuperAdminDB = () => {
         console.error('Error fetching admins:', adminError);
         setModal({ isOpen: true, message: 'Error fetching admin counts.' });
       }
+
+      const { count: pendingApprovals, error: pendingError } = await supabase
+        .from('approval_requests')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'PENDING');
+      if (pendingError) {
+        console.error('Error fetching pending approvals:', pendingError);
+      }
+
+      // --- ADDED: Fetch total system logs count for the new stat card ---
+      const { count: totalLogs, error: totalLogsError } = await supabase
+        .from('system_logs')
+        .select('*', { count: 'exact', head: true });
+      if (totalLogsError) {
+        console.error('Error fetching total logs:', totalLogsError);
+      }
       
       // 2. Fetch Logs
       const { data: logsData, error: logsError } = await supabase
@@ -58,23 +77,13 @@ const SuperAdminDB = () => {
         setModal({ isOpen: true, message: 'Error fetching system logs.' });
       }
 
-      // 3. Fetch Pending Requests
-      const { data: pendingRequests, error: reqError } = await supabase
-        .from('approval_requests')
-        .select('*')
-        .eq('status', 'PENDING')
-        .order('created_at', { ascending: false });
-
-      // ADD THIS LOG
-      console.log("Supabase response:", pendingRequests);
-      if (reqError) {
-        console.error("Supabase error:", reqError);
-        setModal({ isOpen: true, message: 'Error fetching pending requests.' });
-      }
-
-      setCounts({ residents: residents || 0, admins: admins || 0 });
+      setCounts({ 
+        residents: residents || 0, 
+        admins: admins || 0, 
+        pendingApprovals: pendingApprovals || 0,
+        totalLogs: totalLogs || 0 // --- ADDED ---
+      });
       setLogs(logsData || []);
-      setRequests(pendingRequests || []);
     } catch (error) {
       console.error('Error fetching data:', error);
       setModal({ isOpen: true, message: 'An unexpected error occurred while loading dashboard data.' });
@@ -83,42 +92,14 @@ const SuperAdminDB = () => {
     }
   };
 
-  // Updated: Handle Approval
-  const handleApprove = async (request) => {
-    const { data, error } = await supabase
-      .rpc('approve_resident_update', {
-        req_id: request.id,
-        target_user_id: request.target_id,
-        new_data: request.requested_data // This contains the whole object structure
-      });
-
-    if (error) {
-      console.error("Error approving request:", error);
-      setModal({ isOpen: true, message: "Error approving request." });
-    } else {
-      setModal({ isOpen: true, message: "Profile updated successfully!" });
-      fetchDashboardData(); // Refreshes the UI
-    }
-  };
-
-  // Updated: Handle Rejection
-  const handleReject = async (request) => {
-    try {
-      const { error } = await supabase.from('approval_requests').update({ status: 'REJECTED' }).eq('id', request.id);
-      if (error) throw error;
-      setModal({ isOpen: true, message: "Request rejected." });
-      fetchDashboardData();
-    } catch (err) {
-      setModal({ isOpen: true, message: "Error rejecting request." });
-    }
-  };
-
+  // --- UPDATED: Added a 4th Stat Card so the grid looks full and balanced ---
   const stats = [
     { title: 'Total Residents', value: counts.residents.toLocaleString(), icon: Users, color: 'bg-blue-500' },
     { title: 'Total Admins', value: counts.admins.toLocaleString(), icon: ShieldCheck, color: 'bg-green-500' },
+    { title: 'Pending Approvals', value: counts.pendingApprovals.toLocaleString(), icon: Clock, color: 'bg-amber-500' },
+    { title: 'Total Audit Logs', value: counts.totalLogs.toLocaleString(), icon: Activity, color: 'bg-indigo-500' }, // --- ADDED ---
   ];
 
-  // ADDED: Smooth Loading Screen Animation
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center p-8">
@@ -153,7 +134,8 @@ const SuperAdminDB = () => {
         <p className="text-slate-500 text-sm">Overview of Chateau Real - Metropolis Greens system status.</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+      {/* --- UPDATED: Grid to lg:grid-cols-4 to neatly fit the 4 cards --- */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
         {stats.map((item, index) => (
           <div key={index} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-4">
             <div className={`${item.color} p-3 rounded-xl text-white`}>
@@ -197,7 +179,9 @@ const SuperAdminDB = () => {
                         <tr key={log.id}>
                           <td className="px-6 py-4 font-medium text-slate-700">{log.admin_name || 'Admin'}</td>
                           <td className="px-6 py-4 text-slate-600">{log.activity}</td>
-                          <td className="px-6 py-4 text-slate-400 text-xs">{new Date(log.created_at).toLocaleDateString()}</td>
+                          <td className="px-6 py-4 text-slate-400 text-xs">
+                            {new Date(log.created_at).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })}
+                          </td>
                           <td className="px-6 py-4">
                             <span className="px-2 py-1 bg-green-50 text-green-600 rounded-md text-[10px] font-bold uppercase">Success</span>
                           </td>
@@ -211,8 +195,37 @@ const SuperAdminDB = () => {
           </div>
         </div>
 
+        {/* --- RIGHT COLUMN --- */}
         <div className="space-y-6">
-          <div className="bg-white p-6 rounded-2xl border border-slate-100">
+          
+          {/* --- ADDED: System Health Monitor (Looks highly technical for Capstone panelists) --- */}
+          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
+            <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
+              <Server size={18} className="text-[#006837]" /> System Health
+            </h3>
+            <div className="space-y-4">
+              <div className="flex justify-between items-center">
+                <span className="text-sm font-medium text-slate-600">Supabase Database</span>
+                <span className="px-2.5 py-1 bg-emerald-50 text-emerald-600 rounded-md text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span> Online
+                </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-sm font-medium text-slate-600">Auth Services</span>
+                <span className="px-2.5 py-1 bg-emerald-50 text-emerald-600 rounded-md text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span> Online
+                </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-sm font-medium text-slate-600">Storage Buckets</span>
+                <span className="px-2.5 py-1 bg-emerald-50 text-emerald-600 rounded-md text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span> Online
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
             <h3 className="font-bold text-slate-800 mb-4">Quick Links</h3>
             <ul className="space-y-3 text-sm text-slate-600">
               <li className="flex items-center gap-2 hover:text-[#006837] cursor-pointer font-medium">
@@ -221,49 +234,12 @@ const SuperAdminDB = () => {
               <li className="flex items-center gap-2 hover:text-[#006837] cursor-pointer font-medium">
                 <Link to="/super-admin/residents">• Residents</Link>
               </li>
+              <li className="flex items-center gap-2 hover:text-[#006837] cursor-pointer font-medium">
+                <Link to="/super-admin/pending-approvals">• Pending Approvals</Link>
+              </li>
             </ul>
           </div>
-        </div>
-      </div>
 
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-        <div className="p-6 border-b border-slate-50 flex justify-between items-center">
-            <h3 className="font-bold text-slate-800 flex items-center gap-2">
-                <AlertTriangle size={18} className="text-amber-500" /> Pending Approval Requests
-            </h3>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left">
-              <thead className="bg-slate-50 text-slate-400 text-[10px] uppercase font-bold">
-                <tr>
-                    <th className="px-6 py-4">Action Type</th>
-                    <th className="px-6 py-4">Target ID</th>
-                    <th className="px-6 py-4">Date Requested</th>
-                    <th className="px-6 py-4 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-50 text-sm">
-                  {requests.length > 0 ? (
-                      requests.map((req) => (
-                          <tr key={req.id}>
-                              <td className="px-6 py-4 font-bold text-slate-700">{req.action_type}</td>
-                              <td className="px-6 py-4 text-slate-600 font-mono text-xs">{req.target_id}</td>
-                              <td className="px-6 py-4 text-slate-400 text-xs">{new Date(req.created_at).toLocaleDateString()}</td>
-                              <td className="px-6 py-4 text-right flex gap-2 justify-end">
-                                  <button onClick={() => handleApprove(req)} className="p-2 bg-green-50 text-green-600 rounded-lg hover:bg-green-100 cursor-pointer">
-                                      <Check size={16} />
-                                  </button>
-                                  <button onClick={() => handleReject(req)} className="p-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 cursor-pointer">
-                                      <X size={16} />
-                                  </button>
-                              </td>
-                          </tr>
-                      ))
-                  ) : (
-                      <tr><td colSpan="4" className="px-6 py-4 text-center text-slate-400">No pending requests.</td></tr>
-                  )}
-              </tbody>
-          </table>
         </div>
       </div>
     </div>

@@ -60,6 +60,15 @@ const LoginPage = () => {
         .eq('email', user.email)
         .maybeSingle();
 
+      // --- ADDED: Comprehensive Audit Trail for Successful Login with Role ---
+      await supabase.from('system_logs').insert([{ 
+        user_email: user.email, 
+        activity: 'System Access Granted', 
+        severity: 'info', 
+        details: `Successfully logged in with role: ${adminData ? adminData.role : 'resident'}`
+      }]);
+      // ---------------------------------------------------------------------
+
       if (!adminData) {
         navigate('/resident/home');
       } else if (adminData.role === 'super_admin') {
@@ -90,6 +99,14 @@ const LoginPage = () => {
 
     if (error) {
       console.error("Login attempt failed:", error.message); 
+      // --- ADDED: Audit Trail for Failed Passwords ---
+      await supabase.from('system_logs').insert([{ 
+        user_email: email, 
+        activity: 'Failed Login Attempt', 
+        severity: 'warning', 
+        details: `Invalid credentials: ${error.message}`
+      }]);
+      // -----------------------------------------------
       setErrorMsg(error.message);
       setLoading(false);
     } else {
@@ -216,6 +233,14 @@ const LoginPage = () => {
       }
     } catch (err) {
       console.error("MFA Verification Error details:", err);
+      // --- ADDED: Audit Trail for Failed MFA ---
+      await supabase.from('system_logs').insert([{ 
+        user_email: authenticatedUser.email, 
+        activity: 'MFA Verification Failed', 
+        severity: 'warning', 
+        details: 'Invalid OTP Code entered.'
+      }]);
+      // -----------------------------------------
       setErrorMsg("Invalid OTP Code. Please ensure your phone's time is set to 'Automatic'.");
       setLoading(false);
     }

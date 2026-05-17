@@ -158,7 +158,8 @@ const AdminControl = () => {
                 <td className="px-6 py-4 text-slate-600">{admin.email}</td>
                 <td className="px-6 py-4 text-slate-600 capitalize">{admin.role || 'N/A'}</td>
                 <td className="px-6 py-4 text-slate-600">
-                  {admin.created_at ? new Date(admin.created_at).toLocaleDateString() : 'N/A'}
+                  {/* --- FIXED: Enforced MM/DD/YYYY Format using 2-digit options --- */}
+                  {admin.created_at ? new Date(admin.created_at).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }) : 'N/A'}
                 </td>
                 <td className="px-6 py-4 text-right flex justify-end gap-2">
                   <button onClick={() => openEditModal(admin)} className="p-2 text-slate-400 hover:text-[#006837] cursor-pointer"><Edit2 size={16} /></button>

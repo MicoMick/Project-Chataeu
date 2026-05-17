@@ -51,7 +51,8 @@ const TransactionModal = ({ status, message, onClose }) => {
   const current = configs[status];
 
   return (
-    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[10000] flex items-center justify-center p-4">
+    // --- FIXED: Increased z-index from 10000 to 99999 so it sits IN FRONT of the ModalOverlay ---
+    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[99999] flex items-center justify-center p-4">
       <div className="bg-white rounded-[32px] p-8 w-full max-w-sm text-center shadow-2xl animate-in zoom-in-95 duration-200">
         <div className={`w-20 h-20 ${current.bgColor} rounded-full flex items-center justify-center mx-auto mb-6`}>
           {current.icon}
@@ -72,6 +73,45 @@ const TransactionModal = ({ status, message, onClose }) => {
   );
 };
 
+// --- FIXED: Moved ModalOverlay OUTSIDE the Payment component so it stops losing focus ---
+const ModalOverlay = ({ title, subtitle, isOpen, onClose, children, actionLabel, onAction }) => {
+  if (!isOpen) return null;
+  return (
+    <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={onClose}></div>
+      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg relative animate-in fade-in zoom-in duration-200 overflow-hidden">
+        <div className="p-8">
+          <div className="flex justify-between items-start mb-6">
+            <div>
+              <h2 className="text-2xl font-bold text-slate-900">{title}</h2>
+              <p className="text-slate-500 text-sm mt-1">{subtitle}</p>
+            </div>
+            <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-full text-slate-400 transition-colors">
+              <X size={20} />
+            </button>
+          </div>
+          
+          <div className="space-y-6">
+            {children}
+          </div>
+
+          <div className="flex gap-3 mt-10">
+            <button onClick={onClose} className="flex-1 px-6 py-3 bg-slate-100 text-slate-700 rounded-xl font-bold hover:bg-slate-200 transition-all">
+              Cancel
+            </button>
+            <button 
+              onClick={onAction} 
+              className="flex-1 px-6 py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all"
+            >
+              {actionLabel}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const Payment = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('All'); 
@@ -81,6 +121,19 @@ const Payment = () => {
   // Modal States
   const [isEditTransactionOpen, setIsEditTransactionOpen] = useState(false); 
   const [selectedPayment, setSelectedPayment] = useState(null); 
+  
+  // --- ADDED: State for Confirm Void Modal ---
+  const [isConfirmVoidOpen, setIsConfirmVoidOpen] = useState(false);
+
+  // --- ADDED: State for Creating New Due/Bill ---
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [residentsList, setResidentsList] = useState([]);
+  const [createFormData, setCreateFormData] = useState({
+    user_id: '',
+    amount: '',
+    due_date: '',
+    reference_no: ''
+  });
 
   // State for managing the transaction popup message
   const [transaction, setTransaction] = useState({ status: null, message: '' });
@@ -90,7 +143,8 @@ const Payment = () => {
     amount: '',
     status: '',
     due_date: '',
-    reference_no: ''
+    reference_no: '',
+    paid_at: '' // --- ADDED: Paid Date Field ---
   });
 
   const [payments, setPayments] = useState([]);
@@ -99,9 +153,42 @@ const Payment = () => {
   // --- ADDED: Get Current Role ---
   const currentUserRole = localStorage.getItem('userRole') || 'resident';
 
+  // --- ADDED: Helper for Audit Logs ---
+  const logActivity = async (action, details) => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      await supabase.from('system_logs').insert([
+        {
+          user_email: user?.email || 'System',
+          activity: action,
+          severity: 'info',
+          details: details
+        }
+      ]);
+    } catch (err) {
+      console.error('Logging failed:', err);
+    }
+  };
+
   useEffect(() => {
     fetchPayments();
+    fetchResidentsList(); // --- ADDED: Fetch residents on load for the creation dropdown ---
   }, []);
+
+  // --- ADDED: Fetch Residents for Issuing Dues ---
+  const fetchResidentsList = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, full_name')
+        .order('full_name');
+      if (!error && data) {
+        setResidentsList(data);
+      }
+    } catch (error) {
+      console.error("Error fetching residents:", error.message);
+    }
+  };
 
   const fetchPayments = async () => {
     try {
@@ -164,7 +251,7 @@ const Payment = () => {
       setOpenMenuId(null);
     } else {
       const rect = e.currentTarget.getBoundingClientRect();
-      const menuHeight = 240; 
+      const menuHeight = 120; // Reduced height since there are fewer buttons
       const spaceBelow = window.innerHeight - rect.bottom;
       
       let topPosition;
@@ -191,6 +278,43 @@ const Payment = () => {
     }));
   };
 
+  // --- ADDED: Handle Creation of New Due/Bill ---
+  const submitCreateBill = async () => {
+    if (!createFormData.user_id || !createFormData.amount || !createFormData.due_date) {
+      setTransaction({ status: 'error', message: 'Please fill in all required fields (Resident, Amount, Due Date).' });
+      return;
+    }
+
+    setTransaction({ status: 'loading', message: 'Issuing new due...' });
+
+    try {
+      const payload = {
+        user_id: createFormData.user_id,
+        amount: Number(createFormData.amount),
+        due_date: createFormData.due_date,
+        status: 'unpaid',
+        reference_no: createFormData.reference_no || `BILL-${Date.now().toString().slice(-6)}`
+      };
+
+      const { error } = await supabase.from('payments').insert([payload]);
+
+      if (error) throw error;
+
+      // --- ADDED: Audit Trail ---
+      await logActivity('Issued New Due', `Created a new bill (Ref: ${payload.reference_no}) for amount ₱${payload.amount}.`);
+
+      setIsCreateModalOpen(false);
+      setCreateFormData({ user_id: '', amount: '', due_date: '', reference_no: '' });
+      fetchPayments();
+      
+      setTransaction({ status: 'success', message: 'New bill successfully issued to resident.' });
+
+    } catch (error) {
+      console.error("Error creating bill:", error.message);
+      setTransaction({ status: 'error', message: "Failed to issue bill: " + error.message });
+    }
+  };
+
   const submitEditTransaction = async () => {
     if (!selectedPayment) return;
 
@@ -204,8 +328,11 @@ const Payment = () => {
         reference_no: editFormData.reference_no || null,
       };
 
-      if (editFormData.status === 'paid' && selectedPayment.status !== 'paid') {
-        updatePayload.paid_at = new Date().toISOString();
+      // --- ADDED: Paid Date payload injection ---
+      if (editFormData.status === 'paid') {
+        updatePayload.paid_at = editFormData.paid_at ? new Date(editFormData.paid_at).toISOString() : new Date().toISOString();
+      } else {
+        updatePayload.paid_at = null; // Clear paid_at if status changes back to unpaid
       }
 
       const { error } = await supabase
@@ -214,6 +341,9 @@ const Payment = () => {
         .eq('id', selectedPayment.id);
 
       if (error) throw error;
+
+      // --- ADDED: Audit Trail ---
+      await logActivity('Edited Transaction', `Updated transaction details for Ref: ${updatePayload.reference_no || selectedPayment.reference_no}. New status: ${updatePayload.status}.`);
 
       setIsEditTransactionOpen(false);
       fetchPayments();
@@ -226,13 +356,44 @@ const Payment = () => {
     }
   };
 
+  // --- UPDATED: Void Functionality with custom Modal ---
+  const handleVoidTransaction = async () => {
+    if (!selectedPayment) return;
+
+    // --- Close the confirmation modal and trigger loading ---
+    setIsConfirmVoidOpen(false);
+    setTransaction({ status: 'loading', message: 'Voiding transaction...' });
+
+    try {
+      const { error } = await supabase
+        .from('payments')
+        .delete()
+        .eq('id', selectedPayment.id);
+
+      if (error) throw error;
+
+      // --- ADDED: Audit Trail ---
+      await logActivity('Voided Transaction', `Deleted/Voided transaction Ref: ${selectedPayment.reference_no} for amount ₱${selectedPayment.amount}.`);
+
+      setOpenMenuId(null);
+      fetchPayments();
+      
+      setTransaction({ status: 'success', message: 'Transaction has been successfully voided.' });
+    } catch (error) {
+      console.error("Error voiding transaction:", error.message);
+      setTransaction({ status: 'error', message: "Failed to void transaction: " + error.message });
+    }
+  };
+
   const openEditModal = () => {
     if (selectedPayment) {
       setEditFormData({
         amount: selectedPayment.amount || '',
         status: selectedPayment.status || 'unpaid',
-        due_date: selectedPayment.due_date || '',
-        reference_no: selectedPayment.reference_no || ''
+        // --- ADDED: Formatting dates so the input type="date" displays them correctly ---
+        due_date: selectedPayment.due_date ? selectedPayment.due_date.split('T')[0] : '',
+        reference_no: selectedPayment.reference_no || '',
+        paid_at: selectedPayment.paid_at ? selectedPayment.paid_at.split('T')[0] : '' 
       });
       setIsEditTransactionOpen(true);
       setOpenMenuId(null);
@@ -272,44 +433,6 @@ const Payment = () => {
   const overdueCount = payments.filter(p => (p.status || '').toLowerCase() === 'overdue').length;
   const paidCount = payments.filter(p => (p.status || '').toLowerCase() === 'paid').length;
 
-  const ModalOverlay = ({ title, subtitle, isOpen, onClose, children, actionLabel, onAction }) => {
-    if (!isOpen) return null;
-    return (
-      <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4">
-        <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={onClose}></div>
-        <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg relative animate-in fade-in zoom-in duration-200 overflow-hidden">
-          <div className="p-8">
-            <div className="flex justify-between items-start mb-6">
-              <div>
-                <h2 className="text-2xl font-bold text-slate-900">{title}</h2>
-                <p className="text-slate-500 text-sm mt-1">{subtitle}</p>
-              </div>
-              <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-full text-slate-400 transition-colors">
-                <X size={20} />
-              </button>
-            </div>
-            
-            <div className="space-y-6">
-              {children}
-            </div>
-
-            <div className="flex gap-3 mt-10">
-              <button onClick={onClose} className="flex-1 px-6 py-3 bg-slate-100 text-slate-700 rounded-xl font-bold hover:bg-slate-200 transition-all">
-                Cancel
-              </button>
-              <button 
-                onClick={onAction} 
-                className="flex-1 px-6 py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all"
-              >
-                {actionLabel}
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
   return (
     <div className="p-8 bg-slate-50 min-h-screen">
 
@@ -318,6 +441,82 @@ const Payment = () => {
         message={transaction.message} 
         onClose={() => setTransaction({ status: null, message: '' })} 
       />
+
+      {/* --- ADDED: Confirm Void Modal --- */}
+      <ModalOverlay 
+        isOpen={isConfirmVoidOpen} 
+        onClose={() => setIsConfirmVoidOpen(false)}
+        title="Void Transaction"
+        subtitle="Are you sure you want to void/delete this transaction?"
+        actionLabel="Yes, Void It"
+        onAction={handleVoidTransaction} 
+      >
+        <div className="p-4 bg-red-50 text-red-700 rounded-xl flex items-center gap-3">
+          <AlertCircle size={20} />
+          <p className="text-sm font-semibold">This action is permanent and cannot be undone.</p>
+        </div>
+      </ModalOverlay>
+
+      {/* --- ADDED: Create New Bill Modal --- */}
+      <ModalOverlay 
+        isOpen={isCreateModalOpen} 
+        onClose={() => setIsCreateModalOpen(false)}
+        title="Issue New Due"
+        subtitle="Create a new payment bill for a resident"
+        actionLabel="Create Bill"
+        onAction={submitCreateBill} 
+      >
+        <div className="grid gap-4">
+          <div>
+            <label className="block text-sm font-bold text-slate-700 mb-2">Select Resident</label>
+            <select 
+              name="user_id"
+              value={createFormData.user_id} 
+              onChange={(e) => setCreateFormData({...createFormData, user_id: e.target.value})}
+              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+            >
+              <option value="">-- Choose a Resident --</option>
+              {residentsList.map(res => (
+                <option key={res.id} value={res.id}>{res.full_name}</option>
+              ))}
+            </select>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-bold text-slate-700 mb-2">Amount (₱)</label>
+              <input 
+                type="number" 
+                name="amount"
+                value={createFormData.amount} 
+                onChange={(e) => setCreateFormData({...createFormData, amount: e.target.value})}
+                placeholder="0.00"
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20" 
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-bold text-slate-700 mb-2">Due Date</label>
+              <input 
+                type="date" 
+                name="due_date"
+                value={createFormData.due_date} 
+                onChange={(e) => setCreateFormData({...createFormData, due_date: e.target.value})}
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20" 
+              />
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-bold text-slate-700 mb-2">Reference / Note (Optional)</label>
+            <input 
+              type="text" 
+              name="reference_no"
+              value={createFormData.reference_no} 
+              onChange={(e) => setCreateFormData({...createFormData, reference_no: e.target.value})}
+              placeholder="e.g., May 2026 HOA Dues" 
+              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20" 
+            />
+          </div>
+        </div>
+      </ModalOverlay>
 
       <ModalOverlay 
         isOpen={isEditTransactionOpen} 
@@ -381,13 +580,28 @@ const Payment = () => {
               />
             </div>
           </div>
+          
+          {/* --- ADDED: Paid Date (Only shows when Status is 'Paid') --- */}
+          {editFormData.status === 'paid' && (
+            <div>
+              <label className="block text-sm font-bold text-slate-700 mb-2">Date Paid</label>
+              <input 
+                type="date" 
+                name="paid_at"
+                value={editFormData.paid_at} 
+                onChange={handleEditChange}
+                className="w-full px-4 py-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20" 
+              />
+            </div>
+          )}
+
         </div>
       </ModalOverlay>
 
       {/* Header */}
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-slate-900">Payment Management</h1>
-        <p className="text-slate-500 text-sm">Manage dues, view payments, and generate financial reports.</p>
+        <p className="text-slate-500 text-sm">Manage dues, issue bills, and generate financial reports.</p>
       </div>
 
       {/* Updated Stats Grid */}
@@ -431,9 +645,27 @@ const Payment = () => {
                 </div>
               </div>
 
-              <button className="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700 hover:bg-slate-50 shadow-sm transition-all cursor-pointer">
-                <Download size={18} /> Export CSV
-              </button>
+              {/* --- ADDED: Action Buttons Wrapper --- */}
+              <div className="flex items-center gap-3">
+                <RequireRole userRole={currentUserRole} allowedRoles={['president', 'treasurer']}>
+                  <button 
+                    onClick={() => {
+                      // --- ADDED: Pre-fill auto-generated reference number when opening ---
+                      setCreateFormData({
+                        user_id: '',
+                        amount: '',
+                        due_date: '',
+                        reference_no: `BILL-${Math.floor(100000 + Math.random() * 900000)}` 
+                      });
+                      setIsCreateModalOpen(true);
+                    }}
+                    className="flex items-center gap-2 px-4 py-2.5 bg-[#006837] border border-[#006837] rounded-xl text-sm font-bold text-white hover:bg-[#004d29] shadow-sm transition-all cursor-pointer"
+                  >
+                    <Plus size={18} /> Issue New Due
+                  </button>
+                </RequireRole>
+                {/* --- FIXED: Removed Export CSV Button from here --- */}
+              </div>
             </div>
 
             <div className="overflow-x-auto">
@@ -481,13 +713,42 @@ const Payment = () => {
                           <td className="px-6 py-4 text-sm text-slate-600">
                             {p.paid_at ? new Date(p.paid_at).toLocaleDateString() : '---'}
                           </td>
-                          <td className="px-6 py-4 text-right">
-                            <button 
-                              onClick={(e) => handleActionClick(e, p.id, p)}
-                              className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
-                            >
-                              <MoreHorizontal size={20} />
-                            </button>
+                          <td className="px-6 py-4 text-right border-b border-slate-50">
+                            {/* --- REMOVED 3-DOT DROP DOWN OVERLAY BUTTONS & REVEALED INLINE ICONS INSTEAD --- */}
+                            <div className="flex items-center justify-end gap-3">
+                              <RequireRole userRole={currentUserRole} allowedRoles={['president', 'treasurer']}>
+                                <button 
+                                  onClick={() => {
+                                    setSelectedPayment(p);
+                                    setEditFormData({
+                                      amount: p.amount || '',
+                                      status: p.status || 'unpaid',
+                                      due_date: p.due_date ? p.due_date.split('T')[0] : '',
+                                      reference_no: p.reference_no || '',
+                                      paid_at: p.paid_at ? p.paid_at.split('T')[0] : ''
+                                    });
+                                    setIsEditTransactionOpen(true);
+                                  }} 
+                                  title="Edit Transaction"
+                                  className="text-slate-400 hover:text-indigo-600 p-1.5 hover:bg-indigo-50 rounded-lg transition-all cursor-pointer"
+                                >
+                                  <Edit2 size={16} />
+                                </button>
+                              </RequireRole>
+
+                              <RequireRole userRole={currentUserRole} allowedRoles={['president', 'treasurer']}>
+                                <button 
+                                  onClick={() => {
+                                    setSelectedPayment(p);
+                                    setIsConfirmVoidOpen(true); // --- OPEN THE CUSTOM MODAL ---
+                                  }}
+                                  title="Void / Cancel"
+                                  className="text-slate-400 hover:text-red-600 p-1.5 hover:bg-red-50 rounded-lg transition-all cursor-pointer"
+                                >
+                                  <Trash2 size={16} />
+                                </button>
+                              </RequireRole>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -504,47 +765,6 @@ const Payment = () => {
                 </tbody>
               </table>
             </div>
-
-            {openMenuId && (
-              <div 
-                className="fixed w-56 bg-white rounded-2xl shadow-xl border border-slate-100 z-[9999] overflow-hidden py-2 animate-in fade-in zoom-in duration-200"
-                style={{ top: menuPosition.top, left: menuPosition.left }}
-                onClick={(e) => e.stopPropagation()}
-              >
-                {/* --- ADDED RequireRole WRAPPERS HERE --- */}
-                <RequireRole userRole={currentUserRole} allowedRoles={['president', 'treasurer']}>
-                  <button className="w-full px-4 py-2.5 text-left text-sm font-semibold text-slate-700 hover:bg-slate-50 flex items-center cursor-pointer">
-                    Send Reminder
-                  </button>
-                </RequireRole>
-
-                {/* Left available for Auditors to view/download records */}
-                <button className="w-full px-4 py-2.5 text-left text-sm font-semibold text-slate-700 hover:bg-slate-50 flex items-center cursor-pointer">
-                  Download Receipt
-                </button>
-
-                <RequireRole userRole={currentUserRole} allowedRoles={['president', 'treasurer']}>
-                  <button className="w-full px-4 py-2.5 text-left text-sm font-semibold text-slate-700 hover:bg-slate-50 flex items-center cursor-pointer">
-                    Upload Proof Payment
-                  </button>
-                </RequireRole>
-
-                <RequireRole userRole={currentUserRole} allowedRoles={['president', 'treasurer']}>
-                  <button 
-                    onClick={openEditModal} 
-                    className="w-full px-4 py-2.5 text-left text-sm font-semibold text-slate-700 hover:bg-slate-50 flex items-center border-t border-slate-50 mt-1 pt-3 cursor-pointer"
-                  >
-                    Edit Transaction
-                  </button>
-                </RequireRole>
-
-                <RequireRole userRole={currentUserRole} allowedRoles={['president', 'treasurer']}>
-                  <button className="w-full px-4 py-2.5 text-left text-sm font-bold text-red-500 hover:bg-red-50 flex items-center cursor-pointer">
-                    Void / Cancel
-                  </button>
-                </RequireRole>
-              </div>
-            )}
       </div>
     </div>
   );

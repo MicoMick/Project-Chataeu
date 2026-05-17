@@ -107,8 +107,8 @@ const SystemLogs = () => {
                   <tr key={log.id} className="hover:bg-slate-50 transition-colors">
                     <td className="px-6 py-4 text-sm text-slate-500 font-mono">{log.id}</td>
                     <td className="px-6 py-4 text-sm text-slate-500">
-                      {/* --- ADDED: 'en-US', { hour12: true } to force 12-hour clock --- */}
-                      {log.created_at ? new Date(log.created_at).toLocaleString('en-US', { year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true }) : '-'}
+                      {/* --- FIXED: Enforced MM/DD/YYYY using 2-digit options --- */}
+                      {log.created_at ? new Date(log.created_at).toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true }) : '-'}
                     </td>
                     <td className="px-6 py-4 font-medium text-slate-700">{log.user_email || 'System'}</td>
                     <td className="px-6 py-4 text-slate-600">{log.activity}</td>

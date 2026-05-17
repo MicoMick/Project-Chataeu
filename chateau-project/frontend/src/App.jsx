@@ -26,6 +26,8 @@ import SuperAdProfile from './HOA Page/SuperAdmin/Super Admin Profile/SuperAdPro
 import AdminControl from './HOA Page/SuperAdmin/Admin Profiles/AdminControl.jsx'; 
 import Residents from './HOA Page/SuperAdmin/Profiles Residents/Residents.jsx'; 
 import SystemLogs from './HOA Page/SuperAdmin/System AuditLogs/SystemLogs.jsx';
+// --- ADDED: Pending Approval Import ---
+import PendingApproval from './HOA Page/SuperAdmin/Super Admin Pending Approval/PendingApproval.jsx';
 
 // --- SUPABASE IMPORT ---
 import { supabase } from './HOA Page/supabaseAdmin'; 
@@ -156,6 +158,17 @@ function App() {
             <AuthRoute>
               <SuperAdminLayout>
                 <SystemLogs />
+              </SuperAdminLayout>
+            </AuthRoute>
+          } 
+        />
+        {/* --- ADDED: Pending Approvals Route --- */}
+        <Route 
+          path="/super-admin/pending-approvals" 
+          element={
+            <AuthRoute>
+              <SuperAdminLayout>
+                <PendingApproval />
               </SuperAdminLayout>
             </AuthRoute>
           } 

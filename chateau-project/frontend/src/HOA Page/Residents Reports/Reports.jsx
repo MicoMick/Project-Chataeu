@@ -17,7 +17,7 @@ const RequireRole = ({ userRole, allowedRoles, children }) => {
 
 const Reports = () => {
   const [activeFilter, setActiveFilter] = useState('All');
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchQuery, setSearchTerm] = useState('');
   const [openMenuId, setOpenMenuId] = useState(null);
   const [selectedReport, setSelectedReport] = useState(null);
   const [isImageExpanded, setIsImageExpanded] = useState(false);
@@ -35,12 +35,18 @@ const Reports = () => {
   // --- ADDED: Get Current Role ---
   const currentUserRole = localStorage.getItem('userRole') || 'resident';
 
-  // --- ADDED AUDIT LOGGER HELPER ---
+  // --- FIXED: Updated Audit Logger to point to 'system_logs' and include the correct schema ---
   const logActivity = async (action, details) => {
     try {
+      const { data: { user } } = await supabase.auth.getUser();
       await supabase
-        .from('audit_logs')
-        .insert([{ action, details }]);
+        .from('system_logs')
+        .insert([{ 
+          user_email: user?.email || 'System',
+          activity: action, 
+          severity: 'info',
+          details: details 
+        }]);
     } catch (error) {
       console.error("Audit logging failed:", error);
     }
@@ -322,7 +328,7 @@ const Reports = () => {
               className="w-full pl-12 pr-4 py-2.5 bg-slate-50 border-none rounded-xl text-sm focus:ring-2 focus:ring-indigo-500/20 transition-all" 
               placeholder="Search Reports..." 
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => setSearchTerm(e.target.value)}
             />
           </div>
 
