@@ -312,10 +312,6 @@ const Announcements = () => {
     setAttachmentUrl(pendingPublishItem.attachment_url); 
     
     await handleUpdateAnnouncement('published');
-    // Note: Logging is already handled inside handleUpdateAnnouncement, 
-    // but leaving this explicit log here for extra clarity if needed, though it might log twice.
-    // await logAction('Publish', `Published announcement: ${pendingPublishItem.title}`); 
-    
     setShowPublishConfirm(false);
     setPendingPublishItem(null);
   };
@@ -397,8 +393,8 @@ const Announcements = () => {
           <p className="text-slate-500 text-sm">Post and manage community announcements.</p>
         </div>
         
-        {/* --- ADDED RequireRole WRAPPER FOR NEW ANNOUNCEMENT --- */}
-        <RequireRole userRole={currentUserRole} allowedRoles={['president', 'secretary']}>
+        {/* --- UPDATED RequireRole WRAPPER FOR NEW ANNOUNCEMENT (Added vice_president) --- */}
+        <RequireRole userRole={currentUserRole} allowedRoles={['president', 'vice_president', 'secretary']}>
           <button 
             onClick={() => { resetForm(); setShowModal(true); }}
             style={{ backgroundColor: '#006837' }}
@@ -492,8 +488,8 @@ const Announcements = () => {
                     <Eye size={18} />
                   </button>
                   
-                  {/* --- ADDED RequireRole WRAPPER FOR ROW ACTIONS --- */}
-                  <RequireRole userRole={currentUserRole} allowedRoles={['president', 'secretary']}>
+                  {/* --- UPDATED RequireRole WRAPPER FOR ROW ACTIONS (Added vice_president) --- */}
+                  <RequireRole userRole={currentUserRole} allowedRoles={['president', 'vice_president', 'secretary']}>
                     <button 
                       onClick={() => handleOpenEdit(item)} 
                       title="Edit Announcement"
@@ -503,7 +499,7 @@ const Announcements = () => {
                     </button>
                   </RequireRole>
 
-                  <RequireRole userRole={currentUserRole} allowedRoles={['president', 'secretary']}>
+                  <RequireRole userRole={currentUserRole} allowedRoles={['president', 'vice_president', 'secretary']}>
                     {item.status === 'draft' && (
                       <button 
                         onClick={() => {
@@ -518,7 +514,7 @@ const Announcements = () => {
                     )}
                   </RequireRole>
 
-                  <RequireRole userRole={currentUserRole} allowedRoles={['president', 'secretary']}>
+                  <RequireRole userRole={currentUserRole} allowedRoles={['president', 'vice_president', 'secretary']}>
                     <button 
                       onClick={() => handleTogglePin(item.id)} 
                       title={item.is_pinned ? 'Unpin' : 'Pin to Top'}
@@ -528,7 +524,7 @@ const Announcements = () => {
                     </button>
                   </RequireRole>
 
-                  <RequireRole userRole={currentUserRole} allowedRoles={['president', 'secretary']}>
+                  <RequireRole userRole={currentUserRole} allowedRoles={['president', 'vice_president', 'secretary']}>
                     <button 
                       onClick={() => { 
                         setPendingDeleteItem(item.id); 

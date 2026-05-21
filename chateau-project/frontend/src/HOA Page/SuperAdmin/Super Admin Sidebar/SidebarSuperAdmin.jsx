@@ -6,7 +6,7 @@ import {
 } from 'react-router-dom';
 import { 
   LayoutDashboard, Users, ShieldCheck, UserCircle, Globe, Settings, LogOut, 
-  Menu, ChevronLeft, ChevronDown, Activity, ShieldAlert, Clock // ADDED: Clock icon for pending approvals
+  Menu, ChevronLeft, ChevronDown, Activity, ShieldAlert, Clock 
 } from 'lucide-react';
 // UPDATED: Added an extra '../' to reach the assets folder
 import ChateauLogo from '../../../assets/ChataueLogo.png';
@@ -34,11 +34,9 @@ const SidebarSuperAdmin = () => {
         .single();
         
       if (adminData) {
-        // FIXED: Removed email split so it properly defaults to "Super Admin" if display_name is empty
         setDisplayName(adminData.display_name || user.user_metadata?.display_name || "Super Admin");
         if (adminData.avatar_url) setAvatarUrl(adminData.avatar_url);
       } else {
-        // FIXED: Removed email split
         setDisplayName(user.user_metadata?.display_name || "Super Admin");
       }
     }
@@ -48,13 +46,11 @@ const SidebarSuperAdmin = () => {
   useEffect(() => {
     fetchUserData();
 
-    // Listen for custom profile update event
     const handleProfileUpdate = () => fetchUserData();
     window.addEventListener('profile-updated', handleProfileUpdate);
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (session?.user) {
-        // FIXED: Fallback for real-time auth change without the email split
         setDisplayName(session.user.user_metadata?.display_name || "Super Admin");
       }
     });
@@ -86,7 +82,7 @@ const SidebarSuperAdmin = () => {
     { icon: <LayoutDashboard size={22} />, label: "Master Dashboard", path: "/super-admin/dashboard" },
     { icon: <ShieldAlert size={22} />, label: "Admin Control", path: "/super-admin/admins" },
     { icon: <Users size={22} />, label: "All Residents", path: "/super-admin/residents" },
-    { icon: <Clock size={22} />, label: "Pending Approvals", path: "/super-admin/pending-approvals" }, // --- ADDED: Pending Approvals Route ---
+    { icon: <Clock size={22} />, label: "Pending Approvals", path: "/super-admin/pending-approvals" }, 
     { icon: <Activity size={22} />, label: "System Logs", path: "/super-admin/logs" },
   ];
 
@@ -107,34 +103,37 @@ const SidebarSuperAdmin = () => {
 
         <div className={`flex flex-col items-center py-10 px-4 transition-opacity duration-300 ${isCollapsed ? 'opacity-0 invisible' : 'opacity-100'}`}>
           <img src={ChateauLogo} alt="Chateau Logo" className="w-20 h-auto mb-4 drop-shadow-lg" />
-          <h1 className="text-white font-black tracking-[0.2em] text-xl uppercase text-center">SUPER ADNASAL</h1>
+          <h1 className="text-white font-black tracking-[0.2em] text-xl uppercase text-center">SUPER ADMIN</h1>
           <div className="h-px w-full bg-white/20 mt-6"></div>
         </div>
 
-        <nav className="mt-4 px-3 space-y-2 flex-1 overflow-y-auto">
-          {menuItems.map((item, index) => {
-            const isActive = location.pathname === item.path;
-            return (
-              <Link
-                key={index}
-                to={item.path}
-                className={`w-full flex items-center gap-4 p-3.5 rounded-xl transition-all group
-                  ${isActive ? 'bg-white/20 text-white shadow-inner' : 'text-white/80 hover:text-white hover:bg-white/10'}
-                  ${isCollapsed ? 'justify-center' : 'justify-start'}`}
-              >
-                <span className={`transition-transform group-hover:scale-110 ${isActive ? 'text-white' : 'text-[#FFF200]'}`}>
-                  {item.icon}
-                </span>
-                {!isCollapsed && (
-                  <span className={`text-sm tracking-wide ${isActive ? 'font-bold' : 'font-semibold'}`}>
-                    {item.label}
-                  </span>
-                )}
-              </Link>
-            );
-          })}
-        </nav>
+<nav className="mt-4 px-3 space-y-2 flex-1 overflow-y-auto">
+  {menuItems.map((item, index) => {
+    const isActive = location.pathname === item.path;
+    return (
+      <Link
+        key={index}
+        to={item.path}
+        // ADDED: The title attribute creates a native browser tooltip automatically
+        title={isCollapsed ? item.label : ""} 
+        className={`w-full flex items-center gap-4 p-3.5 rounded-xl transition-all group relative
+          ${isActive ? 'bg-white/20 text-white shadow-inner' : 'text-white/80 hover:text-white hover:bg-white/10'}
+          ${isCollapsed ? 'justify-center' : 'justify-start'}`}
+      >
+        <span className={`transition-transform group-hover:scale-110 ${isActive ? 'text-white' : 'text-[#FFF200]'}`}>
+          {item.icon}
+        </span>
+        {!isCollapsed && (
+          <span className={`text-sm tracking-wide ${isActive ? 'font-bold' : 'font-semibold'}`}>
+            {item.label}
+          </span>
+        )}
+      </Link>
+    );
+  })}
+</nav>
 
+        {/* ... Profile and Logout sections remain unchanged ... */}
         <div className="p-3 mt-auto">
           {isProfileOpen && !isCollapsed && (
             <div className="absolute bottom-24 left-3 right-3 bg-white rounded-2xl shadow-2xl border border-slate-100 overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-200 z-50">

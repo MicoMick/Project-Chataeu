@@ -59,6 +59,9 @@ const HoaDashboard = () => {
 
   // ADDED: State for live payments
   const [livePayments, setLivePayments] = useState([]);
+  
+  // --- ADDED: State for Overdue Count ---
+  const [overdueCount, setOverdueCount] = useState(0);
 
   // ADDED: Loading state
   const [isLoading, setIsLoading] = useState(true);
@@ -78,7 +81,8 @@ const HoaDashboard = () => {
         fetchLiveElections(),
         fetchLiveReservations(),
         fetchTotalResidents(),
-        fetchLivePayments() // Added fetch call for payments
+        fetchLivePayments(), // Added fetch call for payments
+        fetchOverdueCount()  // --- ADDED: Fetch call for overdue count ---
       ]);
 
       setIsLoading(false);
@@ -179,6 +183,22 @@ const HoaDashboard = () => {
     }
   };
 
+  // --- ADDED: FETCH OVERDUE PAYMENTS COUNT ---
+  const fetchOverdueCount = async () => {
+    try {
+      // Using ilike to catch 'Overdue' or 'overdue' regardless of capitalization
+      const { count, error } = await supabase
+        .from('payments')
+        .select('*', { count: 'exact', head: true })
+        .ilike('status', 'overdue');
+
+      if (error) throw error;
+      setOverdueCount(count || 0);
+    } catch (error) {
+      console.error("Error fetching overdue payments count:", error.message);
+    }
+  };
+
   // --- ADDED: FETCH LIVE PAYMENTS ---
   const fetchLivePayments = async () => {
     try {
@@ -252,7 +272,8 @@ const HoaDashboard = () => {
         </RequireRole>
 
         <RequireRole userRole={currentUserRole} allowedRoles={['president', 'treasurer', 'auditor']}>
-          <StatCard title="Overdue Payments" value="1" icon={CreditCard} iconBg="bg-red-50" />
+          {/* --- FIXED: Replaced hardcoded "1" with overdueCount --- */}
+          <StatCard title="Overdue Payments" value={overdueCount} icon={CreditCard} iconBg="bg-red-50" />
         </RequireRole>
 
         <RequireRole userRole={currentUserRole} allowedRoles={['president', 'vice_president', 'secretary', 'auditor']}>
@@ -300,7 +321,7 @@ const HoaDashboard = () => {
               linkText="View All" 
               onClick={() => handleNavigate('reports')}
               userRole={currentUserRole}
-              allowedRoles={['president', 'secretary', 'auditor', 'board_member']} 
+              allowedRoles={['president', 'vice_president', 'secretary', 'auditor', 'board_member']} 
             />
             <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
               {liveReports.length > 0 ? (
@@ -377,7 +398,8 @@ const HoaDashboard = () => {
               linkText="View All" 
               onClick={() => handleNavigate('announcements')} 
               userRole={currentUserRole}
-              allowedRoles={['president', 'secretary', 'auditor', 'board_member']} 
+              // --- UPDATED: Added vice_president access ---
+              allowedRoles={['president', 'vice_president', 'secretary', 'auditor', 'board_member']} 
             />
             <div className="space-y-4 max-h-[350px] overflow-y-auto pr-2 custom-scrollbar">
               {liveAnnouncements.length > 0 ? (
