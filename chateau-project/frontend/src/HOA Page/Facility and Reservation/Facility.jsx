@@ -146,7 +146,6 @@ const Facility = () => {
   const [confirmData, setConfirmData] = useState({ isOpen: false, id: null });
   
   const [file, setFile] = useState(null);
-  // ADDED: State to track if the uploaded image is 360
   const [is360Image, setIs360Image] = useState(false);
 
   const [newFacility, setNewFacility] = useState({
@@ -157,7 +156,6 @@ const Facility = () => {
   
   const [isLoading, setIsLoading] = useState(true);
 
-  // --- ADDED: Get Current Role ---
   const currentUserRole = localStorage.getItem('userRole') || 'resident';
 
   useEffect(() => {
@@ -202,7 +200,7 @@ const Facility = () => {
         status: isFacilityAvailable ? 'Available' : 'Not Available',
         category: 'Amenity Facility',
         image_360_url: publicUrl,
-        is_360: is360Image // ADDED: Save boolean to DB
+        is_360: is360Image 
       };
 
       const { data, error } = await supabase.from('facilities').insert([facilityData]).select();
@@ -245,7 +243,7 @@ const Facility = () => {
         status: isItemAvailable ? 'Available' : 'Not Available',
         category: 'Amenity Item',
         image_360_url: publicUrl,
-        is_360: is360Image // ADDED: Save boolean to DB
+        is_360: is360Image 
       };
 
       const { data, error } = await supabase.from('facilities').insert([itemData]).select();
@@ -285,7 +283,7 @@ const Facility = () => {
       const updatedData = { 
         ...editingFacility, 
         image_360_url: publicUrl,
-        is_360: is360Image // ADDED: Update boolean in DB
+        is_360: is360Image 
       };
       const { error } = await supabase.from('facilities').update(updatedData).eq('id', editingFacility.id);
       if (error) throw error;
@@ -364,7 +362,7 @@ const Facility = () => {
           <p className="text-slate-500 text-sm">Manage community amenities, set rates, and availability rules.</p>
         </div>
         <div className="flex gap-3">
-          {/* --- ADDED RequireRole WRAPPER FOR ADD ITEM --- */}
+          {/* --- UPDATED RequireRole WRAPPER FOR ADD ITEM (Added secretary) --- */}
           <RequireRole userRole={currentUserRole} allowedRoles={['president', 'vice_president', 'secretary']}>
             <button 
               onClick={() => { setIsAddAmenityItemOpen(true); setIs360Image(false); setFile(null); }} 
@@ -374,7 +372,7 @@ const Facility = () => {
             </button>
           </RequireRole>
 
-          {/* --- ADDED RequireRole WRAPPER FOR ADD FACILITY --- */}
+          {/* --- UPDATED RequireRole WRAPPER FOR ADD FACILITY (Added secretary) --- */}
           <RequireRole userRole={currentUserRole} allowedRoles={['president', 'vice_president', 'secretary']}>
             <button 
             onClick={() => { setIsAddFacilityOpen(true); setIs360Image(false); setFile(null); }} 
@@ -454,7 +452,7 @@ const Facility = () => {
               <div className="p-4 border-t border-slate-50 grid grid-cols-3 gap-2">
                 <button onClick={() => setViewingFacility(fac)} className="flex items-center justify-center gap-2 py-2 bg-slate-100 hover:bg-slate-200 active:scale-95 rounded-lg text-slate-600 text-xs font-bold transition-all cursor-pointer"><Eye size={14} /> View</button>
                 
-                {/* --- ADDED RequireRole WRAPPER FOR EDIT --- */}
+                {/* --- UPDATED RequireRole WRAPPER FOR EDIT (Added secretary) --- */}
                 <RequireRole userRole={currentUserRole} allowedRoles={['president', 'vice_president', 'secretary']}>
                   <button 
                     onClick={() => { 
@@ -468,7 +466,7 @@ const Facility = () => {
                   </button>
                 </RequireRole>
 
-                {/* --- ADDED RequireRole WRAPPER FOR DELETE --- */}
+                {/* --- UPDATED RequireRole WRAPPER FOR DELETE (Added secretary) --- */}
                 <RequireRole userRole={currentUserRole} allowedRoles={['president', 'vice_president', 'secretary']}>
                   <button onClick={() => handleDelete(fac.id)} className="flex items-center justify-center py-2 bg-red-50 hover:bg-red-100 active:scale-95 rounded-lg text-red-500 transition-all border border-red-100 cursor-pointer"><Trash2 size={14} /></button>
                 </RequireRole>
@@ -834,19 +832,17 @@ const Facility = () => {
             <div className="flex flex-col lg:flex-row h-[80vh]">
               <div className="lg:w-2/3 bg-slate-100 relative group">
                 <div className="absolute top-6 left-6 z-[410] flex gap-2">
-                  {/* UPDATED: Only show the 360 switch button if is_360 is true in the database */}
                   {viewingFacility.is_360 && (
                      <button 
-                      onClick={() => setViewingFacility({...viewingFacility, show360: !viewingFacility.show360})}
-                      className={`px-4 py-2 rounded-full font-bold text-xs flex items-center gap-2 transition-all active:scale-95 shadow-lg cursor-pointer ${viewingFacility.show360 ? 'bg-indigo-600 text-white hover:bg-indigo-700' : 'bg-white text-slate-900 hover:bg-slate-50'}`}
-                     >
-                       {viewingFacility.show360 ? 'Exit 360° View' : 'Switch to 360° View'}
-                     </button>
+                     onClick={() => setViewingFacility({...viewingFacility, show360: !viewingFacility.show360})}
+                     className={`px-4 py-2 rounded-full font-bold text-xs flex items-center gap-2 transition-all active:scale-95 shadow-lg cursor-pointer ${viewingFacility.show360 ? 'bg-indigo-600 text-white hover:bg-indigo-700' : 'bg-white text-slate-900 hover:bg-slate-50'}`}
+                    >
+                      {viewingFacility.show360 ? 'Exit 360° View' : 'Switch to 360° View'}
+                    </button>
                   )}
                 </div>
 
                 {viewingFacility.image_360_url ? (
-                  /* UPDATED: Force normal image view if is_360 is false, otherwise respect show360 state */
                   (viewingFacility.is_360 && viewingFacility.show360) ? (
                     <Pannellum
                       width="100%"

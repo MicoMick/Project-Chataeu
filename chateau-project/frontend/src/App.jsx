@@ -89,8 +89,9 @@ const LandingPage = () => (
   </div>
 );
 
+// --- FIXED: AdminLayout removed constraint to fill screen dynamically ---
 const AdminLayout = () => (
-  <div className="flex bg-slate-50 min-h-screen overflow-hidden">
+  <div className="flex w-full h-screen bg-slate-50 overflow-hidden">
     <Sidebar />
     <main className="flex-1 h-screen overflow-y-auto">
       <Outlet />
@@ -204,23 +205,23 @@ function App() {
             </RoleBasedRoute>
           } />
 
-          {/* Reports/Issues */}
+          {/* Reports/Issues - FIXED: Added vice_president to allowedRoles */}
           <Route path="reports" element={
-            <RoleBasedRoute allowedRoles={['super_admin', 'president', 'secretary', 'auditor', 'board_member']}>
+            <RoleBasedRoute allowedRoles={['super_admin', 'president', 'vice_president', 'secretary', 'auditor', 'board_member']}>
               <Reports />
             </RoleBasedRoute>
           } />
 
-          {/* Announcements */}
+          {/* Announcements - FIXED: Added vice_president to allowedRoles */}
           <Route path="announcements" element={
-            <RoleBasedRoute allowedRoles={['super_admin', 'president', 'secretary', 'auditor', 'board_member']}>
+            <RoleBasedRoute allowedRoles={['super_admin', 'president', 'vice_president', 'secretary', 'auditor', 'board_member']}>
               <Announcements />
             </RoleBasedRoute>
           } />
 
-          {/* Reservations */}
+          {/* Reservations - FIXED: Added secretary to allowedRoles */}
           <Route path="reservations" element={
-            <RoleBasedRoute allowedRoles={['super_admin', 'president', 'vice_president', 'auditor', 'board_member']}>
+            <RoleBasedRoute allowedRoles={['super_admin', 'president', 'vice_president', 'secretary', 'auditor', 'board_member']}>
               <Reservation />
             </RoleBasedRoute>
           } />
