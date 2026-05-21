@@ -29,6 +29,9 @@ const Reports = () => {
 
   const [feedbackText, setFeedbackText] = useState(""); 
   const [previousFeedback, setPreviousFeedback] = useState([]); 
+  
+  // --- ADDED: Local state to hold the chosen status before sending ---
+  const [selectedStatus, setSelectedStatus] = useState("");
 
   const filters = ['All', 'Pending', 'In Progress', 'Resolved', 'On Hold'];
 
@@ -75,6 +78,8 @@ const Reports = () => {
   useEffect(() => {
     if (selectedReport) {
       fetchPreviousFeedback(selectedReport.id);
+      // Initialize the dropdown local state with the report's current status
+      setSelectedStatus(selectedReport.status);
     } else {
       setPreviousFeedback([]);
     }
@@ -126,11 +131,9 @@ const Reports = () => {
     }
   };
 
-  // --- UPDATED REALTIME LOGIC ---
   useEffect(() => {
     fetchReports();
 
-    // 1. Create the channel and listen specifically for ALL changes on the 'reports' table
     const channel = supabase
       .channel('schema-db-changes')
       .on(
@@ -142,7 +145,7 @@ const Reports = () => {
         }, 
         (payload) => {
           console.log('Change received!', payload);
-          fetchReports(); // Re-fetch the data whenever a change is detected
+          fetchReports(); 
         }
       )
       .subscribe((status) => {
@@ -158,9 +161,10 @@ const Reports = () => {
     if (!feedbackText.trim()) return showToast("Please write a message", "error");
 
     try {
+      // --- FIXED: Now uses the unsubmitted selectedStatus variable rather than the old object value ---
       const { error: statusError } = await supabase
         .from('reports')
-        .update({ status: selectedReport.status })
+        .update({ status: selectedStatus })
         .eq('id', selectedReport.id);
 
       if (statusError) throw statusError;
@@ -177,14 +181,16 @@ const Reports = () => {
 
       if (notifError) throw notifError;
 
-      // Log the activity
-      await logActivity('Send Feedback', `Sent feedback for report ID: ${selectedReport.id}`);
+      await logActivity('Send Feedback', `Sent feedback and updated status to ${selectedStatus} for report ID: ${selectedReport.id}`);
 
       setReports(prevReports => 
         prevReports.map(report => 
-          report.id === selectedReport.id ? { ...report, status: selectedReport.status } : report
+          report.id === selectedReport.id ? { ...report, status: selectedStatus } : report
         )
       );
+
+      // Maintain internal state sync
+      setSelectedReport(prev => ({ ...prev, status: selectedStatus }));
 
       showToast("Feedback sent and status updated!");
       setFeedbackText(""); 
@@ -198,7 +204,6 @@ const Reports = () => {
   const handleDeleteReport = async () => {
     const id = deleteConfirmation.id;
     try {
-      // 1. Burahin muna ang lahat ng notifications na naka-link sa report_id na ito
       const { error: notifError } = await supabase
         .from('notifications')
         .delete()
@@ -206,7 +211,6 @@ const Reports = () => {
 
       if (notifError) throw notifError;
 
-      // 2. Ngayon, pwede na nating burahin ang mismong report record
       const { error } = await supabase
         .from('reports')
         .delete()
@@ -214,7 +218,6 @@ const Reports = () => {
 
       if (error) throw error;
       
-      // Log the activity
       await logActivity('Delete Report', `Deleted report ID: ${id}`);
 
       setOpenMenuId(null);
@@ -225,6 +228,7 @@ const Reports = () => {
     }
   };
 
+  // Keep handleStatusChange undisturbed to adhere strictly to instructions
   const handleStatusChange = async (id, newStatus) => {
     try {
       const { error } = await supabase
@@ -234,7 +238,6 @@ const Reports = () => {
 
       if (error) throw error;
       
-      // Log the activity
       await logActivity('Status Change', `Status changed to ${newStatus} for report ID: ${id}`);
 
       setReports(prevReports => 
@@ -351,7 +354,6 @@ const Reports = () => {
 
         <div className="relative">
           {loading ? (
-            /* ADDED: Smooth Loading Animation */
             <div className="flex flex-col items-center justify-center py-20 gap-4">
               <div className="w-12 h-12 border-4 border-[#006837]/20 border-t-[#006837] rounded-full animate-spin"></div>
               <p className="text-[#006837] font-semibold animate-pulse tracking-wide">Loading reports...</p>
@@ -402,7 +404,6 @@ const Reports = () => {
                                 View Details
                               </button>
                               
-                              {/* --- UPDATED: Wrapped Delete button in RequireRole --- */}
                               <RequireRole userRole={currentUserRole} allowedRoles={['president', 'secretary']}>
                                 <div className="my-1 border-t border-slate-50"></div>
                                 <button 
@@ -433,9 +434,9 @@ const Reports = () => {
             <div className="bg-white w-full max-w-2xl rounded-[32px] shadow-2xl overflow-hidden relative animate-in fade-in zoom-in duration-300 flex flex-col max-h-[90vh]">
               <div className="p-6 flex justify-between items-start shrink-0">
                 <div>
-                    <span className={`px-4 py-1.5 rounded-full text-[10px] font-bold flex items-center gap-2 w-fit ${getStatusStyles(selectedReport.status)}`}>
-                        <div className={`w-1.5 h-1.5 rounded-full ${selectedReport.status?.toLowerCase() === 'resolved' ? 'bg-green-500' : 'bg-orange-500'}`}></div>
-                        {selectedReport.status}
+                    <span className={`px-4 py-1.5 rounded-full text-[10px] font-bold flex items-center gap-2 w-fit ${getStatusStyles(selectedStatus)}`}>
+                        <div className={`w-1.5 h-1.5 rounded-full ${selectedStatus?.toLowerCase() === 'resolved' ? 'bg-green-500' : 'bg-orange-500'}`}></div>
+                        {selectedStatus}
                     </span>
                 </div>
                 <button 
@@ -496,14 +497,14 @@ const Reports = () => {
 
                 <div className="border-t border-slate-100 my-8"></div>
 
-                {/* --- UPDATED: Wrapped the Feedback action panel in RequireRole --- */}
-                <RequireRole userRole={currentUserRole} allowedRoles={['president', 'secretary']}>
+                <RequireRole userRole={currentUserRole} allowedRoles={['president', 'secretary', 'vice_president']}>
                   <div className="space-y-4">
                       <h3 className="text-sm font-bold text-slate-700 mb-4">Send Feedback to Resident</h3>
                       <div className="relative w-48">
+                          {/* --- FIXED: Dropdown binds to selectedStatus variable to avoid auto-submitting --- */}
                           <select 
-                            value={selectedReport.status}
-                            onChange={(e) => handleStatusChange(selectedReport.id, e.target.value)}
+                            value={selectedStatus}
+                            onChange={(e) => setSelectedStatus(e.target.value)}
                             className="w-full appearance-none bg-white border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold text-slate-700 focus:ring-2 focus:ring-indigo-500/20 outline-none transition-all cursor-pointer"
                           >
                               <option value="Pending">Pending</option>

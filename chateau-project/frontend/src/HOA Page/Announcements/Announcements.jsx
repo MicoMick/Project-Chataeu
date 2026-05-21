@@ -12,6 +12,25 @@ const RequireRole = ({ userRole, allowedRoles, children }) => {
   return null; 
 };
 
+// --- ADDED: Helper function to determine category colors ---
+const getCategoryColor = (category) => {
+  switch (category?.toLowerCase()) {
+    case 'general':
+    case 'financial':
+      return 'bg-green-100 text-green-700';
+    case 'event':
+      return 'bg-blue-100 text-blue-700';
+    case 'maintenance':
+      return 'bg-orange-100 text-orange-700';
+    case 'election':
+      return 'bg-red-100 text-red-700';
+    case 'security':
+      return 'bg-slate-200 text-slate-700';
+    default:
+      return 'bg-slate-100 text-slate-600';
+  }
+};
+
 const Announcements = () => {
   const [activeCategory, setActiveCategory] = useState('All Categories');
   const [activeStatus, setActiveStatus] = useState('All Status');
@@ -438,9 +457,13 @@ const Announcements = () => {
           </select>
           <select value={activeCategory} onChange={(e) => setActiveCategory(e.target.value)} className="pl-4 pr-10 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-medium focus:outline-none appearance-none cursor-pointer">
             <option>All Categories</option>
+            {/* --- ADDED Event and synced all other options --- */}
+            <option>Event</option>
             <option>Maintenance</option>
             <option>General</option>
             <option>Financial</option>
+            <option>Election</option>
+            <option>Security</option>
           </select>
         </div>
       </div>
@@ -474,7 +497,8 @@ const Announcements = () => {
                   <div className="flex items-center gap-6 text-slate-400 text-xs font-medium">
                     <span className="flex items-center gap-1.5"><Clock size={14} /> {new Date(item.created_at).toLocaleDateString()}</span>
                     <span>By {item.author_name}</span>
-                    <span className="px-2 py-1 bg-slate-100 rounded text-slate-600">{item.category}</span>
+                    {/* --- ADDED dynamic color utility --- */}
+                    <span className={`px-2 py-1 rounded text-xs font-bold ${getCategoryColor(item.category)}`}>{item.category}</span>
                     {item.attachment_url && <span className="flex items-center gap-1.5 text-indigo-600"><Paperclip size={14} /> Attachment</span>}
                   </div>
                 </div>
@@ -555,7 +579,8 @@ const Announcements = () => {
             </div>
             <div className="p-8 max-h-[70vh] overflow-y-auto">
               <div className="flex items-center gap-3 mb-6">
-                <span className="px-3 py-1 bg-indigo-50 text-indigo-600 rounded-full text-xs font-bold uppercase tracking-wider">{selectedAnnouncement.category}</span>
+                {/* --- ADDED dynamic color utility --- */}
+                <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${getCategoryColor(selectedAnnouncement.category)}`}>{selectedAnnouncement.category}</span>
                 {selectedAnnouncement.is_emergency && <span className="px-3 py-1 bg-red-50 text-red-600 rounded-full text-xs font-bold uppercase tracking-wider flex items-center gap-1.5"><AlertTriangle size={12}/> Emergency</span>}
               </div>
               <h1 className="text-3xl font-bold text-slate-900 mb-4">{selectedAnnouncement.title}</h1>
@@ -670,6 +695,8 @@ const Announcements = () => {
               <div>
                 <label className="block text-sm font-bold text-slate-700 mb-2">Category</label>
                 <select value={newCategory} onChange={(e) => setNewCategory(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none cursor-pointer">
+                  {/* --- ADDED Event to new items drop down --- */}
+                  <option>Event</option>
                   <option>Maintenance</option><option>General</option><option>Financial</option><option>Election</option><option>Security</option>
                 </select>
               </div>
