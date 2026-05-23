@@ -351,46 +351,49 @@ const HoaDashboard = () => {
 
         {/* Right Column */}
         <div className="space-y-8">
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-            <SectionHeader 
-              title="Recent Payments" 
-              linkText="View All" 
-              onClick={() => handleNavigate('payments')} 
-              userRole={currentUserRole}
-              allowedRoles={['president', 'treasurer', 'auditor', 'board_member']} 
-            />
-            <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
-              {livePayments.length > 0 ? (
-                livePayments.map((item) => {
-                  const fullName = item.profiles?.full_name || 'Unknown Resident';
-                  const amount = item.amount ? `₱${Number(item.amount).toLocaleString()}` : '₱0';
-                  const date = item.due_date ? new Date(item.due_date).toLocaleDateString() : 'N/A';
-                  const status = (item.status || 'unpaid').toLowerCase();
-                  
-                  // Same styling logic as the main payments page
-                  let statusColor = 'text-slate-500';
-                  if (status === 'paid') statusColor = 'text-green-500';
-                  if (status === 'pending') statusColor = 'text-orange-500';
-                  if (status === 'overdue') statusColor = 'text-red-500';
+          {/* --- FIXED: Wrapped whole Recent Payments card block in RequireRole to cleanly collapse for vice_president & secretary --- */}
+          <RequireRole userRole={currentUserRole} allowedRoles={['president', 'treasurer', 'auditor', 'board_member']}>
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+              <SectionHeader 
+                title="Recent Payments" 
+                linkText="View All" 
+                onClick={() => handleNavigate('payments')} 
+                userRole={currentUserRole}
+                allowedRoles={['president', 'treasurer', 'auditor', 'board_member']} 
+              />
+              <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
+                {livePayments.length > 0 ? (
+                  livePayments.map((item) => {
+                    const fullName = item.profiles?.full_name || 'Unknown Resident';
+                    const amount = item.amount ? `₱${Number(item.amount).toLocaleString()}` : '₱0';
+                    const date = item.due_date ? new Date(item.due_date).toLocaleDateString() : 'N/A';
+                    const status = (item.status || 'unpaid').toLowerCase();
+                    
+                    // Same styling logic as the main payments page
+                    let statusColor = 'text-slate-500';
+                    if (status === 'paid') statusColor = 'text-green-500';
+                    if (status === 'pending') statusColor = 'text-orange-500';
+                    if (status === 'overdue') statusColor = 'text-red-500';
 
-                  return (
-                    <div key={item.id} className="flex justify-between items-center p-3 border border-slate-50 rounded-xl hover:bg-slate-50 transition-colors">
-                      <div>
-                        <p className="text-sm font-semibold text-slate-800">{fullName}</p>
-                        <p className="text-xs text-slate-500">Due: {date}</p>
+                    return (
+                      <div key={item.id} className="flex justify-between items-center p-3 border border-slate-50 rounded-xl hover:bg-slate-50 transition-colors">
+                        <div>
+                          <p className="text-sm font-semibold text-slate-800">{fullName}</p>
+                          <p className="text-xs text-slate-500">Due: {date}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm font-bold text-slate-900">{amount}</p>
+                          <p className={`text-[10px] font-bold uppercase ${statusColor}`}>{status}</p>
+                        </div>
                       </div>
-                      <div className="text-right">
-                        <p className="text-sm font-bold text-slate-900">{amount}</p>
-                        <p className={`text-[10px] font-bold uppercase ${statusColor}`}>{status}</p>
-                      </div>
-                    </div>
-                  );
-                })
-              ) : (
-                <p className="text-sm text-slate-400 text-center py-4 italic">No recent payments found.</p>
-              )}
+                    );
+                  })
+                ) : (
+                  <p className="text-sm text-slate-400 text-center py-4 italic">No recent payments found.</p>
+                )}
+              </div>
             </div>
-          </div>
+          </RequireRole>
 
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
             <SectionHeader 
