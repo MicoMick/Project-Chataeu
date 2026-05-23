@@ -15,7 +15,7 @@ import { supabase } from '../supabaseAdmin';
 
 // --- RequireRole Component ---
 const RequireRole = ({ userRole, allowedRoles, children }) => {
-  if (userRole === 'super_admin' || userRole === 'president') {
+  if (userRole === 'super_admin') {
     return children;
   }
   if (allowedRoles.includes(userRole)) {
@@ -79,27 +79,20 @@ const Sidebar = () => {
     navigate('/admin'); 
   };
 
+  // --- FIXED: Removed 'treasurer' from the allowedRoles for Dashboard ---
   const menuItems = [
-    { icon: <LayoutDashboard size={22} />, label: "Dashboard", path: "/hoa/dashboard", allowedRoles: ['vice_president', 'secretary', 'auditor', 'board_member', 'treasurer'] },
-    { icon: <Users size={22} />, label: "Residents", path: "/hoa/residents", allowedRoles: ['vice_president', 'secretary', 'auditor', 'board_member'] }, 
-    // --- FIXED: Added 'secretary' to allowedRoles for Reservations ---
-    { icon: <CalendarCheck size={22} />, label: "Reservations", path: "/hoa/reservations", allowedRoles: ['vice_president', 'secretary', 'auditor', 'board_member'] },
-    { icon: <CreditCard size={22} />, label: "Payments", path: "/hoa/payments", allowedRoles: ['treasurer', 'auditor', 'board_member'] },
-    { icon: <Vote size={22} />, label: "Elections", path: "/hoa/elections", allowedRoles: ['vice_president', 'secretary', 'auditor', 'board_member'] },
-    { icon: <Megaphone size={22} />, label: "Announcements", path: "/hoa/announcements", allowedRoles: ['vice_president', 'secretary', 'auditor', 'board_member'] },
-    { icon: <BarChart3 size={22} />, label: "Reports", path: "/hoa/reports", allowedRoles: ['vice_president', 'secretary', 'auditor', 'board_member'] },
+    { icon: <LayoutDashboard size={22} />, label: "Dashboard", path: "/hoa/dashboard", allowedRoles: ['president', 'vice_president', 'secretary', 'auditor', 'board_member'] },
+    { icon: <Users size={22} />, label: "Residents", path: "/hoa/residents", allowedRoles: ['president', 'vice_president', 'secretary', 'auditor', 'board_member'] }, 
+    { icon: <CalendarCheck size={22} />, label: "Reservations", path: "/hoa/reservations", allowedRoles: ['president', 'vice_president', 'secretary', 'auditor', 'board_member'] },
+    { icon: <CreditCard size={22} />, label: "Payments", path: "/hoa/payments", allowedRoles: ['president', 'treasurer', 'auditor', 'board_member'] },
+    { icon: <Vote size={22} />, label: "Elections", path: "/hoa/elections", allowedRoles: ['president', 'vice_president', 'secretary', 'auditor', 'board_member'] },
+    { icon: <Megaphone size={22} />, label: "Announcements", path: "/hoa/announcements", allowedRoles: ['president', 'vice_president', 'secretary', 'auditor', 'board_member'] },
+    { icon: <BarChart3 size={22} />, label: "Reports", path: "/hoa/reports", allowedRoles: ['president', 'vice_president', 'secretary', 'auditor', 'board_member'] },
     { icon: <FileSearch size={22} />, label: "System Logs", path: "/hoa/logs", allowedRoles: ['auditor'] },
   ];
 
   return (
     <>
-      <style>{`
-        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
-        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: transparent; border-radius: 10px; }
-        .group:hover .custom-scrollbar::-webkit-scrollbar-thumb { background: rgb(146, 146, 146); }
-      `}</style>
-
       <aside className={`relative flex flex-col min-h-screen transition-all duration-300 ease-in-out shadow-2xl z-40 group
         ${isCollapsed ? 'w-20' : 'w-72'} 
         bg-gradient-to-b from-[#006837] to-[#004d29]`}>
@@ -119,7 +112,7 @@ const Sidebar = () => {
           <div className="h-px w-full bg-white/20 mt-6"></div>
         </div>
 
-        <nav className="mt-4 px-3 space-y-2 flex-1 overflow-y-auto overflow-x-hidden pb-6 custom-scrollbar">
+        <nav className="mt-4 px-3 space-y-2 flex-1 overflow-hidden pb-6">
           {menuItems.map((item, index) => {
             const isActive = location.pathname === item.path;
             return (

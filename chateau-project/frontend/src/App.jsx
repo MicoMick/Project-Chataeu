@@ -99,12 +99,22 @@ const AdminLayout = () => (
   </div>
 );
 
+// --- HELPER COMPONENT FOR REDIRECT ---
+const DashboardRedirect = () => {
+  const role = (localStorage.getItem('userRole') || 'resident').trim().toLowerCase();
+  if (role === 'treasurer') {
+    return <Navigate to="/hoa/payments" replace />;
+  }
+  return (
+    <RoleBasedRoute allowedRoles={['super_admin', 'president', 'vice_president', 'secretary', 'auditor', 'board_member']}>
+       <HoaDashboard />
+    </RoleBasedRoute>
+  );
+};
+
 function App() {
   // --- CONSOLE LOG ---
   console.log("Supabase Client:", supabase);
-
-  // Grab the role that was saved during login. Default to 'resident' if none is found.
-  const currentUserRole = localStorage.getItem('userRole') || 'resident';
 
   return (
     <Router>
@@ -113,90 +123,21 @@ function App() {
         <Route path="/admin" element={<LoginPage />} />
 
         {/* --- SUPER ADMIN ROUTES (Kept using AuthRoute) --- */}
-        <Route 
-          path="/super-admin/dashboard" 
-          element={
-            <AuthRoute>
-              <SuperAdminLayout>
-                <SuperAdminDB />
-              </SuperAdminLayout>
-            </AuthRoute>
-          } 
-        />
-        <Route 
-          path="/super-admin/profile" 
-          element={
-            <AuthRoute>
-              <SuperAdminLayout>
-                <SuperAdProfile />
-              </SuperAdminLayout>
-            </AuthRoute>
-          } 
-        />
-        <Route 
-          path="/super-admin/admins" 
-          element={
-            <AuthRoute>
-              <SuperAdminLayout>
-                <AdminControl />
-              </SuperAdminLayout>
-            </AuthRoute>
-          } 
-        />
-        <Route 
-          path="/super-admin/residents" 
-          element={
-            <AuthRoute>
-              <SuperAdminLayout>
-                <Residents />
-              </SuperAdminLayout>
-            </AuthRoute>
-          } 
-        />
-        <Route 
-          path="/super-admin/logs" 
-          element={
-            <AuthRoute>
-              <SuperAdminLayout>
-                <SystemLogs />
-              </SuperAdminLayout>
-            </AuthRoute>
-          } 
-        />
-        {/* --- ADDED: Pending Approvals Route --- */}
-        <Route 
-          path="/super-admin/pending-approvals" 
-          element={
-            <AuthRoute>
-              <SuperAdminLayout>
-                <PendingApproval />
-              </SuperAdminLayout>
-            </AuthRoute>
-          } 
-        />
+        <Route path="/super-admin/dashboard" element={<AuthRoute><SuperAdminLayout><SuperAdminDB /></SuperAdminLayout></AuthRoute>} />
+        <Route path="/super-admin/profile" element={<AuthRoute><SuperAdminLayout><SuperAdProfile /></SuperAdminLayout></AuthRoute>} />
+        <Route path="/super-admin/admins" element={<AuthRoute><SuperAdminLayout><AdminControl /></SuperAdminLayout></AuthRoute>} />
+        <Route path="/super-admin/residents" element={<AuthRoute><SuperAdminLayout><Residents /></SuperAdminLayout></AuthRoute>} />
+        <Route path="/super-admin/logs" element={<AuthRoute><RoleBasedRoute allowedRoles={['super_admin']}><SuperAdminLayout><SystemLogs /></SuperAdminLayout></RoleBasedRoute></AuthRoute>} />
+        <Route path="/super-admin/pending-approvals" element={<AuthRoute><SuperAdminLayout><PendingApproval /></SuperAdminLayout></AuthRoute>} />
 
         {/* --- HOA Admin Routes --- */}
-        <Route 
-          path="/hoa" 
-          element={
-            <AuthRoute>
-              <AdminLayout />
-            </AuthRoute>
-          }
-        >
-          {/* Default Route */}
-          <Route index element={
-             <RoleBasedRoute allowedRoles={['super_admin', 'president', 'vice_president', 'treasurer', 'secretary', 'auditor', 'board_member']}>
-               <HoaDashboard />
-             </RoleBasedRoute>
-          } /> 
+        <Route path="/hoa" element={<AuthRoute><AdminLayout /></AuthRoute>}>
+          
+          {/* Default Route - FIXED: Uses the DashboardRedirect to bypass RoleBasedRoute guard loops */}
+          <Route index element={<DashboardRedirect />} /> 
 
-          {/* Dashboard */}
-          <Route path="dashboard" element={
-            <RoleBasedRoute allowedRoles={['super_admin', 'president', 'vice_president', 'treasurer', 'secretary', 'auditor', 'board_member']}>
-              <HoaDashboard />
-            </RoleBasedRoute>
-          } />
+          {/* Dashboard - FIXED: Applied DashboardRedirect here as well so hard navigations to /hoa/dashboard are intercepted */}
+          <Route path="dashboard" element={<DashboardRedirect />} />
 
           {/* Payments (Fixed allowed roles for Treasurer, Auditor, Board Member) */}
           <Route path="payments" element={
