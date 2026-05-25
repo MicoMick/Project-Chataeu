@@ -342,22 +342,57 @@ const Payment = () => {
     }
   };
 
+  // --- FIXED: Handle Void Transaction maps correctly to the DB schema columns ---
   const handleVoidTransaction = async () => {
     if (!selectedPayment) return;
     setIsConfirmVoidOpen(false);
-    setTransaction({ status: 'loading', message: 'Voiding transaction...' });
-    try {
-      const { error } = await supabase
-        .from('payments')
-        .delete()
-        .eq('id', selectedPayment.id);
-      if (error) throw error;
-      await logActivity('Voided Transaction', `Deleted/Voided transaction Ref: ${selectedPayment.reference_no} for amount ₱${selectedPayment.amount}.`);
-      setOpenMenuId(null);
-      fetchPayments();
-      setTransaction({ status: 'success', message: 'Transaction has been successfully voided.' });
-    } catch (error) {
-      setTransaction({ status: 'error', message: "Failed to void transaction: " + error.message });
+    
+    // If user is Super Admin, bypass approval and delete immediately
+    if (currentUserRole === 'super_admin') {
+      setTransaction({ status: 'loading', message: 'Voiding transaction...' });
+      try {
+        const { error } = await supabase
+          .from('payments')
+          .delete()
+          .eq('id', selectedPayment.id);
+        if (error) throw error;
+        await logActivity('Voided Transaction', `Deleted/Voided transaction Ref: ${selectedPayment.reference_no} for amount ₱${selectedPayment.amount}.`);
+        setOpenMenuId(null);
+        fetchPayments();
+        setTransaction({ status: 'success', message: 'Transaction has been successfully voided.' });
+      } catch (error) {
+        setTransaction({ status: 'error', message: "Failed to void transaction: " + error.message });
+      }
+    } else {
+      // For standard Admins (Treasurer, President, etc), send a request to approval_requests table
+      setTransaction({ status: 'loading', message: 'Submitting void request to Super Admin...' });
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        
+        // --- FIXED: Mapped to exact schema: target_table, target_id, action_type, requested_data (jsonb), status, requested_by (uuid) ---
+        const { error } = await supabase
+          .from('approval_requests')
+          .insert([{
+            target_table: 'payments',
+            target_id: selectedPayment.id,
+            action_type: 'DELETE',
+            requested_data: {
+              reference_no: selectedPayment.reference_no,
+              amount: selectedPayment.amount,
+              details: `Requested to void payment Ref: ${selectedPayment.reference_no} for amount ₱${selectedPayment.amount}.`
+            },
+            status: 'PENDING',
+            requested_by: user?.id || null // Must pass user UUID, not email string
+          }]);
+          
+        if (error) throw error;
+        
+        await logActivity('Requested Payment Void', `Submitted approval request to void transaction Ref: ${selectedPayment.reference_no}.`);
+        setOpenMenuId(null);
+        setTransaction({ status: 'success', message: 'Void request has been successfully sent to the Super Admin for approval.' });
+      } catch (error) {
+        setTransaction({ status: 'error', message: "Failed to submit request: " + error.message });
+      }
     }
   };
 
@@ -426,11 +461,22 @@ const Payment = () => {
         invTotalDue={invTotalDue}
       />
       
-      {/* ... (ModalOverlays: ConfirmVoid, CreateBill, EditTransaction) ... */}
-      <ModalOverlay isOpen={isConfirmVoidOpen} onClose={() => setIsConfirmVoidOpen(false)} title="Void Transaction" subtitle="Are you sure you want to void/delete this transaction?" actionLabel="Yes, Void It" onAction={handleVoidTransaction} >
+      {/* --- FIXED: Modal Overlay dynamically adjusts text/labels based on current role --- */}
+      <ModalOverlay 
+        isOpen={isConfirmVoidOpen} 
+        onClose={() => setIsConfirmVoidOpen(false)} 
+        title={currentUserRole === 'super_admin' ? "Void Transaction" : "Request Void Approval"} 
+        subtitle={currentUserRole === 'super_admin' ? "Are you sure you want to void/delete this transaction?" : "This action requires Super Admin approval."} 
+        actionLabel={currentUserRole === 'super_admin' ? "Yes, Void It" : "Submit Request"} 
+        onAction={handleVoidTransaction} 
+      >
         <div className="p-4 bg-red-50 text-red-700 rounded-xl flex items-center gap-3">
           <AlertCircle size={20} />
-          <p className="text-sm font-semibold">This action is permanent and cannot be undone.</p>
+          <p className="text-sm font-semibold">
+            {currentUserRole === 'super_admin' 
+              ? "This action is permanent and cannot be undone." 
+              : "The Super Admin will be notified to review and approve this deletion."}
+          </p>
         </div>
       </ModalOverlay>
 
@@ -620,7 +666,7 @@ const Payment = () => {
                           <RequireRole userRole={currentUserRole} allowedRoles={['president', 'treasurer']}>
                             <button onClick={() => { setSelectedPayment(p); setEditFormData({ amount: p.amount || '', status: p.status || 'unpaid', due_date: p.due_date ? p.due_date.split('T')[0] : '', reference_no: p.reference_no || '', paid_at: p.paid_at ? p.paid_at.split('T')[0] : '' }); setIsEditTransactionOpen(true); }} title="Edit Transaction" className="text-slate-400 hover:text-indigo-600 p-1.5 hover:bg-indigo-50 rounded-lg transition-all cursor-pointer"><Edit2 size={16} /></button>
                           </RequireRole>
-                          <RequireRole userRole={currentUserRole} allowedRoles={['president', 'treasurer']}>
+                          <RequireRole userRole={currentUserRole} allowedRoles={['president', 'treasurer', 'super_admin']}>
                             <button onClick={() => { setSelectedPayment(p); setIsConfirmVoidOpen(true); }} title="Void / Cancel" className="text-slate-400 hover:text-red-600 p-1.5 hover:bg-red-50 rounded-lg transition-all cursor-pointer"><Trash2 size={16} /></button>
                           </RequireRole>
                         </div>

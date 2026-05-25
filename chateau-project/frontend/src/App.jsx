@@ -188,7 +188,7 @@ function App() {
             </RoleBasedRoute>
           } />
 
-          {/* Profile Manage - Kept open to all logged-in HOA admins so they can update their own info */}
+          {/* Profile Manage */}
           <Route path="profile" element={
             <RoleBasedRoute allowedRoles={['super_admin', 'president', 'vice_president', 'treasurer', 'secretary', 'auditor', 'board_member']}>
               <ProfileManage />
