@@ -52,21 +52,49 @@ const PendingApproval = () => {
     }
   };
 
-  // Handle Approval
+  // --- FIXED: Handle Approval dynamically checks the action type and target table ---
   const handleApprove = async (request) => {
-    const { data, error } = await supabase
-      .rpc('approve_resident_update', {
-        req_id: request.id,
-        target_user_id: request.target_id,
-        new_data: request.requested_data // This contains the whole object structure
-      });
+    try {
+      if (request.target_table === 'payments' && request.action_type === 'DELETE') {
+        // 1. Execute the deletion on the payments table
+        const { error: deleteError } = await supabase
+          .from('payments')
+          .delete()
+          .eq('id', request.target_id);
 
-    if (error) {
-      console.error("Error approving request:", error);
-      showToast("Error approving request.", "error");
-    } else {
-      showToast("Profile updated successfully!", "success");
-      fetchPendingRequests(); // Refreshes the UI
+        if (deleteError) throw deleteError;
+
+        // 2. Mark the approval request as APPROVED
+        const { error: updateError } = await supabase
+          .from('approval_requests')
+          .update({ status: 'APPROVED' })
+          .eq('id', request.id);
+
+        if (updateError) throw updateError;
+
+        showToast("Payment voided and request approved successfully!", "success");
+        fetchPendingRequests(); // Refreshes the UI
+
+      } else {
+        // Fallback to original RPC logic for Profiles/Other updates
+        const { data, error } = await supabase
+          .rpc('approve_resident_update', {
+            req_id: request.id,
+            target_user_id: request.target_id,
+            new_data: request.requested_data // This contains the whole object structure
+          });
+
+        if (error) {
+          console.error("Error approving request:", error);
+          showToast("Error approving request.", "error");
+        } else {
+          showToast("Profile updated successfully!", "success");
+          fetchPendingRequests(); // Refreshes the UI
+        }
+      }
+    } catch (err) {
+      console.error("Approval Execution Error:", err);
+      showToast("Error executing approval: " + err.message, "error");
     }
   };
 

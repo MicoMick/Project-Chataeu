@@ -18,6 +18,7 @@ const RequireRole = ({ userRole, allowedRoles, children }) => {
 const Reports = () => {
   const [activeFilter, setActiveFilter] = useState('All');
   const [searchQuery, setSearchTerm] = useState('');
+  const [selectedResidentFilter, setSelectedResidentFilter] = useState('All'); // --- ADDED: Resident Filter ---
   const [openMenuId, setOpenMenuId] = useState(null);
   const [selectedReport, setSelectedReport] = useState(null);
   const [isImageExpanded, setIsImageExpanded] = useState(false);
@@ -78,7 +79,6 @@ const Reports = () => {
   useEffect(() => {
     if (selectedReport) {
       fetchPreviousFeedback(selectedReport.id);
-      // Initialize the dropdown local state with the report's current status
       setSelectedStatus(selectedReport.status);
     } else {
       setPreviousFeedback([]);
@@ -88,6 +88,7 @@ const Reports = () => {
   const fetchReports = async () => {
     try {
       setLoading(true);
+      // --- FIXED: Fetch full_name instead of username ---
       const { data, error } = await supabase
         .from('reports')
         .select(`
@@ -99,7 +100,7 @@ const Reports = () => {
           created_at,
           status,
           profiles (
-            username
+            full_name
           )
         `)
         .order('created_at', { ascending: false });
@@ -110,10 +111,11 @@ const Reports = () => {
         const formattedData = data.map(item => ({
           id: item.id,
           user_id: item.user_id,
-          resident: item.profiles?.username || "Unknown Resident",
+          resident: item.profiles?.full_name || "Unknown Resident", // --- FIXED: Used full_name ---
           category: item.category,
           description: item.description,
           status: item.status || "Pending",
+          created_at_iso: item.created_at, // Keep ISO for stats calculation
           date: new Date(item.created_at).toLocaleDateString('en-US', {
             month: 'short',
             day: 'numeric',
@@ -133,35 +135,30 @@ const Reports = () => {
 
   useEffect(() => {
     fetchReports();
-
     const channel = supabase
       .channel('schema-db-changes')
-      .on(
-        'postgres_changes', 
-        { 
-          event: '*', 
-          schema: 'public', 
-          table: 'reports' 
-        }, 
-        (payload) => {
-          console.log('Change received!', payload);
-          fetchReports(); 
-        }
-      )
-      .subscribe((status) => {
-        console.log("Realtime subscription status:", status);
-      });
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'reports' }, () => { fetchReports(); })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
   }, []);
+
+  // --- CALCULATE STATS ---
+  const today = new Date().toISOString().split('T')[0];
+  const currentMonth = new Date().getMonth();
+  const currentYear = new Date().getFullYear();
+
+  const dailyReceived = reports.filter(r => r.created_at_iso.startsWith(today)).length;
+  const monthlyReceived = reports.filter(r => {
+    const d = new Date(r.created_at_iso);
+    return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+  }).length;
+
+  const residentOptions = [...new Set(reports.map(r => r.resident))].sort();
 
   const handleSendFeedback = async () => {
     if (!feedbackText.trim()) return showToast("Please write a message", "error");
 
     try {
-      // --- FIXED: Now uses the unsubmitted selectedStatus variable rather than the old object value ---
       const { error: statusError } = await supabase
         .from('reports')
         .update({ status: selectedStatus })
@@ -183,19 +180,12 @@ const Reports = () => {
 
       await logActivity('Send Feedback', `Sent feedback and updated status to ${selectedStatus} for report ID: ${selectedReport.id}`);
 
-      setReports(prevReports => 
-        prevReports.map(report => 
-          report.id === selectedReport.id ? { ...report, status: selectedStatus } : report
-        )
-      );
-
-      // Maintain internal state sync
+      setReports(prevReports => prevReports.map(report => report.id === selectedReport.id ? { ...report, status: selectedStatus } : report));
       setSelectedReport(prev => ({ ...prev, status: selectedStatus }));
 
       showToast("Feedback sent and status updated!");
       setFeedbackText(""); 
       fetchPreviousFeedback(selectedReport.id);
-      
     } catch (error) {
       showToast(error.message, "error");
     }
@@ -204,22 +194,11 @@ const Reports = () => {
   const handleDeleteReport = async () => {
     const id = deleteConfirmation.id;
     try {
-      const { error: notifError } = await supabase
-        .from('notifications')
-        .delete()
-        .eq('report_id', id);
-
+      const { error: notifError } = await supabase.from('notifications').delete().eq('report_id', id);
       if (notifError) throw notifError;
-
-      const { error } = await supabase
-        .from('reports')
-        .delete()
-        .eq('id', id);
-
+      const { error } = await supabase.from('reports').delete().eq('id', id);
       if (error) throw error;
-      
       await logActivity('Delete Report', `Deleted report ID: ${id}`);
-
       setOpenMenuId(null);
       setDeleteConfirmation({ show: false, id: null });
       showToast("Report deleted successfully", "success");
@@ -228,42 +207,13 @@ const Reports = () => {
     }
   };
 
-  // Keep handleStatusChange undisturbed to adhere strictly to instructions
-  const handleStatusChange = async (id, newStatus) => {
-    try {
-      const { error } = await supabase
-        .from('reports')
-        .update({ status: newStatus })
-        .eq('id', id);
-
-      if (error) throw error;
-      
-      await logActivity('Status Change', `Status changed to ${newStatus} for report ID: ${id}`);
-
-      setReports(prevReports => 
-        prevReports.map(report => 
-          report.id === id ? { ...report, status: newStatus } : report
-        )
-      );
-
-      if (selectedReport && selectedReport.id === id) {
-        setSelectedReport(prev => ({ ...prev, status: newStatus }));
-      }
-
-      showToast(`Status updated to ${newStatus}`, "success");
-    } catch (error) {
-      showToast("Error updating status: " + error.message, "error");
-    }
-  };
-
   const filteredReports = reports.filter((report) => {
     const matchesFilter = activeFilter === 'All' || report.status.toLowerCase() === activeFilter.toLowerCase();
-    const matchesSearch = 
-      report.resident.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      report.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      report.description.toLowerCase().includes(searchQuery.toLowerCase());
-    
-    return matchesFilter && matchesSearch;
+    const matchesResident = selectedResidentFilter === 'All' || report.resident === selectedResidentFilter;
+    const matchesSearch = report.resident.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                          report.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                          report.description.toLowerCase().includes(searchQuery.toLowerCase());
+    return matchesFilter && matchesSearch && matchesResident;
   });
 
   const getStatusStyles = (status) => {
@@ -277,12 +227,42 @@ const Reports = () => {
     }
   };
 
-  const toggleMenu = (id) => {
-    setOpenMenuId(openMenuId === id ? null : id);
-  };
+  const toggleMenu = (id) => { setOpenMenuId(openMenuId === id ? null : id); };
 
   return (
     <div className="p-8 bg-slate-50 min-h-screen">
+      
+      {/* Header moved to top */}
+      <div className="mb-8">
+        <h1 className="text-2xl font-bold text-slate-900">Reports</h1>
+        <p className="text-slate-500 text-sm font-medium">Residents Report Issues</p>
+      </div>
+
+      {/* --- ADDED: Report Stats Grid below Header --- */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-4">
+          <div className="p-3 bg-blue-50 text-blue-600 rounded-xl"><FileText size={24} /></div>
+          <div>
+            <p className="text-slate-500 text-xs font-bold uppercase">Received Today</p>
+            <h3 className="text-2xl font-bold text-slate-900">{dailyReceived}</h3>
+          </div>
+        </div>
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-4">
+          <div className="p-3 bg-purple-50 text-purple-600 rounded-xl"><Calendar size={24} /></div>
+          <div>
+            <p className="text-slate-500 text-xs font-bold uppercase">Received This Month</p>
+            <h3 className="text-2xl font-bold text-slate-900">{monthlyReceived}</h3>
+          </div>
+        </div>
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-4">
+          <div className="p-3 bg-emerald-50 text-emerald-600 rounded-xl"><CheckCircle2 size={24} /></div>
+          <div>
+            <p className="text-slate-500 text-xs font-bold uppercase">Total Reports</p>
+            <h3 className="text-2xl font-bold text-slate-900">{reports.length}</h3>
+          </div>
+        </div>
+      </div>
+
       {toast.show && (
         <div className={`fixed bottom-8 right-8 z-[300] flex items-center gap-3 px-6 py-4 rounded-2xl shadow-2xl animate-in slide-in-from-right-10 duration-300 ${
           toast.type === 'success' ? 'bg-[#1e3a6a] text-white' : 'bg-red-500 text-white'
@@ -318,14 +298,9 @@ const Reports = () => {
         </div>
       )}
 
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-slate-900">Reports</h1>
-        <p className="text-slate-500 text-sm font-medium">Residents Report Issues</p>
-      </div>
-
       <div className="bg-white rounded-[24px] border border-slate-100 shadow-sm">
         <div className="p-6 flex flex-col md:flex-row justify-between items-center gap-4 border-b border-slate-50">
-          <div className="relative w-full md:w-96">
+          <div className="relative w-full md:w-72">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
             <input 
               className="w-full pl-12 pr-4 py-2.5 bg-slate-50 border-none rounded-xl text-sm focus:ring-2 focus:ring-indigo-500/20 transition-all" 
@@ -335,20 +310,32 @@ const Reports = () => {
             />
           </div>
 
-          <div className="flex bg-slate-100 p-1 rounded-xl">
-            {filters.map((filter) => (
-              <button
-                key={filter}
-                onClick={() => setActiveFilter(filter)}
-                className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                  activeFilter === filter 
-                    ? 'bg-white text-slate-900 shadow-sm' 
-                    : 'text-slate-500 hover:text-slate-700'
-                }`}
-              >
-                {filter}
-              </button>
-            ))}
+          <div className="flex flex-col md:flex-row gap-4 w-full md:w-auto">
+            {/* --- Resident Filter Select --- */}
+            <select 
+              className="px-4 py-2 bg-slate-50 rounded-xl text-xs font-bold text-slate-600 border-none focus:ring-2 focus:ring-indigo-500/20 cursor-pointer"
+              value={selectedResidentFilter}
+              onChange={(e) => setSelectedResidentFilter(e.target.value)}
+            >
+              <option value="All">All Residents</option>
+              {residentOptions.map(res => <option key={res} value={res}>{res}</option>)}
+            </select>
+
+            <div className="flex bg-slate-100 p-1 rounded-xl">
+              {filters.map((filter) => (
+                <button
+                  key={filter}
+                  onClick={() => setActiveFilter(filter)}
+                  className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    activeFilter === filter 
+                      ? 'bg-white text-slate-900 shadow-sm' 
+                      : 'text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  {filter}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
@@ -416,7 +403,6 @@ const Reports = () => {
                                   Delete
                                 </button>
                               </RequireRole>
-
                             </div>
                           </div>
                         </>
@@ -429,6 +415,7 @@ const Reports = () => {
           )}
         </div>
 
+        {/* ... Existing Modal Code ... */}
         {selectedReport && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
             <div className="bg-white w-full max-w-2xl rounded-[32px] shadow-2xl overflow-hidden relative animate-in fade-in zoom-in duration-300 flex flex-col max-h-[90vh]">
@@ -473,16 +460,16 @@ const Reports = () => {
                       onClick={() => setIsImageExpanded(true)}
                       className="relative cursor-pointer w-full h-64 rounded-3xl overflow-hidden border border-slate-100 bg-slate-50"
                     >
-                        <img 
-                          src={selectedReport.imageUrl} 
-                          alt="Report attachment" 
-                          className="w-full h-full object-cover"
-                        />
-                        <div className="absolute inset-0 bg-black/20 opacity-0 hover:opacity-100 transition-opacity flex items-center justify-center">
-                            <div className="bg-white/90 p-3 rounded-full shadow-lg">
-                                <Maximize2 size={20} className="text-slate-900" />
-                            </div>
-                        </div>
+                      <img 
+                        src={selectedReport.imageUrl} 
+                        alt="Report attachment" 
+                        className="w-full h-full object-cover"
+                      />
+                      <div className="absolute inset-0 bg-black/20 opacity-0 hover:opacity-100 transition-opacity flex items-center justify-center">
+                          <div className="bg-white/90 p-3 rounded-full shadow-lg">
+                              <Maximize2 size={20} className="text-slate-900" />
+                          </div>
+                      </div>
                     </div>
                 </div>
 
@@ -501,7 +488,6 @@ const Reports = () => {
                   <div className="space-y-4">
                       <h3 className="text-sm font-bold text-slate-700 mb-4">Send Feedback to Resident</h3>
                       <div className="relative w-48">
-                          {/* --- FIXED: Dropdown binds to selectedStatus variable to avoid auto-submitting --- */}
                           <select 
                             value={selectedStatus}
                             onChange={(e) => setSelectedStatus(e.target.value)}
@@ -529,7 +515,6 @@ const Reports = () => {
                       </button>
                   </div>
                 </RequireRole>
-
               </div>
             </div>
           </div>

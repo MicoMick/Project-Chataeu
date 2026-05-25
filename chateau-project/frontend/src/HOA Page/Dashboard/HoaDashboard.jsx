@@ -20,7 +20,7 @@ const RequireRole = ({ userRole, allowedRoles, children }) => {
 
 // --- RESTORED COMPONENTS ---
 const StatCard = ({ title, value, icon: Icon, iconBg }) => (
-  <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col justify-between transition-shadow">
+  <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col justify-between transition-shadow flex-1 min-w-[240px]">
     <div className="flex justify-between items-start">
       <div>
         <p className="text-slate-500 text-sm font-medium">{title}</p>
@@ -30,7 +30,6 @@ const StatCard = ({ title, value, icon: Icon, iconBg }) => (
         <Icon size={24} className="text-slate-700" />
       </div>
     </div>
-    <div className="mt-4 h-4"></div> 
   </div>
 );
 
@@ -266,13 +265,13 @@ const HoaDashboard = () => {
         <p className="text-slate-500 text-sm">Welcome back! Here's what's happening in your community.</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+      {/* --- FIXED: Changed grid to flex-wrap to remove white space gaps --- */}
+      <div className="flex flex-wrap gap-6 mb-8">
         <RequireRole userRole={currentUserRole} allowedRoles={['president', 'vice_president', 'secretary', 'auditor']}>
           <StatCard title="Total Reservations" value={liveReservations.length} icon={Calendar} iconBg="bg-blue-50" />
         </RequireRole>
 
         <RequireRole userRole={currentUserRole} allowedRoles={['president', 'treasurer', 'auditor']}>
-          {/* --- FIXED: Replaced hardcoded "1" with overdueCount --- */}
           <StatCard title="Overdue Payments" value={overdueCount} icon={CreditCard} iconBg="bg-red-50" />
         </RequireRole>
 
@@ -351,7 +350,6 @@ const HoaDashboard = () => {
 
         {/* Right Column */}
         <div className="space-y-8">
-          {/* --- FIXED: Wrapped whole Recent Payments card block in RequireRole to cleanly collapse for vice_president & secretary --- */}
           <RequireRole userRole={currentUserRole} allowedRoles={['president', 'treasurer', 'auditor', 'board_member']}>
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
               <SectionHeader 
@@ -369,7 +367,6 @@ const HoaDashboard = () => {
                     const date = item.due_date ? new Date(item.due_date).toLocaleDateString() : 'N/A';
                     const status = (item.status || 'unpaid').toLowerCase();
                     
-                    // Same styling logic as the main payments page
                     let statusColor = 'text-slate-500';
                     if (status === 'paid') statusColor = 'text-green-500';
                     if (status === 'pending') statusColor = 'text-orange-500';
@@ -401,7 +398,6 @@ const HoaDashboard = () => {
               linkText="View All" 
               onClick={() => handleNavigate('announcements')} 
               userRole={currentUserRole}
-              // --- UPDATED: Added vice_president access ---
               allowedRoles={['president', 'vice_president', 'secretary', 'auditor', 'board_member']} 
             />
             <div className="space-y-4 max-h-[350px] overflow-y-auto pr-2 custom-scrollbar">
@@ -419,31 +415,6 @@ const HoaDashboard = () => {
                 ))
               ) : (
                 <p className="text-sm text-slate-400 text-center py-4">No recent announcements.</p>
-              )}
-            </div>
-          </div>
-
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-            <SectionHeader 
-              title="Active Elections" 
-              linkText="View All" 
-              onClick={() => handleNavigate('elections')} 
-              userRole={currentUserRole}
-              allowedRoles={['president', 'vice_president', 'secretary', 'auditor', 'board_member']} 
-            />
-            <div className="space-y-3 max-h-[250px] overflow-y-auto pr-2 custom-scrollbar">
-              {liveElections.length > 0 ? (
-                liveElections.map((item) => (
-                  <div key={item.id} className="p-4 border-2 border-orange-100 rounded-xl bg-orange-50/30">
-                    <p className="text-sm font-bold text-slate-900 mb-1">{item.title}</p>
-                    <div className="flex justify-between items-center">
-                      <p className="text-xs text-orange-600 font-medium">{item.actual_votes || 0} Residents Voted</p>
-                      <span className="text-xs font-bold text-orange-700 bg-orange-100 px-2 py-0.5 rounded uppercase tracking-tighter">LIVE</span>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <p className="text-sm text-slate-400 text-center py-4 italic">No active elections at the moment.</p>
               )}
             </div>
           </div>

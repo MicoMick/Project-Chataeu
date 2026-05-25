@@ -13,7 +13,6 @@ const AddAdmin = ({ isOpen, onClose, onAdminAdded }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
 
-
   const passwordScore = zxcvbn(password).score;
   const strengthLabels = ['Very Weak', 'Weak', 'Fair', 'Good', 'Strong'];
   const strengthColors = ['bg-red-500', 'bg-orange-500', 'bg-yellow-500', 'bg-blue-500', 'bg-green-500'];
@@ -35,6 +34,8 @@ const AddAdmin = ({ isOpen, onClose, onAdminAdded }) => {
     setIsSubmitting(true);
 
     try {
+      // --- FIXED: Reverted back to signUp to fix the 401 Unauthorized Error. ---
+      // To bypass email confirmation, you must turn OFF "Confirm email" in your Supabase Dashboard (Authentication -> Providers -> Email).
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email: email,
         password: password, 
@@ -60,8 +61,25 @@ const AddAdmin = ({ isOpen, onClose, onAdminAdded }) => {
           }
         ]);
 
-      if (dbError) throw dbError;
+      // --- FIXED: Intercepts the RLS 403 Error to prevent app crash and guides you to the backend fix ---
+      if (dbError) {
+        if (dbError.code === '42501' || dbError.message?.includes('row-level security')) {
+          throw new Error("Admin created in Auth, but Supabase RLS blocked the table insert. Solution: Go to Supabase Dashboard -> Authentication -> Policies -> 'admins' table -> Create a policy to 'Enable insert for anon users'.");
+        }
+        throw dbError;
+      }
 
+      // --- ADDED: Clean up the mistakenly created profile ---
+      // Your database has a trigger that automatically creates a 'profiles' row on signup.
+      // This deletes that auto-generated resident profile so they ONLY exist in 'admins'.
+      const { error: profileDeleteError } = await supabase
+        .from('profiles')
+        .delete()
+        .eq('id', authData.user?.id);
+        
+      if (profileDeleteError) {
+         console.warn("Note: Could not automatically delete the auto-generated profile due to RLS policies. You may need to delete it manually.", profileDeleteError);
+      }
 
       setDisplayName('');
       setEmail('');
@@ -132,13 +150,11 @@ const AddAdmin = ({ isOpen, onClose, onAdminAdded }) => {
               onChange={(e) => setRole(e.target.value)}
               className="w-full border border-slate-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all cursor-pointer"
             >
-              <option value="Admin">Admin</option>
-              <option value="Super Admin">Super Admin</option>
-              {/* ADDED ROLES */}
-              <option value="Vice President">Vice President</option>
-              <option value="Treasurer">Treasurer</option>
-              <option value="Secretary">Secretary</option>
-              <option value="Auditor">Auditor</option>
+              <option value="president">President</option>
+              <option value="vice_president">Vice President</option>
+              <option value="treasurer">Treasurer</option>
+              <option value="secretary">Secretary</option>
+              <option value="auditor">Auditor</option>
             </select>
           </div>
 
