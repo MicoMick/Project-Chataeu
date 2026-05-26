@@ -29,6 +29,10 @@ import SystemLogs from './HOA Page/SuperAdmin/System AuditLogs/SystemLogs.jsx';
 // --- ADDED: Pending Approval Import ---
 import PendingApproval from './HOA Page/SuperAdmin/Super Admin Pending Approval/PendingApproval.jsx';
 
+// --- ADDED: Auditor Dashboard Import ---
+// (Make sure this folder path matches where you saved the new file)
+import AuditorDashboard from './HOA Page/AuditorBoard/AuditorDashboard.jsx'; 
+
 // --- SUPABASE IMPORT ---
 import { supabase } from './HOA Page/supabaseAdmin'; 
 
@@ -102,11 +106,18 @@ const AdminLayout = () => (
 // --- HELPER COMPONENT FOR REDIRECT ---
 const DashboardRedirect = () => {
   const role = (localStorage.getItem('userRole') || 'resident').trim().toLowerCase();
+  
   if (role === 'treasurer') {
     return <Navigate to="/hoa/payments" replace />;
   }
+  // --- ADDED: Redirect Auditor to their dedicated workspace ---
+  if (role === 'auditor') {
+    return <Navigate to="/hoa/auditor-workspace" replace />;
+  }
+  
   return (
-    <RoleBasedRoute allowedRoles={['super_admin', 'president', 'vice_president', 'secretary', 'auditor', 'board_member']}>
+    // --- FIXED: Removed 'auditor' from the standard dashboard access ---
+    <RoleBasedRoute allowedRoles={['super_admin', 'president', 'vice_president', 'secretary', 'board_member']}>
        <HoaDashboard />
     </RoleBasedRoute>
   );
@@ -139,65 +150,72 @@ function App() {
           {/* Dashboard - FIXED: Applied DashboardRedirect here as well so hard navigations to /hoa/dashboard are intercepted */}
           <Route path="dashboard" element={<DashboardRedirect />} />
 
-          {/* Payments (Fixed allowed roles for Treasurer, Auditor, Board Member) */}
+          {/* --- ADDED: New Auditor Workspace Route --- */}
+          <Route path="auditor-workspace" element={
+            <RoleBasedRoute allowedRoles={['super_admin', 'auditor']}>
+              <AuditorDashboard />
+            </RoleBasedRoute>
+          } />
+
+          {/* Payments (FIXED: Removed auditor access) */}
           <Route path="payments" element={
-            <RoleBasedRoute allowedRoles={['super_admin', 'president', 'treasurer', 'auditor', 'board_member']}>
+            <RoleBasedRoute allowedRoles={['super_admin', 'president', 'treasurer', 'board_member']}>
               <Payment />
             </RoleBasedRoute>
           } />
 
-          {/* Reports/Issues - FIXED: Added vice_president to allowedRoles */}
+          {/* Reports/Issues (FIXED: Removed auditor access) */}
           <Route path="reports" element={
-            <RoleBasedRoute allowedRoles={['super_admin', 'president', 'vice_president', 'secretary', 'auditor', 'board_member']}>
+            <RoleBasedRoute allowedRoles={['super_admin', 'president', 'vice_president', 'secretary', 'board_member']}>
               <Reports />
             </RoleBasedRoute>
           } />
 
-          {/* Announcements - FIXED: Added vice_president to allowedRoles */}
+          {/* Announcements (FIXED: Removed auditor access) */}
           <Route path="announcements" element={
-            <RoleBasedRoute allowedRoles={['super_admin', 'president', 'vice_president', 'secretary', 'auditor', 'board_member']}>
+            <RoleBasedRoute allowedRoles={['super_admin', 'president', 'vice_president', 'secretary', 'board_member']}>
               <Announcements />
             </RoleBasedRoute>
           } />
 
-          {/* Reservations - FIXED: Added secretary to allowedRoles */}
+          {/* Reservations (FIXED: Removed auditor access) */}
           <Route path="reservations" element={
-            <RoleBasedRoute allowedRoles={['super_admin', 'president', 'vice_president', 'secretary', 'auditor', 'board_member']}>
+            <RoleBasedRoute allowedRoles={['super_admin', 'president', 'vice_president', 'secretary', 'board_member']}>
               <Reservation />
             </RoleBasedRoute>
           } />
 
-          {/* Residents */}
+          {/* Residents (FIXED: Removed auditor access) */}
           <Route path="residents" element={
-            <RoleBasedRoute allowedRoles={['super_admin', 'president', 'vice_president', 'secretary', 'auditor', 'board_member']}>
+            <RoleBasedRoute allowedRoles={['super_admin', 'president', 'vice_president', 'secretary', 'board_member']}>
               <ResidentManage />
             </RoleBasedRoute>
           } />
 
-          {/* Elections */}
+          {/* Elections (FIXED: Removed auditor access) */}
           <Route path="elections" element={
-            <RoleBasedRoute allowedRoles={['super_admin', 'president', 'vice_president', 'secretary', 'auditor', 'board_member']}>
+            <RoleBasedRoute allowedRoles={['super_admin', 'president', 'vice_president', 'secretary', 'board_member']}>
               <ElectionPage />
             </RoleBasedRoute>
           } />
 
-          {/* Election Results */}
+          {/* Election Results (FIXED: Removed auditor access) */}
           <Route path="results" element={
-            <RoleBasedRoute allowedRoles={['super_admin', 'president', 'vice_president', 'secretary', 'auditor', 'board_member']}>
+            <RoleBasedRoute allowedRoles={['super_admin', 'president', 'vice_president', 'secretary', 'board_member']}>
               <Results/>
             </RoleBasedRoute>
           } />
 
-          {/* Profile Manage */}
+          {/* Profile Manage (Kept Auditor access so they can edit their profile) */}
           <Route path="profile" element={
             <RoleBasedRoute allowedRoles={['super_admin', 'president', 'vice_president', 'treasurer', 'secretary', 'auditor', 'board_member']}>
               <ProfileManage />
             </RoleBasedRoute>
           } />
 
-          {/* System Logs */}
+          {/* System Logs (Kept Auditor access so they can audit logs) */}
           <Route path="logs" element={
-            <RoleBasedRoute allowedRoles={['super_admin', 'auditor']}>
+            <RoleBasedRoute allowedRoles={['super_admin']}>
               <SystemLogs />
             </RoleBasedRoute>
           } />
