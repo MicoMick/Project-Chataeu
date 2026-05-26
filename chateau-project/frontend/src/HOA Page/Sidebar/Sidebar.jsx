@@ -8,7 +8,8 @@ import {
   LayoutDashboard,  Users,  CalendarCheck, CreditCard, Vote, Megaphone, BarChart3, ChevronLeft, Menu, ChevronDown, ShieldCheck, UserCircle,
   Settings,
   LogOut,
-  FileSearch // Added for System Logs
+  FileSearch, // Added for System Logs
+  ClipboardCheck // --- ADDED: Icon for the new Auditor Dashboard ---
 } from 'lucide-react';
 import ChateauLogo from '../../assets/ChataueLogo.png';
 import { supabase } from '../supabaseAdmin'; 
@@ -25,16 +26,16 @@ const RequireRole = ({ userRole, allowedRoles, children }) => {
 };
 
 const Sidebar = () => {
-  const [isCollapsed, setIsCollapsed] = useState(false);
-  const [isProfileOpen, setIsProfileOpen] = useState(false);
-  const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
-  const [userEmail, setUserEmail] = useState('Admin'); 
-  const [displayName, setDisplayName] = useState('Admin'); 
-  const [avatarUrl, setAvatarUrl] = useState(null); 
+  const [isCollapsed, useState] = React.useState(false); // Used React.useState to prevent Hook mismatch if destructuring is weird
+  const [isProfileOpen, setIsProfileOpen] = React.useState(false);
+  const [isLogoutModalOpen, setIsLogoutModalOpen] = React.useState(false);
+  const [userEmail, setUserEmail] = React.useState('Admin'); 
+  const [displayName, setDisplayName] = React.useState('Admin'); 
+  const [avatarUrl, setAvatarUrl] = React.useState(null); 
   const location = useLocation();
   const navigate = useNavigate(); 
 
-  const [currentUserRole, setCurrentUserRole] = useState(localStorage.getItem('userRole') || 'resident');
+  const [currentUserRole, setCurrentUserRole] = React.useState(localStorage.getItem('userRole') || 'resident');
 
   useEffect(() => {
     setCurrentUserRole(localStorage.getItem('userRole') || 'resident');
@@ -79,16 +80,19 @@ const Sidebar = () => {
     navigate('/admin'); 
   };
 
-  // --- FIXED: Removed 'treasurer' from the allowedRoles for Dashboard ---
+  // --- FIXED: Removed 'auditor' from standard pages and added the new Audit Workspace menu item ---
   const menuItems = [
-    { icon: <LayoutDashboard size={22} />, label: "Dashboard", path: "/hoa/dashboard", allowedRoles: ['president', 'vice_president', 'secretary', 'auditor', 'board_member'] },
-    { icon: <Users size={22} />, label: "Residents", path: "/hoa/residents", allowedRoles: ['president', 'vice_president', 'secretary', 'auditor', 'board_member'] }, 
-    { icon: <CalendarCheck size={22} />, label: "Reservations", path: "/hoa/reservations", allowedRoles: ['president', 'vice_president', 'secretary', 'auditor', 'board_member'] },
-    { icon: <CreditCard size={22} />, label: "Payments", path: "/hoa/payments", allowedRoles: ['president', 'treasurer', 'auditor', 'board_member'] },
-    { icon: <Vote size={22} />, label: "Elections", path: "/hoa/elections", allowedRoles: ['president', 'vice_president', 'secretary', 'auditor', 'board_member'] },
-    { icon: <Megaphone size={22} />, label: "Announcements", path: "/hoa/announcements", allowedRoles: ['president', 'vice_president', 'secretary', 'auditor', 'board_member'] },
-    { icon: <BarChart3 size={22} />, label: "Reports", path: "/hoa/reports", allowedRoles: ['president', 'vice_president', 'secretary', 'auditor', 'board_member'] },
-    { icon: <FileSearch size={22} />, label: "System Logs", path: "/hoa/logs", allowedRoles: ['auditor'] },
+    { icon: <LayoutDashboard size={22} />, label: "Dashboard", path: "/hoa/dashboard", allowedRoles: ['president', 'vice_president', 'secretary', 'board_member'] },
+    
+    // --- ADDED: Auditor Workspace Tab ---
+    { icon: <ClipboardCheck size={22} />, label: "Audit Workspace", path: "/hoa/auditor-workspace", allowedRoles: ['auditor'] },
+    
+    { icon: <Users size={22} />, label: "Residents", path: "/hoa/residents", allowedRoles: ['president', 'vice_president', 'secretary', 'board_member'] }, 
+    { icon: <CalendarCheck size={22} />, label: "Reservations", path: "/hoa/reservations", allowedRoles: ['president', 'vice_president', 'secretary', 'board_member'] },
+    { icon: <CreditCard size={22} />, label: "Payments", path: "/hoa/payments", allowedRoles: ['president', 'treasurer', 'board_member'] },
+    { icon: <Vote size={22} />, label: "Elections", path: "/hoa/elections", allowedRoles: ['president', 'vice_president', 'secretary', 'board_member'] },
+    { icon: <Megaphone size={22} />, label: "Announcements", path: "/hoa/announcements", allowedRoles: ['president', 'vice_president', 'secretary', 'board_member'] },
+    { icon: <BarChart3 size={22} />, label: "Reports", path: "/hoa/reports", allowedRoles: ['president', 'vice_president', 'secretary', 'board_member'] },
   ];
 
   return (
@@ -100,7 +104,7 @@ const Sidebar = () => {
         <div className="absolute bottom-0 left-0 w-full h-1/2 bg-[#FFF200] opacity-10 blur-[100px] pointer-events-none"></div>
 
         <button 
-          onClick={() => setIsCollapsed(!isCollapsed)}
+          onClick={() => setIsCollapsed(!isCollapsed)} // Used React state setter directly to ensure scoping
           className="absolute -right-3 top-10 bg-white text-[#006837] rounded-full p-1 shadow-md hover:scale-110 transition-transform border border-slate-200 cursor-pointer z-50"
         >
           {isCollapsed ? <Menu size={18} /> : <ChevronLeft size={18} />}

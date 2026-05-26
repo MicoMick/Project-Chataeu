@@ -7,6 +7,7 @@ import {
 import { supabase } from '../supabaseAdmin'; // IMPORTED SUPABASE
 import ChateauLogo from '../../assets/ChataueLogo.png'; // IMPORTED CHATEAU REAL LOGO ASSET
 import PaymentReports from './PaymentReports'; // --- IMPORTED SEPARATED COMPONENT ---
+import AddPayable from './AddPayable'; // --- ADDED: Import for AddPayable modal ---
 
 // --- ADDED: RequireRole Component ---
 const RequireRole = ({ userRole, allowedRoles, children }) => {
@@ -60,7 +61,7 @@ const TransactionModal = ({ status, message, onClose }) => {
           {current.icon}
         </div>
         <h3 className="text-xl font-bold text-slate-900 mb-2">{current.title}</h3>
-        <p className="text-slate-500 text-sm mb-8">{message}</p>
+        <p className="text-slate-500 text-sm mb-8">{current.message}</p>
         
         {status !== 'loading' && (
           <button 
@@ -128,14 +129,16 @@ const Payment = () => {
   
   // --- ADDED: State for Confirm Void Modal ---
   const [isConfirmVoidOpen, setIsConfirmVoidOpen] = useState(false);
+  // --- ADDED: State for Add Payable Modal ---
+  const [isAddPayableOpen, setIsAddPayableOpen] = useState(false);
 
   // --- FIXED: Updated Create Form Data to include particular breakdowns ---
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [residentsList, setResidentsList] = useState([]);
   const [createFormData, setCreateFormData] = useState({
     user_id: '',
-    monthly_due: '',         // Utilities, Security, Waste
-    amenities_fee: '',       // Events
+    monthly_due: '',        // Utilities, Security, Waste
+    amenities_fee: '',      // Events
     repairs_infrastructure: '', // Bumps, maintenance
     due_date: '',
     reference_no: 'Monthly HOA Due'
@@ -168,7 +171,7 @@ const Payment = () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       await supabase.from('system_logs').insert([
-        {
+        { 
           user_email: user?.email || 'System',
           activity: action,
           severity: 'info',
@@ -215,6 +218,37 @@ const Payment = () => {
         setPayments([]);
         return;
       }
+
+      // --- ADDED: Auto-Overdue Check Logic ---
+      const today = new Date();
+      today.setHours(0, 0, 0, 0); // Reset time to midnight for accurate day comparison
+      const idsToUpdate = [];
+
+      paymentsData.forEach(p => {
+        // Only check items that are not already paid or overdue
+        if (p.status !== 'paid' && p.status !== 'overdue' && p.due_date) {
+          const dueDate = new Date(p.due_date);
+          if (dueDate < today) {
+            idsToUpdate.push(p.id);
+            p.status = 'overdue'; // Update local array immediately
+          }
+        }
+      });
+
+      // If any items are past due, update them in the Supabase database in bulk
+      if (idsToUpdate.length > 0) {
+        const { error: updateError } = await supabase
+          .from('payments')
+          .update({ status: 'overdue' })
+          .in('id', idsToUpdate);
+          
+        if (updateError) {
+          console.error("Failed to auto-update overdue statuses:", updateError);
+        } else {
+          await logActivity('System Auto-Update', `Automatically updated ${idsToUpdate.length} payment(s) to Overdue status.`);
+        }
+      }
+      // --- END ADDED AUTO-OVERDUE LOGIC ---
 
       const userIds = [...new Set(paymentsData.map(p => p.user_id).filter(Boolean))];
       let profilesData = [];
@@ -461,6 +495,13 @@ const Payment = () => {
         invTotalDue={invTotalDue}
       />
       
+      {/* --- ADDED: AddPayable Modal --- */}
+      <AddPayable 
+        isOpen={isAddPayableOpen} 
+        onClose={() => setIsAddPayableOpen(false)} 
+        onPayableAdded={() => fetchPayments()} // Refreshes payments view
+      />
+      
       {/* --- FIXED: Modal Overlay dynamically adjusts text/labels based on current role --- */}
       <ModalOverlay 
         isOpen={isConfirmVoidOpen} 
@@ -591,7 +632,6 @@ const Payment = () => {
               <input type="text" placeholder="Search Payments..." className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
             </div>
             
-            {/* --- ADDED: Resident Filter Dropdown --- */}
             <div className="relative">
               <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={16} />
               <select 
@@ -618,6 +658,16 @@ const Payment = () => {
             </div>
           </div>
           <div className="flex items-center gap-3">
+            {/* --- ADDED: + Add Expense Button --- */}
+            <RequireRole userRole={currentUserRole} allowedRoles={['president', 'treasurer']}>
+                <button 
+                  onClick={() => setIsAddPayableOpen(true)}
+                  className="bg-[#006837] text-white px-4 py-2.5 rounded-xl font-bold text-sm hover:bg-[#004d29] shadow-sm transition-all cursor-pointer"
+                >
+                  + Add Expense
+                </button>
+            </RequireRole>
+
             <RequireRole userRole={currentUserRole} allowedRoles={['president', 'treasurer', 'vice_president', 'auditor']}>
               <button onClick={() => { setStatementResId(''); setIsStatementModalOpen(true); }} className="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700 hover:bg-slate-50 shadow-sm transition-all cursor-pointer">
                 <FileText size={18} /> Generate Statement
