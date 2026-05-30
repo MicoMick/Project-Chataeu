@@ -1,5 +1,5 @@
 import React from 'react';
-import { Mail, MapPin, Facebook, ArrowUp } from 'lucide-react';
+import { MapPin, Facebook, ArrowUp } from 'lucide-react';
 import ChateauLogo from '../../assets/ChataueLogo.png';
 
 const Footer = () => {
@@ -44,10 +44,17 @@ const Footer = () => {
           <div className="flex flex-col gap-4">
             <h3 className="font-bold text-lg mb-2 text-[#FFF200]">Contact Us</h3>
             <div className="space-y-4">
+              
+              {/* Added Facebook Page Link */}
               <div className="flex items-center gap-3 text-white/80">
-                <Mail size={20} className="text-[#FFF200]" />
-                <a href="mailto:chateau@gmail.com" className="hover:text-white transition-colors">
-                  chateau@gmail.com
+                <Facebook size={20} className="text-[#FFF200]" />
+                <a 
+                  href="https://www.facebook.com/share/g/1EB3Q4yPB6/" 
+                  target="_blank" 
+                  rel="noopener noreferrer" 
+                  className="hover:text-white transition-colors"
+                >
+                  Chateau Real Facebook Page
                 </a>
               </div>
 
@@ -56,18 +63,6 @@ const Footer = () => {
                 <span className="max-w-[250px]">
                   Metropolis Dr, Manggahan, General Trias, Cavite
                 </span>
-              </div>
-
-              <div className="flex items-center gap-3 text-white/80">
-                <Facebook size={20} className="text-[#FFF200]" />
-                <a 
-                  href="https://facebook.com/chateausubdivision" 
-                  target="_blank" 
-                  rel="noopener noreferrer" 
-                  className="hover:text-white transition-colors"
-                >
-                  Chateau Real
-                </a>
               </div>
             </div>
           </div>

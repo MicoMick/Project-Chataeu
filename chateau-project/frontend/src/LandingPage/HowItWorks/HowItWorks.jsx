@@ -24,7 +24,7 @@ const HowItWorks = () => {
     {
       number: "01",
       title: "Register & Login",
-      description: "Create your account in seconds. Once verified by your HOA, you’re ready to unlock everything your neighborhood has to offer.",
+      description: "Set up your account and dive right into everything CHATEAU has to offer.",
       icon: <UserPlus className="text-white" size={24} />,
     },
     {
@@ -42,7 +42,7 @@ const HowItWorks = () => {
     {
       number: "04",
       title: "Stay Connected",
-      description: "Receive real-time updates and stay informed about your community activities.",
+      description: "Receive updates and stay informed about your community activities.",
       icon: <CheckCircle className="text-white" size={24} />,
     },
   ];
