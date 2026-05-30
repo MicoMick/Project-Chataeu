@@ -36,7 +36,7 @@ const Downloadpage = () => {
     "Track dues",
     "Report neighborhood issues directly to HOA",
     "Vote in community elections",
-    "Receive instant announcements"
+    "Receive Announcements"
   ];
 
   return (

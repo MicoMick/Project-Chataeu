@@ -58,7 +58,7 @@ const AboutUs = () => {
               
               <p>
                 The CHATAEU App is your key to a seamless lifestyle. By joining our digital platform, 
-                you're not just paying dues you're gaining instant access to facility bookings, real-time 
+                you're not just gaining instant access to facility bookings, real-time 
                 community updates, and a direct line to your HOA board. It’s about empowering you
                 to shape the neighborhood you love.
               </p>

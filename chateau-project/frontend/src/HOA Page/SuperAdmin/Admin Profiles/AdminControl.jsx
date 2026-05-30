@@ -2,19 +2,19 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseAdmin'; 
 import { Search, Plus, MoreVertical, Trash2, Edit2, ShieldAlert, X, Eye, EyeOff, User, AlertTriangle } from 'lucide-react'; 
 import AddAdmin from './AddAdmin'; 
+import EditAdmin from './EditAdmin'; // --- ADDED: Import the new EditAdmin component ---
 
 const AdminControl = () => {
   const [admins, setAdmins] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Add Admin State (Reduced to just the modal toggle)
+  // Add Admin State 
   const [isModalOpen, setIsModalOpen] = useState(false);
 
   // Edit Admin State
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingAdmin, setEditingAdmin] = useState(null);
-  const [editName, setEditName] = useState('');
 
   // --- ADDED: Delete Modal State ---
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
@@ -58,24 +58,6 @@ const AdminControl = () => {
     }
   };
 
-  const handleEditAdmin = async (e) => {
-    e.preventDefault();
-    try {
-      const { error } = await supabase
-        .from('admins')
-        .update({ display_name: editName })
-        .eq('id', editingAdmin.id);
-
-      if (error) throw error;
-
-      await logActivity('Updated Admin', `Updated profile for ${editingAdmin.email}`);
-      setIsEditModalOpen(false);
-      fetchAdmins();
-    } catch (err) {
-      alert('Error updating admin: ' + err.message);
-    }
-  };
-
   // --- UPDATED: Handle Delete Logic ---
   const handleDeleteAdmin = (admin) => {
     setAdminToDelete(admin);
@@ -99,7 +81,6 @@ const AdminControl = () => {
 
   const openEditModal = (admin) => {
     setEditingAdmin(admin);
-    setEditName(admin.display_name);
     setIsEditModalOpen(true);
   };
 
@@ -171,32 +152,20 @@ const AdminControl = () => {
         </table>
       </div>
 
-      {/* REPLACED: Render the new external Add Admin Component */}
+      {/* Render Add Admin Component */}
       <AddAdmin 
         isOpen={isModalOpen} 
         onClose={() => setIsModalOpen(false)} 
         onAdminAdded={fetchAdmins} 
       />
 
-      {/* Edit Modal */}
-      {isEditModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
-             <div className="p-6 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
-                <h2 className="text-xl font-bold text-slate-800">Edit Admin</h2>
-                <button onClick={() => setIsEditModalOpen(false)} className="cursor-pointer"><X size={20}/></button>
-             </div>
-             <form onSubmit={handleEditAdmin} className="p-6 space-y-4">
-                <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">Display Name</label>
-                  <input type="text" required value={editName} onChange={(e) => setEditName(e.target.value)} className="w-full border rounded-lg px-4 py-2" />
-                </div>
-                <p className="text-xs text-slate-400">Editing profile for: {editingAdmin?.email}</p>
-                <button type="submit" className="w-full bg-[#006837] text-white py-2 rounded-lg font-bold cursor-pointer">Save Changes</button>
-             </form>
-          </div>
-        </div>
-      )}
+      {/* --- ADDED: Render the new external Edit Admin Component --- */}
+      <EditAdmin
+        isOpen={isEditModalOpen}
+        onClose={() => setIsEditModalOpen(false)}
+        adminToEdit={editingAdmin}
+        onAdminUpdated={fetchAdmins}
+      />
 
       {/* Delete Confirmation Modal */}
       {isDeleteModalOpen && (
