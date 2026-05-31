@@ -26,16 +26,17 @@ const RequireRole = ({ userRole, allowedRoles, children }) => {
 };
 
 const Sidebar = () => {
-  const [isCollapsed, useState] = React.useState(false); // Used React.useState to prevent Hook mismatch if destructuring is weird
-  const [isProfileOpen, setIsProfileOpen] = React.useState(false);
-  const [isLogoutModalOpen, setIsLogoutModalOpen] = React.useState(false);
-  const [userEmail, setUserEmail] = React.useState('Admin'); 
-  const [displayName, setDisplayName] = React.useState('Admin'); 
-  const [avatarUrl, setAvatarUrl] = React.useState(null); 
+  // --- FIXED: Corrected the state destructuring from "useState" to "setIsCollapsed" ---
+  const [isCollapsed, setIsCollapsed] = useState(false); 
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
+  const [userEmail, setUserEmail] = useState('Admin'); 
+  const [displayName, setDisplayName] = useState('Admin'); 
+  const [avatarUrl, setAvatarUrl] = useState(null); 
   const location = useLocation();
   const navigate = useNavigate(); 
 
-  const [currentUserRole, setCurrentUserRole] = React.useState(localStorage.getItem('userRole') || 'resident');
+  const [currentUserRole, setCurrentUserRole] = useState(localStorage.getItem('userRole') || 'resident');
 
   useEffect(() => {
     setCurrentUserRole(localStorage.getItem('userRole') || 'resident');
@@ -104,7 +105,7 @@ const Sidebar = () => {
         <div className="absolute bottom-0 left-0 w-full h-1/2 bg-[#FFF200] opacity-10 blur-[100px] pointer-events-none"></div>
 
         <button 
-          onClick={() => setIsCollapsed(!isCollapsed)} // Used React state setter directly to ensure scoping
+          onClick={() => setIsCollapsed(!isCollapsed)} 
           className="absolute -right-3 top-10 bg-white text-[#006837] rounded-full p-1 shadow-md hover:scale-110 transition-transform border border-slate-200 cursor-pointer z-50"
         >
           {isCollapsed ? <Menu size={18} /> : <ChevronLeft size={18} />}
