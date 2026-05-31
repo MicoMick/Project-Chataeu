@@ -21,17 +21,6 @@ const PaymentReports = ({
 
   if (!isOpen) return null;
 
-  // --- Email Handler ---
-  const handleSendEmail = () => {
-    if (residentProfile?.email) {
-      const subject = "HOA Dues Statement - Chateau Real";
-      const body = `Hello ${residentProfile.full_name},%0D%0A%0D%0AAttached is your current HOA dues statement.%0D%0ATotal Due: ₱${invTotalDue.toLocaleString()}%0D%0A%0D%0AThank you.`;
-      window.location.href = `mailto:${residentProfile.email}?subject=${subject}&body=${body}`;
-    } else {
-      alert("Resident email not found.");
-    }
-  };
-
   // --- FIXED: Robust PDF Generation to avoid oklch crash while forcing a Download ---
   const handleDownloadPDF = async () => {
     const element = printRef.current;
@@ -99,14 +88,6 @@ const PaymentReports = ({
               className="flex items-center gap-2 px-4 py-2 bg-[#006837] hover:opacity-90 text-white font-bold rounded-xl text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
             >
               <Download size={16} /> Download as PDF
-            </button>
-            
-            <button 
-              onClick={handleSendEmail}
-              disabled={!statementResId || !residentProfile?.email}
-              className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-            >
-              <Mail size={16} /> Send to Resident
             </button>
 
             <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-full text-slate-500 transition-colors cursor-pointer">

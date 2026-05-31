@@ -3,7 +3,8 @@ import {
   Search, MoreHorizontal, Filter, FileText, AlertCircle, CheckCircle2, Clock, Eye, Trash2, Edit, X, User, MapPin, Tag, Calendar, Send,
   ChevronDown,
   ImageIcon,
-  Maximize2
+  Maximize2,
+  Video // --- ADDED: Video icon import ---
 } from 'lucide-react';
 import { supabase } from '../supabaseAdmin';
 
@@ -97,12 +98,14 @@ const Reports = () => {
           category,
           description,
           photo_url,
+          video_url, 
           created_at,
           status,
           profiles (
             full_name
           )
         `)
+        // --- ADDED video_url to select query above ---
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -122,7 +125,8 @@ const Reports = () => {
             year: 'numeric'
           }),
           rptNo: `RPT-${item.id.toString().slice(0, 4).toUpperCase()}`,
-          imageUrl: item.photo_url || "https://via.placeholder.com/800x600?text=No+Image+Available"
+          imageUrl: item.photo_url || null, // --- FIXED: Replaced placeholder logic with null for conditional rendering ---
+          videoUrl: item.video_url || null // --- ADDED: Map video url from database ---
         }));
         setReports(formattedData);
       }
@@ -452,26 +456,47 @@ const Reports = () => {
                     </div>
                 </div>
 
-                <div className="mb-8">
-                    <h3 className="text-sm font-bold text-slate-700 flex items-center gap-2 mb-4">
-                        <ImageIcon size={18} className="text-slate-400" /> Attached Photo
-                    </h3>
-                    <div 
-                      onClick={() => setIsImageExpanded(true)}
-                      className="relative cursor-pointer w-full h-64 rounded-3xl overflow-hidden border border-slate-100 bg-slate-50"
-                    >
-                      <img 
-                        src={selectedReport.imageUrl} 
-                        alt="Report attachment" 
-                        className="w-full h-full object-cover"
-                      />
-                      <div className="absolute inset-0 bg-black/20 opacity-0 hover:opacity-100 transition-opacity flex items-center justify-center">
-                          <div className="bg-white/90 p-3 rounded-full shadow-lg">
-                              <Maximize2 size={20} className="text-slate-900" />
-                          </div>
+                {/* --- FIXED: Attached Photo Section (Only shows if imageUrl exists) --- */}
+                {selectedReport.imageUrl && (
+                  <div className="mb-8">
+                      <h3 className="text-sm font-bold text-slate-700 flex items-center gap-2 mb-4">
+                          <ImageIcon size={18} className="text-slate-400" /> Attached Photo
+                      </h3>
+                      <div 
+                        onClick={() => setIsImageExpanded(true)}
+                        className="relative cursor-pointer w-full h-64 rounded-3xl overflow-hidden border border-slate-100 bg-slate-50"
+                      >
+                        <img 
+                          src={selectedReport.imageUrl} 
+                          alt="Report attachment" 
+                          className="w-full h-full object-cover"
+                        />
+                        <div className="absolute inset-0 bg-black/20 opacity-0 hover:opacity-100 transition-opacity flex items-center justify-center">
+                            <div className="bg-white/90 p-3 rounded-full shadow-lg">
+                                <Maximize2 size={20} className="text-slate-900" />
+                            </div>
+                        </div>
                       </div>
+                  </div>
+                )}
+
+                {/* --- ADDED: Attached Video Section (Only shows if videoUrl exists) --- */}
+                {selectedReport.videoUrl && (
+                  <div className="mb-8">
+                    <h3 className="text-sm font-bold text-slate-700 flex items-center gap-2 mb-4">
+                        <Video size={18} className="text-slate-400" /> Attached Video
+                    </h3>
+                    <div className="relative w-full rounded-3xl overflow-hidden border border-slate-100 bg-slate-900 flex justify-center">
+                        <video 
+                            src={selectedReport.videoUrl} 
+                            controls 
+                            className="w-full max-h-[400px] object-contain"
+                        >
+                          Your browser does not support the video tag.
+                        </video>
                     </div>
-                </div>
+                  </div>
+                )}
 
                 <div className="mb-8">
                     <h3 className="text-sm font-bold text-slate-700 flex items-center gap-2 mb-4">
@@ -520,7 +545,7 @@ const Reports = () => {
           </div>
         )}
 
-        {isImageExpanded && selectedReport && (
+        {isImageExpanded && selectedReport && selectedReport.imageUrl && (
           <div 
             className="fixed inset-0 z-[200] bg-slate-900/95 flex items-center justify-center p-4 animate-in fade-in duration-200 cursor-pointer"
             onClick={() => setIsImageExpanded(false)}
