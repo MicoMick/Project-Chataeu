@@ -14,7 +14,11 @@ import ChateauLogo from '../../../assets/ChataueLogo.png';
 import { supabase } from '../../supabaseAdmin'; 
 
 const SidebarSuperAdmin = () => {
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  // --- FIXED: Initialize state from localStorage so it remembers if it was closed across page loads ---
+  const [isCollapsed, setIsCollapsed] = useState(() => {
+    return localStorage.getItem('superAdminSidebarCollapsed') === 'true';
+  });
+  
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   // ADDED: State for logout confirmation modal
   const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
@@ -22,6 +26,14 @@ const SidebarSuperAdmin = () => {
   const [avatarUrl, setAvatarUrl] = useState(null); 
   const location = useLocation();
   const navigate = useNavigate();
+
+  // --- FIXED: Function to toggle sidebar and save preference to localStorage ---
+  const toggleSidebar = () => {
+    const newState = !isCollapsed;
+    setIsCollapsed(newState);
+    localStorage.setItem('superAdminSidebarCollapsed', newState);
+    setIsProfileOpen(false); // Ensure profile menu closes when toggling
+  };
 
   const fetchUserData = async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -95,7 +107,8 @@ const SidebarSuperAdmin = () => {
         <div className="absolute bottom-0 left-0 w-full h-1/2 bg-[#FFF200] opacity-10 blur-[100px] pointer-events-none"></div>
 
         <button 
-          onClick={() => setIsCollapsed(!isCollapsed)}
+          // --- FIXED: Now uses the new toggleSidebar function to persist the state ---
+          onClick={toggleSidebar}
           className="absolute -right-3 top-10 bg-white text-[#006837] rounded-full p-1 shadow-md hover:scale-110 transition-transform border border-slate-200 z-50 cursor-pointer"
         >
           {isCollapsed ? <Menu size={18} /> : <ChevronLeft size={18} />}
@@ -107,31 +120,31 @@ const SidebarSuperAdmin = () => {
           <div className="h-px w-full bg-white/20 mt-6"></div>
         </div>
 
-<nav className="mt-4 px-3 space-y-2 flex-1 overflow-y-auto">
-  {menuItems.map((item, index) => {
-    const isActive = location.pathname === item.path;
-    return (
-      <Link
-        key={index}
-        to={item.path}
-        // ADDED: The title attribute creates a native browser tooltip automatically
-        title={isCollapsed ? item.label : ""} 
-        className={`w-full flex items-center gap-4 p-3.5 rounded-xl transition-all group relative
-          ${isActive ? 'bg-white/20 text-white shadow-inner' : 'text-white/80 hover:text-white hover:bg-white/10'}
-          ${isCollapsed ? 'justify-center' : 'justify-start'}`}
-      >
-        <span className={`transition-transform group-hover:scale-110 ${isActive ? 'text-white' : 'text-[#FFF200]'}`}>
-          {item.icon}
-        </span>
-        {!isCollapsed && (
-          <span className={`text-sm tracking-wide ${isActive ? 'font-bold' : 'font-semibold'}`}>
-            {item.label}
-          </span>
-        )}
-      </Link>
-    );
-  })}
-</nav>
+        <nav className="mt-4 px-3 space-y-2 flex-1 overflow-y-auto">
+          {menuItems.map((item, index) => {
+            const isActive = location.pathname === item.path;
+            return (
+              <Link
+                key={index}
+                to={item.path}
+                // ADDED: The title attribute creates a native browser tooltip automatically
+                title={isCollapsed ? item.label : ""} 
+                className={`w-full flex items-center gap-4 p-3.5 rounded-xl transition-all group relative
+                  ${isActive ? 'bg-white/20 text-white shadow-inner' : 'text-white/80 hover:text-white hover:bg-white/10'}
+                  ${isCollapsed ? 'justify-center' : 'justify-start'}`}
+              >
+                <span className={`transition-transform group-hover:scale-110 ${isActive ? 'text-white' : 'text-[#FFF200]'}`}>
+                  {item.icon}
+                </span>
+                {!isCollapsed && (
+                  <span className={`text-sm tracking-wide ${isActive ? 'font-bold' : 'font-semibold'}`}>
+                    {item.label}
+                  </span>
+                )}
+              </Link>
+            );
+          })}
+        </nav>
 
         {/* ... Profile and Logout sections remain unchanged ... */}
         <div className="p-3 mt-auto">
@@ -156,9 +169,13 @@ const SidebarSuperAdmin = () => {
           )}
 
           <div 
-            onClick={() => setIsProfileOpen(!isProfileOpen)}
-            className={`bg-black/20 backdrop-blur-md p-4 rounded-2xl flex items-center gap-3 border border-white/10 transition-all hover:bg-white/10 cursor-pointer group
-            ${isCollapsed ? 'justify-center' : 'justify-between'}`}
+            // --- FIXED: Only allows toggling the profile menu if the sidebar is NOT collapsed ---
+            onClick={() => {
+              if (!isCollapsed) setIsProfileOpen(!isProfileOpen);
+            }}
+            // --- FIXED: Disables hover effects and pointer cursor when collapsed ---
+            className={`bg-black/20 backdrop-blur-md p-4 rounded-2xl flex items-center gap-3 border border-white/10 transition-all group
+            ${isCollapsed ? 'justify-center cursor-default' : 'justify-between hover:bg-white/10 cursor-pointer'}`}
           >
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-[#FFF200] to-white flex items-center justify-center text-[#006837] font-bold shadow-inner text-lg group-hover:scale-105 transition-transform uppercase overflow-hidden">
