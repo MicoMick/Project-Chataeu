@@ -6,7 +6,8 @@ import zxcvbn from 'zxcvbn';
 const AddAdmin = ({ isOpen, onClose, onAdminAdded }) => {
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
-  const [role, setRole] = useState('Admin'); 
+  // --- FIXED: Changed 'Admin' to 'president' so it exactly matches the dropdown's first option ---
+  const [role, setRole] = useState('president'); 
   const [password, setPassword] = useState('');
   
   const [showPassword, setShowPassword] = useState(false);
@@ -84,7 +85,8 @@ const AddAdmin = ({ isOpen, onClose, onAdminAdded }) => {
       setDisplayName('');
       setEmail('');
       setPassword('');
-      setRole('Admin');
+      // --- FIXED: Reset the role to 'president' instead of 'Admin' to prevent the bug on the next entry ---
+      setRole('president');
       onAdminAdded(); 
       onClose();      
 
