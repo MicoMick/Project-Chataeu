@@ -2,17 +2,29 @@ import { Navigate } from 'react-router-dom';
 
 const ProtectedRoute = ({ userRole, allowedRoles, children }) => {
   if (!userRole) {
-    return null; 
+    // No role stored — not logged in or session cleared
+    return <Navigate to="/admin" replace />;
   }
 
-  // --- ADDED: Matrix Bypass ---
-  if (userRole === 'super_admin' || userRole === 'president') {
+  // super_admin has God-mode access to everything
+  if (userRole === 'super_admin') {
     return children;
   }
 
-  // If the user's role is not inside the allowedRoles array, redirect them
-  if (!allowedRoles.includes(userRole)) {
-    console.warn(`Access Denied for role: ${userRole}. Redirecting to dashboard.`);
+  // president has full access to all HOA pages
+  if (userRole === 'president') {
+    return children;
+  }
+
+  // All other roles — must be explicitly listed in allowedRoles
+  if (!allowedRoles || !allowedRoles.includes(userRole)) {
+    console.warn(`[ProtectedRoute] Access denied for role: "${userRole}". Required: [${allowedRoles?.join(', ')}]`);
+
+    // Treasurer and auditor get redirected to their home page, not dashboard
+    if (userRole === 'treasurer') return <Navigate to="/hoa/payments" replace />;
+    if (userRole === 'auditor')   return <Navigate to="/hoa/auditor-workspace" replace />;
+
+    // Everyone else goes to dashboard
     return <Navigate to="/hoa/dashboard" replace />;
   }
 
