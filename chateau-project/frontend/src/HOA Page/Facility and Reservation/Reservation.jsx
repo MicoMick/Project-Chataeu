@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import Facility from './Facility'; 
 import { supabase } from '../supabaseAdmin'; 
-import logger from '../auditlogger'; 
+import { logAudit } from '../auditLogger'; // AUDIT TRAIL 
 import CalendarReserve from './CalendarReserve'; // --- ADDED: Imported separated Calendar Component ---
 
 // --- ADDED: RequireRole Component ---
@@ -63,7 +63,7 @@ const ConfirmModal = ({ isOpen, title, message, onConfirm, onCancel }) => {
 
   return (
     <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[500] flex items-center justify-center p-4">
-      <div className="bg-white rounded-[32px] p-8 w-full max-w-sm text-center shadow-2xl animate-in zoom-in-95 duration-200">
+      <div className="bg-white rounded-3xl p-8 w-full max-w-sm text-center shadow-2xl animate-in zoom-in-95 duration-200">
         <div className="w-20 h-20 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-6">
           <HelpCircle className="w-12 h-12 text-amber-500" />
         </div>
@@ -113,7 +113,7 @@ const TransactionModal = ({ status, message, onClose }) => {
 
   return (
     <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[500] flex items-center justify-center p-4">
-      <div className="bg-white rounded-[32px] p-8 w-full max-w-sm text-center shadow-2xl animate-in zoom-in-95 duration-200">
+      <div className="bg-white rounded-3xl p-8 w-full max-w-sm text-center shadow-2xl animate-in zoom-in-95 duration-200">
         <div className={`w-20 h-20 ${current.bgColor} rounded-full flex items-center justify-center mx-auto mb-6`}>
           {current.icon}
         </div>
@@ -177,7 +177,7 @@ const Reservation = () => {
   };
 
   const fetchReservations = async () => {
-    logger.info('Fetching reservations data...');
+    logAudit('Fetching reservations data...');
     setLoading(true);
     const { data, error } = await supabase
     .from('reservations')
@@ -193,7 +193,7 @@ const Reservation = () => {
     `);
 
     if (error) {
-      logger.error('Error fetching reservations:', error);
+      logAudit('Error fetching reservations:', error);
       console.error('Error fetching:', error);
     } else {
       setReservations(data || []);
@@ -207,7 +207,7 @@ const Reservation = () => {
   }, []);
 
   const handleUpdateStatus = async (id, newStatus) => {
-    logger.info(`Attempting to update status for reservation ${id} to ${newStatus}`);
+    logAudit(`Attempting to update status for reservation ${id} to ${newStatus}`);
     try {
       const { error } = await supabase
         .from('reservations')
@@ -219,9 +219,9 @@ const Reservation = () => {
       setReservations(prev => prev.map(res => 
         res.id === id ? { ...res, status: newStatus } : res
       ));
-      logger.info(`Successfully updated reservation ${id} to ${newStatus}`);
+      logAudit(`Successfully updated reservation ${id} to ${newStatus}`);
     } catch (error) {
-      logger.error(`Error updating status for ${id}:`, error);
+      logAudit(`Error updating status for ${id}:`, error);
       alert("Error updating status: " + error.message);
     }
   };
@@ -233,7 +233,7 @@ const Reservation = () => {
 
   const confirmDelete = async () => {
     if (!reservationToDelete) return;
-    logger.info(`Confirming deletion of reservation ${reservationToDelete}`);
+    logAudit(`Confirming deletion of reservation ${reservationToDelete}`);
     
     try {
       const { error } = await supabase
@@ -246,9 +246,9 @@ const Reservation = () => {
       setReservations(prev => prev.filter(res => res.id !== reservationToDelete));
       setIsDeleteModalOpen(false);
       setReservationToDelete(null);
-      logger.info(`Successfully deleted reservation ${reservationToDelete}`);
+      logAudit(`Successfully deleted reservation ${reservationToDelete}`);
     } catch (error) {
-      logger.error(`Error deleting reservation ${reservationToDelete}:`, error);
+      logAudit(`Error deleting reservation ${reservationToDelete}:`, error);
       alert("Error deleting: " + error.message);
     }
   };
@@ -283,7 +283,7 @@ const Reservation = () => {
     <div className="h-screen overflow-y-auto bg-slate-50 p-8 text-slate-900 custom-scrollbar relative">
       <section className="mb-12">
         <div className="mb-8">
-          <h1 className="text-2xl font-bold text-slate-900">Reservation Management</h1>
+          <h1 className="text-2xl font-black text-slate-900">Reservation Management</h1>
           <p className="text-slate-500 text-sm">View and manage amenity reservations.</p>
         </div>
 
@@ -302,7 +302,7 @@ const Reservation = () => {
                 <input 
                   type="text" 
                   placeholder="Search Reservations..." 
-                  className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                  className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#006837]/20 focus:border-[#006837]"
                   value={reservationSearch}
                   onChange={(e) => setReservationSearch(e.target.value)}
                 />
@@ -311,7 +311,7 @@ const Reservation = () => {
               <div className="relative">
                 <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={16} />
                 <select 
-                  className="pl-9 pr-8 py-2 bg-white border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 appearance-none cursor-pointer hover:bg-slate-50 transition-all shadow-sm"
+                  className="pl-9 pr-8 py-2 bg-white border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#006837]/20 focus:border-[#006837] appearance-none cursor-pointer hover:bg-slate-50 transition-all shadow-sm"
                   value={residentFilter}
                   onChange={(e) => setResidentFilter(e.target.value)}
                 >
@@ -444,7 +444,7 @@ const Reservation = () => {
                      <User size={40} />
                    </div>
                    <div>
-                     <h2 className="text-2xl font-bold text-slate-900">{selectedReservation.profiles?.full_name}</h2>
+                     <h2 className="text-2xl font-black text-slate-900">{selectedReservation.profiles?.full_name}</h2>
                      <span className={`inline-block mt-1 px-3 py-1 rounded-full text-[10px] font-bold uppercase ${getStatusStyle(selectedReservation.status)}`}>
                        {selectedReservation.status}
                      </span>

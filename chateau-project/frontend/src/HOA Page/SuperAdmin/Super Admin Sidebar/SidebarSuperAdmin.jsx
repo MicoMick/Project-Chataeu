@@ -94,7 +94,6 @@ const SidebarSuperAdmin = () => {
     { icon: <LayoutDashboard size={22} />, label: "Master Dashboard", path: "/super-admin/dashboard" },
     { icon: <ShieldAlert size={22} />, label: "Admin Control", path: "/super-admin/admins" },
     { icon: <Users size={22} />, label: "All Residents", path: "/super-admin/residents" },
-    { icon: <Clock size={22} />, label: "Pending Approvals", path: "/super-admin/pending-approvals" }, 
     { icon: <Activity size={22} />, label: "System Logs", path: "/super-admin/logs" },
   ];
 

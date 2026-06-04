@@ -130,14 +130,14 @@ const SuperAdminDB = () => {
       )}
 
       <div className="mb-8">
-        <h1 className="text-2xl font-bold text-slate-900">Welcome, Super Admin</h1>
+        <h1 className="text-2xl font-black text-slate-900">Welcome, Super Admin</h1>
         <p className="text-slate-500 text-sm">Overview of Chateau Real - Metropolis Greens system status.</p>
       </div>
 
       {/* --- UPDATED: Grid to lg:grid-cols-4 to neatly fit the 4 cards --- */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
         {stats.map((item, index) => (
-          <div key={index} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-4">
+          <div key={index} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 hover:shadow-md transition-shadow flex items-center gap-4">
             <div className={`${item.color} p-3 rounded-xl text-white`}>
               <item.icon size={24} />
             </div>
@@ -150,7 +150,7 @@ const SuperAdminDB = () => {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
-        <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+        <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-slate-100 hover:shadow-md transition-shadow overflow-hidden">
           <div className="p-6 border-b border-slate-50 flex justify-between items-center">
             <h3 className="font-bold text-slate-800">Recent System Activity</h3>
           </div>

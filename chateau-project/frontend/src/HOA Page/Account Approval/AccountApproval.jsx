@@ -1,11 +1,6 @@
-// AccountApproval.jsx
-// Path: src/HOA Page/Account Approval/AccountApproval.jsx
-// Manages resident account_status in the profiles table.
-// Approve → sets account_status to 'active'
-// Reject  → sets account_status to 'rejected'
-
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../supabaseAdmin';
+import { logAudit } from '../auditLogger'; // AUDIT TRAIL
 import {
   UserCheck, UserX, Search, RefreshCw, CheckCircle2,
   AlertCircle, Clock, ShieldCheck, XCircle, ChevronDown,
@@ -35,17 +30,7 @@ const fullName = (p) =>
 const formatDate = (d) =>
   d ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
 
-const logActivity = async (action, description) => {
-  try {
-    const { data: { user } } = await supabase.auth.getUser();
-    await supabase.from('system_logs').insert({
-      user_email: user?.email || 'Admin',
-      activity:   `${action} - ${description}`,
-      severity:   'info',
-      details:    'Success',
-    });
-  } catch (_) {}
-};
+// logActivity replaced by logAudit from auditLogger.js
 
 // ─── Toast ────────────────────────────────────────────────────────────────────
 
@@ -279,7 +264,7 @@ const AccountApproval = () => {
         .eq('id', confirmData.profile.id);
       if (error) throw error;
 
-      await logActivity('Account Approved', `${fullName(confirmData.profile)} account activated`);
+      await logAudit('APPROVE_ACCOUNT', `${fullName(confirmData.profile)} account activated`);
       showToast(`${fullName(confirmData.profile)}'s account has been approved!`, 'success');
       setConfirmData(null);
       setSelectedProfile(null);
@@ -302,7 +287,7 @@ const AccountApproval = () => {
         .eq('id', confirmData.profile.id);
       if (error) throw error;
 
-      await logActivity('Account Rejected', `${fullName(confirmData.profile)} account rejected`);
+      await logAudit('REJECT_ACCOUNT', `${fullName(confirmData.profile)} account rejected`);
       showToast(`${fullName(confirmData.profile)}'s account has been rejected.`, 'success');
       setConfirmData(null);
       setSelectedProfile(null);

@@ -24,10 +24,11 @@ import SuperAdProfile from './HOA Page/SuperAdmin/Super Admin Profile/SuperAdPro
 import AdminControl from './HOA Page/SuperAdmin/Admin Profiles/AdminControl.jsx'; 
 import Residents from './HOA Page/SuperAdmin/Profiles Residents/Residents.jsx'; 
 import SystemLogs from './HOA Page/SuperAdmin/System AuditLogs/SystemLogs.jsx';
-import PendingApproval from './HOA Page/SuperAdmin/Super Admin Pending Approval/PendingApproval.jsx';
+import PendingApproval from './HOA Page/Pending Approval/PendingApproval.jsx'; 
 import AuditorDashboard from './HOA Page/AuditorBoard/AuditorDashboard.jsx'; 
 import Statistics from './HOA Page/Statistics/Statistics.jsx';
 import AccountApproval from './HOA Page/Account Approval/AccountApproval.jsx';
+import MoveInClearance from './HOA Page/Move In and Out Clearance/MoveInClearance.jsx';
 import { supabase } from './HOA Page/supabaseAdmin'; 
 import ProtectedRoute from './HOA Page/Protect Route/ProtectedRoute';
 
@@ -160,7 +161,6 @@ function App() {
         <Route path="/super-admin/admins"            element={<AuthRoute><SuperAdminLayout><AdminControl /></SuperAdminLayout></AuthRoute>} />
         <Route path="/super-admin/residents"         element={<AuthRoute><SuperAdminLayout><Residents /></SuperAdminLayout></AuthRoute>} />
         <Route path="/super-admin/logs"              element={<AuthRoute><RoleBasedRoute allowedRoles={['super_admin']}><SuperAdminLayout><SystemLogs /></SuperAdminLayout></RoleBasedRoute></AuthRoute>} />
-        <Route path="/super-admin/pending-approvals" element={<AuthRoute><SuperAdminLayout><PendingApproval /></SuperAdminLayout></AuthRoute>} />
 
         {/* HOA Admin shell */}
         <Route path="/hoa" element={<AuthRoute><AdminLayout /></AuthRoute>}>
@@ -182,10 +182,24 @@ function App() {
             </RoleBasedRoute>
           } />
 
+          {/* ── Pending Approvals — president only ── */}
+          <Route path="pending-approvals" element={
+            <RoleBasedRoute allowedRoles={['president']}>
+              <PendingApproval />
+            </RoleBasedRoute>
+          } />
+
           {/* ── Account approval ── */}
           <Route path="account-approval" element={
             <RoleBasedRoute allowedRoles={ACCESS.OPERATIONS}>
               <AccountApproval />
+            </RoleBasedRoute>
+          } />
+
+          {/* ── Move In / Move Out Clearances ── */}
+          <Route path="move-in-clearances" element={
+            <RoleBasedRoute allowedRoles={ACCESS.OPERATIONS}>
+              <MoveInClearance />
             </RoleBasedRoute>
           } />
 

@@ -4,7 +4,7 @@ import { Plus, Send, BarChart2, Users, Calendar, X, Info, CheckCircle, Bell, Pen
 import CandidateManager from "./CandidateManager.jsx"; 
 import CandidatesPage from "./CandidatesPage.jsx"; 
 import Results from "./Results.jsx";
-import logger from '../auditlogger';
+import logger from '../auditLogger'; 
 
 // --- ADDED: RequireRole Component ---
 const RequireRole = ({ userRole, allowedRoles, children }) => {

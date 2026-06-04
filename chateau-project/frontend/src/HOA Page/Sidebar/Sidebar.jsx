@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { 
   LayoutDashboard, Users, CalendarCheck, CreditCard, Vote, Megaphone,
   BarChart3, ChevronLeft, Menu, ChevronDown, ShieldCheck, UserCircle,
-  LogOut, ClipboardCheck, PieChart, UserCheck,
+  LogOut, ClipboardCheck, PieChart, UserCheck, ListChecks, ClipboardList,
 } from 'lucide-react';
 import ChateauLogo from '../../assets/ChataueLogo.png';
 import { supabase } from '../supabaseAdmin'; 
@@ -24,15 +24,16 @@ const ELECTIONS   = [ROLES.PRESIDENT, ROLES.VICE_PRESIDENT, ROLES.SECRETARY];
 const PAYMENTS    = [ROLES.PRESIDENT, ROLES.TREASURER];
 const STATISTICS  = [ROLES.PRESIDENT, ROLES.VICE_PRESIDENT, ROLES.SECRETARY, ROLES.AUDITOR, ROLES.BOARD_MEMBER];
 const AUDITOR_WS  = [ROLES.AUDITOR];
+const APPROVALS   = [ROLES.PRESIDENT]; // President only
 
-// ─── RequireRole ─
+// ─── RequireRole ──────────────────────────────────────────────────────────────
 const RequireRole = ({ userRole, allowedRoles, children }) => {
   if (userRole === 'super_admin') return children;
   if (allowedRoles.includes(userRole)) return children;
   return null;
 };
 
-// ─── Sidebar ──
+// ─── Sidebar ──────────────────────────────────────────────────────────────────
 const Sidebar = () => {
   const [isCollapsed,      setIsCollapsed]      = useState(false); 
   const [isProfileOpen,    setIsProfileOpen]    = useState(false);
@@ -70,9 +71,9 @@ const Sidebar = () => {
     if (user) {
       await supabase.from('system_logs').insert([{
         user_email: user.email,
-        activity:   'User Logged Out',
+        activity:   'USER_LOGGED_OUT',
         severity:   'info',
-        details:    `Session terminated for role: ${currentUserRole}`,
+        details:    `[${currentUserRole.toUpperCase()}] Session terminated`,
       }]);
     }
     localStorage.removeItem('userRole'); 
@@ -111,6 +112,22 @@ const Sidebar = () => {
       icon:  <UserCheck size={22} />,
       label: 'Account Approval',
       path:  '/hoa/account-approval',
+      allowedRoles: OPERATIONS,
+    },
+
+    // ── Pending Approvals — president only ────────────────────────────────────
+    {
+      icon:  <ListChecks size={22} />,
+      label: 'Pending Approvals',
+      path:  '/hoa/pending-approvals',
+      allowedRoles: APPROVALS,
+    },
+
+    // ── Move In / Move Out Clearances ─────────────────────────────────────────
+    {
+      icon:  <ClipboardList size={22} />,
+      label: 'Move In / Out Clearance',
+      path:  '/hoa/move-in-clearances',
       allowedRoles: OPERATIONS,
     },
 

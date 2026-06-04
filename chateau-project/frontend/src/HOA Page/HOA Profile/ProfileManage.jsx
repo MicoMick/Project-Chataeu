@@ -1,407 +1,413 @@
-import React, { useState, useEffect, useRef } from 'react'; 
-import { 
-  User, Mail, Phone, Shield, Camera, 
-  Lock, Bell, Save, CheckCircle2,
-  Eye, EyeOff, AlertCircle 
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  User, Mail, Camera, Lock, Save,
+  CheckCircle2, Eye, EyeOff, AlertCircle,
 } from 'lucide-react';
 import { supabase } from '../supabaseAdmin';
+import { logAudit } from '../auditLogger';
+
+// ─── Password strength helper ─────────────────────────────────────────────────
+const getPasswordStrength = (pw) => {
+  if (!pw) return { score: 0, label: '', color: '' };
+  let score = 0;
+  if (pw.length >= 8)                          score += 25;
+  if (pw.length >= 12)                         score += 10;
+  if (/[A-Z]/.test(pw))                        score += 20;
+  if (/[0-9]/.test(pw))                        score += 20;
+  if (/[^A-Za-z0-9]/.test(pw))                score += 25;
+  if (score < 30)  return { score,       label: 'Weak',      color: 'bg-red-400'    };
+  if (score < 60)  return { score,       label: 'Fair',      color: 'bg-amber-400'  };
+  if (score < 80)  return { score,       label: 'Good',      color: 'bg-blue-400'   };
+                   return { score: 100,  label: 'Strong',    color: 'bg-emerald-500' };
+};
 
 const ProfileManage = () => {
-  const [activeSection, setActiveSection] = useState('Personal Info');
-  const [userEmail, setUserEmail] = useState('');
-  const fileInputRef = useRef(null); // Ref for file input
-  
-  // --- ADDED STATES FOR AVATAR ---
-  const [avatarUrl, setAvatarUrl] = useState(null);
-  const [uploading, setUploading] = useState(false);
+  const [activeSection,      setActiveSection]      = useState('Personal Info');
+  const [userEmail,          setUserEmail]          = useState('');
+  const [avatarUrl,          setAvatarUrl]          = useState(null);
+  const [uploading,          setUploading]          = useState(false);
+  const [firstName,          setFirstName]          = useState('');
+  const [lastName,           setLastName]           = useState('');
+  const [infoLoading,        setInfoLoading]        = useState(false);
+  const [newPassword,        setNewPassword]        = useState('');
+  const [confirmPassword,    setConfirmPassword]    = useState('');
+  const [loading,            setLoading]            = useState(false);
+  const [showNewPassword,    setShowNewPassword]    = useState(false);
+  const [showConfirmPassword,setShowConfirmPassword]= useState(false);
+  const [toast,              setToast]              = useState({ show: false, message: '', type: 'success' });
+  const [isPageLoading,      setIsPageLoading]      = useState(true);
 
-  const [firstName, setFirstName] = useState('');
-  const [lastName, setLastName] = useState('');
-  const [bio, setBio] = useState('');
-  const [infoLoading, setInfoLoading] = useState(false);
+  const fileInputRef = useRef(null);
+  const strength = getPasswordStrength(newPassword);
 
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [loading, setLoading] = useState(false);
-  
-  const [showNewPassword, setShowNewPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-
-  const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
-
-  // ADDED: State for initial page load animation
-  const [isPageLoading, setIsPageLoading] = useState(true);
-
-  // --- AUDIT LOGGER ---
-  const logAudit = async (activity, details) => {
-    await supabase.from('system_logs').insert([
-      { 
-        user_email: userEmail, 
-        activity: activity, 
-        severity: 'info', 
-        details: details 
-      }
-    ]);
-  };
-
+  // ── Toast helper ──────────────────────────────────────────────────────────
   const triggerToast = (message, type = 'success') => {
     setToast({ show: true, message, type });
-    setTimeout(() => setToast({ show: false, message: '', type: 'success' }), 3000);
+    setTimeout(() => setToast({ show: false, message: '', type: 'success' }), 3500);
   };
 
-  const calculateStrength = (password) => {
-    if (!password) return { score: 0, label: '', color: 'bg-slate-200' };
-    let score = 0;
-    if (password.length > 6) score++;
-    if (password.length > 10) score++;
-    if (/[A-Z]/.test(password)) score++;
-    if (/[0-9]/.test(password)) score++;
-    if (/[^A-Za-z0-9]/.test(password)) score++;
-
-    if (score <= 2) return { score: 25, label: 'Weak', color: 'bg-red-500' };
-    if (score === 3) return { score: 50, label: 'Fair', color: 'bg-yellow-500' };
-    if (score === 4) return { score: 75, label: 'Good', color: 'bg-blue-500' };
-    return { score: 100, label: 'Strong', color: 'bg-emerald-500' };
-  };
-
-  const strength = calculateStrength(newPassword);
-
-  // --- UPDATED FETCH LOGIC WITH LOADING STATE ---
+  // ── Load current user on mount ────────────────────────────────────────────
   useEffect(() => {
-    const getUser = async () => {
-      setIsPageLoading(true); // Start loading animation
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        setUserEmail(user.email);
-        setFirstName(user.user_metadata?.first_name || user.email.split('@')[0]);
-        setLastName(user.user_metadata?.last_name || 'Admin');
-        setBio(user.user_metadata?.bio || "Handling the administrative tasks and resident concerns for Chateau Community.");
-        setAvatarUrl(user.user_metadata?.avatar_url || null); // Load existing avatar
+    const loadUser = async () => {
+      try {
+        const { data: { user }, error } = await supabase.auth.getUser();
+        if (error || !user) throw error || new Error('Not authenticated');
+
+        setUserEmail(user.email || '');
+        setFirstName(user.user_metadata?.first_name || '');
+        setLastName( user.user_metadata?.last_name  || '');
+        setAvatarUrl(user.user_metadata?.avatar_url || null);
+      } catch (e) {
+        console.error('[ProfileManage] loadUser:', e?.message);
+      } finally {
+        // Always clear loading — even on error — so the page renders
+        setIsPageLoading(false);
       }
-      setIsPageLoading(false); // End loading animation
     };
-    getUser();
+    loadUser();
   }, []);
 
-  // --- ADDED AVATAR UPLOAD FUNCTION (WITH DATABASE SYNC) ---
-  const handleAvatarUpload = async (event) => {
+  // ── Avatar upload ─────────────────────────────────────────────────────────
+  const handleAvatarUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
     try {
       setUploading(true);
-      const file = event.target.files[0];
-      if (!file) return;
+      const ext      = file.name.split('.').pop();
+      const filePath = `avatars/${Date.now()}.${ext}`;
 
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${Math.random()}.${fileExt}`;
-      const filePath = `avatars/${fileName}`;
-
-      let { error: uploadError } = await supabase.storage
+      const { error: upErr } = await supabase.storage
         .from('avatars')
-        .upload(filePath, file);
-
-      if (uploadError) throw uploadError;
+        .upload(filePath, file, { upsert: true });
+      if (upErr) throw upErr;
 
       const { data } = supabase.storage.from('avatars').getPublicUrl(filePath);
-      const newAvatarUrl = data.publicUrl;
+      const url = data.publicUrl;
 
-      // 1. Update Auth Metadata
-      const { error: updateError } = await supabase.auth.updateUser({
-        data: { avatar_url: newAvatarUrl }
-      });
-      if (updateError) throw updateError;
-
-      // 2. Update 'admins' table
-      const { error: dbError } = await supabase
-        .from('admins')
-        .update({ avatar_url: newAvatarUrl })
-        .eq('email', userEmail);
-      if (dbError) throw dbError;
-
-      setAvatarUrl(newAvatarUrl);
-      
-      // Added Audit Log
+      await supabase.auth.updateUser({ data: { avatar_url: url } });
+      setAvatarUrl(url);
       await logAudit('Profile Updated', 'HOA Administrator updated profile picture.');
-
-      triggerToast("Profile picture updated!", "success");
-    } catch (error) {
-      triggerToast("Error: " + error.message, "error");
+      triggerToast('Profile picture updated!');
+    } catch (err) {
+      triggerToast('Upload failed: ' + err.message, 'error');
     } finally {
       setUploading(false);
     }
   };
 
+  // ── Update personal info ──────────────────────────────────────────────────
   const handleInfoUpdate = async () => {
     setInfoLoading(true);
-    const { error: authError } = await supabase.auth.updateUser({
-      data: { 
-        first_name: firstName,
-        last_name: lastName
+    try {
+      const { error: authError } = await supabase.auth.updateUser({
+        data: { first_name: firstName, last_name: lastName },
+      });
+      if (authError) throw authError;
+
+      const fullDisplayName = `${firstName} ${lastName}`.trim();
+      const { error: adminError } = await supabase
+        .from('admins')
+        .update({ display_name: fullDisplayName })
+        .eq('email', userEmail);
+
+      if (adminError) {
+        // Non-fatal — admin row may not exist for all users
+        console.warn('[ProfileManage] admin sync:', adminError.message);
       }
-    });
 
-    if (authError) {
-      triggerToast("Auth Error: " + authError.message, "error");
+      await logAudit('Profile Updated', `Updated display name to: ${fullDisplayName}`);
+      triggerToast('Profile updated successfully!');
+    } catch (err) {
+      triggerToast('Error: ' + err.message, 'error');
+    } finally {
       setInfoLoading(false);
-      return;
     }
-
-    const fullDisplayName = `${firstName} ${lastName}`.trim();
-    const { error: adminError } = await supabase
-      .from('admins')
-      .update({ display_name: fullDisplayName })
-      .eq('email', userEmail);
-
-    if (adminError) {
-      triggerToast("Sync Error: " + adminError.message, "error");
-    } else {
-      // Added Audit Log
-      await logAudit('Profile Updated', `HOA Administrator updated display name to: ${fullDisplayName}`);
-      
-      triggerToast("Profile and Admin display name updated!", "success");
-    }
-    setInfoLoading(false);
   };
 
+  // ── Update password ───────────────────────────────────────────────────────
   const handlePasswordUpdate = async () => {
     if (!newPassword || !confirmPassword) {
-      triggerToast("Please fill in both password fields.", "error");
-      return;
+      triggerToast('Please fill in both password fields.', 'error'); return;
     }
     if (newPassword !== confirmPassword) {
-      triggerToast("Passwords do not match!", "error");
-      return;
+      triggerToast('Passwords do not match!', 'error'); return;
     }
     setLoading(true);
-    const { error } = await supabase.auth.updateUser({ password: newPassword });
-    if (error) {
-      triggerToast("Error: " + error.message, "error");
-    } else {
-      // Added Audit Log
+    try {
+      const { error } = await supabase.auth.updateUser({ password: newPassword });
+      if (error) throw error;
       await logAudit('Security Update', 'HOA Administrator updated account password.');
-
-      triggerToast("Password updated successfully!", "success");
+      triggerToast('Password updated successfully!');
       setNewPassword('');
       setConfirmPassword('');
+    } catch (err) {
+      triggerToast('Error: ' + err.message, 'error');
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
-  // ADDED: Loading Screen Animation
+  // ─── Loading screen ───────────────────────────────────────────────────────
   if (isPageLoading) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-8">
         <div className="flex flex-col items-center gap-4">
-          <div className="w-12 h-12 border-4 border-[#006837]/20 border-t-[#006837] rounded-full animate-spin"></div>
-          <p className="text-[#006837] font-semibold animate-pulse tracking-wide">Loading Profile...</p>
+          <div className="w-12 h-12 border-4 border-[#006837]/20 border-t-[#006837] rounded-full animate-spin" />
+          <p className="text-[#006837] font-semibold animate-pulse tracking-wide">Loading Profile…</p>
         </div>
       </div>
     );
   }
 
+  // ─── Shared input class ───────────────────────────────────────────────────
+  const inputCls = "w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#006837]/20 focus:border-[#006837] transition-all";
+
+  // ─── Render ───────────────────────────────────────────────────────────────
   return (
-    <div className="p-8 bg-slate-50 min-h-screen relative animate-in fade-in duration-500">
+    <div className="p-6 lg:p-8 bg-slate-50 min-h-screen space-y-6 animate-in fade-in duration-500">
+
+      {/* Toast */}
       {toast.show && (
-        <div className={`fixed top-8 right-8 z-50 flex items-center gap-3 px-6 py-4 rounded-2xl shadow-2xl border transition-all animate-in fade-in slide-in-from-top-4
-          ${toast.type === 'success' ? 'bg-emerald-50 border-emerald-100 text-emerald-800' : 'bg-red-50 border-red-100 text-red-800'}`}>
-          {toast.type === 'success' ? <CheckCircle2 size={20} className="text-emerald-500" /> : <AlertCircle size={20} className="text-red-500" />}
+        <div className={`fixed top-6 right-6 z-50 flex items-center gap-3 px-5 py-4 rounded-2xl shadow-2xl border
+          animate-in fade-in slide-in-from-top-4 duration-300
+          ${toast.type === 'success'
+            ? 'bg-emerald-50 border-emerald-100 text-emerald-800'
+            : 'bg-red-50 border-red-100 text-red-800'}`}>
+          {toast.type === 'success'
+            ? <CheckCircle2 size={18} className="text-emerald-500 shrink-0" />
+            : <AlertCircle  size={18} className="text-red-500 shrink-0"     />}
           <p className="text-sm font-bold">{toast.message}</p>
         </div>
       )}
 
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-slate-900">Profile Management</h1>
-        <p className="text-slate-500 text-sm">Update your account settings and personal information.</p>
+      {/* Page title */}
+      <div>
+        <h1 className="text-2xl font-black text-slate-900">Profile Management</h1>
+        <p className="text-sm text-slate-400 mt-0.5">Update your account settings and personal information</p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-1 space-y-6">
-          <div className="bg-white rounded-[32px] p-8 border border-slate-100 shadow-sm flex flex-col items-center">
-            <div className="relative group">
-              {/* UPDATED AVATAR DISPLAY */}
-              <div className="w-32 h-32 rounded-3xl bg-gradient-to-tr from-[#006837] to-[#004d29] flex items-center justify-center text-white text-4xl font-bold shadow-xl overflow-hidden uppercase">
-                {avatarUrl ? (
-                  <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
-                ) : (
-                  firstName.charAt(0) || userEmail.charAt(0) || 'A'
-                )}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+        {/* ── Left sidebar ── */}
+        <div className="lg:col-span-1 space-y-4">
+
+          {/* Avatar card */}
+          <div className="bg-white rounded-2xl p-7 border border-slate-100 shadow-sm flex flex-col items-center">
+            <div className="relative">
+              <div className="w-28 h-28 rounded-2xl bg-gradient-to-br from-[#006837] to-[#004d29] flex items-center justify-center text-white text-4xl font-black shadow-lg overflow-hidden uppercase">
+                {avatarUrl
+                  ? <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+                  : (firstName.charAt(0) || userEmail.charAt(0) || 'A')}
               </div>
-              
-              <input 
-                type="file" 
-                ref={fileInputRef} 
-                onChange={handleAvatarUpload} 
-                className="hidden" 
-                accept="image/*" 
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleAvatarUpload}
+                className="hidden"
+                accept="image/*"
               />
-              
-              <button 
-                onClick={() => fileInputRef.current.click()}
+              <button
+                onClick={() => fileInputRef.current?.click()}
                 disabled={uploading}
-                className="absolute -bottom-2 -right-2 p-2 bg-white border border-slate-100 rounded-xl shadow-lg text-slate-600 hover:text-indigo-600 transition-all cursor-pointer"
+                className="absolute -bottom-2 -right-2 p-2 bg-white border border-slate-200 rounded-xl shadow-md text-slate-500 hover:text-[#006837] transition-all cursor-pointer disabled:opacity-50"
+                title="Change photo"
               >
-                <Camera size={20} />
+                <Camera size={16} />
               </button>
             </div>
-            
-            <h2 className="text-xl font-bold text-slate-900 mt-6 truncate w-full text-center">{firstName} {lastName}</h2>
-            <p className="text-indigo-600 text-xs font-bold uppercase tracking-widest mt-1">HOA Administrator</p>
-            
-            <div className="w-full h-px bg-slate-50 my-6"></div>
-            
-            <div className="w-full space-y-4">
-              <div className="flex items-center gap-3 text-slate-500 text-sm overflow-hidden">
-                <Mail size={18} className="text-slate-400 flex-shrink-0" />
-                <span className="truncate">{userEmail}</span>
-              </div>
+
+            <h2 className="text-lg font-black text-slate-900 mt-5 truncate w-full text-center">
+              {[firstName, lastName].filter(Boolean).join(' ') || 'HOA Admin'}
+            </h2>
+            <p className="text-[#006837] text-xs font-bold uppercase tracking-widest mt-1">HOA Administrator</p>
+
+            <div className="w-full h-px bg-slate-100 my-5" />
+
+            <div className="w-full flex items-center gap-3 text-slate-500 text-sm overflow-hidden">
+              <Mail size={15} className="text-slate-400 shrink-0" />
+              <span className="truncate text-xs">{userEmail}</span>
             </div>
           </div>
 
-          <div className="bg-white rounded-[24px] p-2 border border-slate-100 shadow-sm">
+          {/* Nav tabs */}
+          <div className="bg-white rounded-2xl p-2 border border-slate-100 shadow-sm">
             {['Personal Info', 'Security'].map((section) => (
               <button
                 key={section}
                 onClick={() => setActiveSection(section)}
-                className={`w-full flex items-center gap-3 px-6 py-4 rounded-2xl text-sm font-bold transition-all cursor-pointer
-                  ${activeSection === section ? 'bg-slate-50 text-indigo-600' : 'text-slate-500 hover:bg-slate-50'}`}
+                className={`w-full flex items-center gap-3 px-5 py-3.5 rounded-xl text-sm font-bold transition-all cursor-pointer
+                  ${activeSection === section
+                    ? 'bg-[#006837]/10 text-[#006837]'
+                    : 'text-slate-500 hover:bg-slate-50'}`}
               >
-                {section === 'Personal Info' && <User size={18} />}
-                {section === 'Security' && <Lock size={18} />}
+                {section === 'Personal Info' ? <User size={16} /> : <Lock size={16} />}
                 {section}
               </button>
             ))}
           </div>
         </div>
 
+        {/* ── Right content ── */}
         <div className="lg:col-span-2">
-          <div className="bg-white rounded-[32px] border border-slate-100 shadow-sm p-10">
-            <h3 className="text-xl font-bold text-slate-900 mb-8">{activeSection}</h3>
-            
-            {activeSection === 'Personal Info' ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                <div className="space-y-2">
-                  <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">First Name</label>
-                  <input 
-                    type="text" 
-                    value={firstName} 
-                    onChange={(e) => setFirstName(e.target.value)}
-                    className="w-full px-5 py-3.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/10 transition-all font-medium" 
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Last Name</label>
-                  <input 
-                    type="text" 
-                    value={lastName} 
-                    onChange={(e) => setLastName(e.target.value)}
-                    className="w-full px-5 py-3.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/10 transition-all font-medium" 
-                  />
-                </div>
-                <div className="space-y-2 md:col-span-2">
-                  <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Email Address</label>
-                  <input type="email" value={userEmail} disabled className="w-full px-5 py-3.5 bg-slate-100 border border-slate-100 rounded-2xl text-sm font-medium text-slate-500 cursor-not-allowed" />
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-8">
-                <div className="flex items-center gap-4 mb-4">
-                  <div className="p-3 bg-slate-50 rounded-2xl text-slate-400">
-                    <Lock size={24} />
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-8">
+            <h3 className="text-lg font-black text-slate-900 mb-6">{activeSection}</h3>
+
+            {/* Personal Info section */}
+            {activeSection === 'Personal Info' && (
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                      First Name
+                    </label>
+                    <input
+                      type="text"
+                      value={firstName}
+                      onChange={e => setFirstName(e.target.value)}
+                      placeholder="First name"
+                      className={inputCls}
+                    />
                   </div>
                   <div>
-                    <h4 className="text-lg font-bold text-slate-800">Change Password</h4>
-                    <p className="text-slate-400 text-sm">Update your password to keep your account secure</p>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                      Last Name
+                    </label>
+                    <input
+                      type="text"
+                      value={lastName}
+                      onChange={e => setLastName(e.target.value)}
+                      placeholder="Last name"
+                      className={inputCls}
+                    />
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                      Email Address
+                    </label>
+                    <input
+                      type="email"
+                      value={userEmail}
+                      disabled
+                      className="w-full px-4 py-2.5 bg-slate-100 border border-slate-200 rounded-xl text-sm text-slate-400 cursor-not-allowed"
+                    />
                   </div>
                 </div>
 
-                <div className="space-y-6">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="space-y-2 relative">
-                      <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">New Password</label>
-                      <div className="relative">
-                        <input 
-                          type={showNewPassword ? "text" : "password"} 
-                          value={newPassword}
-                          onChange={(e) => setNewPassword(e.target.value)}
-                          placeholder="Enter new password" 
-                          className="w-full px-5 py-3.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/10 transition-all font-medium" 
-                        />
-                        <button 
-                          type="button"
-                          onClick={() => setShowNewPassword(!showNewPassword)}
-                          className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
-                        >
-                          {showNewPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                        </button>
-                      </div>
-                      
-                      {newPassword && (
-                        <div className="mt-2 space-y-1">
-                          <div className="flex justify-between items-center">
-                            <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden mr-2">
-                              <div 
-                                className={`h-full transition-all duration-500 ${strength.color}`} 
-                                style={{ width: `${strength.score}%` }}
-                              />
-                            </div>
-                            <span className="text-[10px] font-bold uppercase text-slate-400 min-w-[40px] text-right">
-                              {strength.label}
-                            </span>
-                          </div>
+                <div className="mt-8 flex justify-end gap-3 border-t border-slate-100 pt-6">
+                  <button
+                    onClick={() => { setFirstName(''); setLastName(''); }}
+                    className="px-6 py-2.5 rounded-xl text-sm font-bold text-slate-500 hover:bg-slate-100 transition-all cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleInfoUpdate}
+                    disabled={infoLoading}
+                    className="flex items-center gap-2 px-6 py-2.5 bg-[#006837] hover:bg-[#004d29] text-white rounded-xl text-sm font-bold shadow-lg shadow-[#006837]/20 transition-all disabled:opacity-50 cursor-pointer"
+                  >
+                    <Save size={15} /> {infoLoading ? 'Saving…' : 'Save Changes'}
+                  </button>
+                </div>
+              </>
+            )}
+
+            {/* Security section */}
+            {activeSection === 'Security' && (
+              <div className="space-y-6">
+                <div className="flex items-center gap-4 p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                  <div className="p-3 bg-white rounded-xl border border-slate-100 shadow-sm">
+                    <Lock size={20} className="text-slate-500" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-slate-800">Change Password</p>
+                    <p className="text-xs text-slate-400 mt-0.5">Keep your account secure with a strong password</p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                  {/* New password */}
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                      New Password
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showNewPassword ? 'text' : 'password'}
+                        value={newPassword}
+                        onChange={e => setNewPassword(e.target.value)}
+                        placeholder="Enter new password"
+                        className={inputCls + ' pr-11'}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowNewPassword(v => !v)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                      >
+                        {showNewPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
+                    {/* Strength bar */}
+                    {newPassword && (
+                      <div className="mt-2 flex items-center gap-2">
+                        <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full transition-all duration-500 ${strength.color}`}
+                            style={{ width: `${strength.score}%` }}
+                          />
                         </div>
-                      )}
-                    </div>
-
-                    <div className="space-y-2 relative">
-                      <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Confirm Password</label>
-                      <div className="relative">
-                        <input 
-                          type={showConfirmPassword ? "text" : "password"} 
-                          value={confirmPassword}
-                          onChange={(e) => setConfirmPassword(e.target.value)}
-                          placeholder="Confirm new password" 
-                          className="w-full px-5 py-3.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/10 transition-all font-medium" 
-                        />
-                        <button 
-                          type="button"
-                          onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                          className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
-                        >
-                          {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                        </button>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase w-12 text-right">
+                          {strength.label}
+                        </span>
                       </div>
-                      {confirmPassword && newPassword !== confirmPassword && (
-                        <p className="text-[10px] font-bold text-red-500 uppercase mt-1">Passwords do not match</p>
-                      )}
-                    </div>
+                    )}
                   </div>
 
-                  <div className="flex justify-end pt-4">
-                    <button 
-                      onClick={handlePasswordUpdate}
-                      disabled={loading || strength.score < 75 || newPassword !== confirmPassword}
-                      title={strength.score < 75 ? "Password must be at least 'Good' strength" : newPassword !== confirmPassword ? "Passwords must match" : ""}
-                      className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-xl text-sm font-bold hover:bg-blue-700 transition-all shadow-md shadow-blue-100 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      <Lock size={16} /> {loading ? "Updating..." : "Update Password"}
-                    </button>
+                  {/* Confirm password */}
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                      Confirm Password
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showConfirmPassword ? 'text' : 'password'}
+                        value={confirmPassword}
+                        onChange={e => setConfirmPassword(e.target.value)}
+                        placeholder="Confirm new password"
+                        className={inputCls + ' pr-11'}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowConfirmPassword(v => !v)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                      >
+                        {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
+                    {confirmPassword && newPassword !== confirmPassword && (
+                      <p className="text-[10px] font-bold text-red-500 uppercase mt-1.5">
+                        Passwords do not match
+                      </p>
+                    )}
                   </div>
+                </div>
+
+                <div className="flex justify-end pt-2 border-t border-slate-100">
+                  <button
+                    onClick={handlePasswordUpdate}
+                    disabled={loading || !newPassword || strength.score < 75 || newPassword !== confirmPassword}
+                    title={
+                      !newPassword                   ? 'Enter a new password' :
+                      strength.score < 75            ? "Password must be at least 'Good' strength" :
+                      newPassword !== confirmPassword ? 'Passwords must match' : ''
+                    }
+                    className="flex items-center gap-2 px-6 py-2.5 bg-[#006837] hover:bg-[#004d29] text-white rounded-xl text-sm font-bold shadow-lg shadow-[#006837]/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer mt-4"
+                  >
+                    <Lock size={15} /> {loading ? 'Updating…' : 'Update Password'}
+                  </button>
                 </div>
               </div>
             )}
 
-            {activeSection === 'Personal Info' && (
-              <div className="mt-12 flex justify-end gap-4 border-t border-slate-50 pt-8">
-                <button className="px-8 py-3.5 rounded-2xl text-sm font-bold text-slate-500 hover:bg-slate-50 transition-all cursor-pointer">
-                  Cancel
-                </button>
-                <button 
-                  onClick={handleInfoUpdate}
-                  disabled={infoLoading}
-                  className="flex items-center gap-2 px-8 py-3.5 bg-indigo-600 text-white rounded-2xl text-sm font-bold hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all disabled:opacity-50 cursor-pointer"
-                >
-                  <Save size={18} /> {infoLoading ? "Saving..." : "Save Changes"}
-                </button>
-              </div>
-            )}
           </div>
         </div>
       </div>
