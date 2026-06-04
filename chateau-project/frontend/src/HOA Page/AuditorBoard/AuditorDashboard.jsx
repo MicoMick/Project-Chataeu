@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { supabase } from '../supabaseAdmin'; // Ensure this path is correct based on your folder structure
+import { supabase } from '../supabaseAdmin';
+import { logAudit } from '../auditLogger'; // AUDIT TRAIL // Ensure this path is correct based on your folder structure
 import { 
   ShieldCheck, 
   DollarSign, 
@@ -72,20 +73,7 @@ const AuditorDashboard = () => {
   };
 
   // --- Audit Logger ---
-  const logActivity = async (action, details) => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      await supabase.from('system_logs').insert([{ 
-        user_email: user?.email || 'Auditor',
-        activity: action, 
-        severity: 'info',
-        details: details 
-      }]);
-    } catch (error) {
-      console.error("Audit logging failed:", error);
-    }
-  };
-
+  // logActivity replaced by logAudit from auditLogger.js
   useEffect(() => {
     const initializeAuditor = async () => {
       setLoading(true);
@@ -176,7 +164,7 @@ const AuditorDashboard = () => {
 
       if (error) throw error;
 
-      await logActivity('Verified Payment', `Auditor verified payment Ref: ${payment.reference_no} for ${payment.profiles?.full_name}`);
+      await logAudit('VERIFY_PAYMENT', `Auditor verified payment Ref: ${payment.reference_no} for ${payment.profiles?.full_name}`);
       showToast("Payment verified successfully!", "success");
       fetchCollectibles(); 
     } catch (error) {
@@ -197,7 +185,7 @@ const AuditorDashboard = () => {
 
       if (error) throw error;
 
-      await logActivity('Verified Payable', `Auditor verified expense: ${payable.description} to ${payable.payee}`);
+      await logAudit('VERIFY_PAYABLE', `Auditor verified expense: ${payable.description} to ${payable.payee}`);
       showToast("Expense verified successfully!", "success");
       fetchPayables(); 
     } catch (error) {

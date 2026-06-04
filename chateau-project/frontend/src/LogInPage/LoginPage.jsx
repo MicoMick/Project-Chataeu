@@ -63,9 +63,9 @@ const LoginPage = () => {
       // --- ADDED: Comprehensive Audit Trail for Successful Login with Role ---
       await supabase.from('system_logs').insert([{ 
         user_email: user.email, 
-        activity: 'System Access Granted', 
+        activity: 'USER_LOGGED_IN', 
         severity: 'info', 
-        details: `Successfully logged in with role: ${adminData ? adminData.role : 'resident'}`
+        details: `[${(adminData ? adminData.role : 'resident').toUpperCase()}] Successfully logged in`
       }]);
       // ---------------------------------------------------------------------
 
@@ -102,7 +102,7 @@ const LoginPage = () => {
       // --- ADDED: Audit Trail for Failed Passwords ---
       await supabase.from('system_logs').insert([{ 
         user_email: email, 
-        activity: 'Failed Login Attempt', 
+        activity: 'LOGIN_FAILED', 
         severity: 'warning', 
         details: `Invalid credentials: ${error.message}`
       }]);
@@ -236,7 +236,7 @@ const LoginPage = () => {
       // --- ADDED: Audit Trail for Failed MFA ---
       await supabase.from('system_logs').insert([{ 
         user_email: authenticatedUser.email, 
-        activity: 'MFA Verification Failed', 
+        activity: 'MFA_FAILED', 
         severity: 'warning', 
         details: 'Invalid OTP Code entered.'
       }]);
@@ -249,7 +249,7 @@ const LoginPage = () => {
   const logSystemActivity = async (details) => {
     await supabase.from('system_logs').insert([{ 
       user_email: authenticatedUser.email, 
-      activity: 'User Logged In', 
+      activity: 'USER_LOGGED_IN', 
       severity: 'info', 
       details: details
     }]);
@@ -263,7 +263,7 @@ const LoginPage = () => {
            <div className="w-20 h-20 bg-indigo-50 text-indigo-600 rounded-3xl flex items-center justify-center mx-auto mb-6"><CheckCircle size={40} /></div>
            <h2 className="text-2xl font-bold text-slate-900 mb-2">Verify Identity</h2>
            <p className="text-slate-500 mb-6 text-sm">Confirm that you are the administrator for this session.</p>
-           <button onClick={proceedToMfa} className="w-full py-4 bg-[#006837] text-white font-bold rounded-2xl mb-3 cursor-pointer">Confirm & Continue</button>
+           <button onClick={proceedToMfa} className="w-full py-4 bg-[#006837] hover:bg-[#004d29] text-white font-bold rounded-2xl mb-3 cursor-pointer transition-all">Confirm & Continue</button>
            <button onClick={() => { setIsConfirmingIdentity(false); supabase.auth.signOut(); }} className="text-slate-400 text-xs font-semibold hover:text-red-500 cursor-pointer">Cancel</button>
         </div>
       </div>
@@ -281,8 +281,8 @@ const LoginPage = () => {
           {errorMsg && <div className="mb-4 p-4 bg-red-50 text-red-600 rounded-xl text-xs font-bold">{errorMsg}</div>}
           {isEnrolling && qrCode && <div className="bg-white p-4 border rounded-2xl mb-6 inline-block"><img src={qrCode} alt="MFA QR" className="w-48 h-48" /></div>}
           <div className="space-y-4">
-            <input type="text" placeholder="000000" maxLength={6} className="w-full p-5 bg-slate-50 border rounded-2xl text-center text-3xl font-bold tracking-[0.5em]" onChange={(e) => setOtpCode(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleVerifyOTP()} />
-            <button onClick={handleVerifyOTP} disabled={loading} className="w-full py-4 bg-slate-900 text-white font-bold rounded-2xl">{loading ? "Verifying..." : "Access Dashboard"}</button>
+            <input type="text" placeholder="000000" maxLength={6} className="w-full p-5 bg-slate-50 border border-slate-200 rounded-2xl text-center text-3xl font-black tracking-[0.5em] focus:outline-none focus:ring-2 focus:ring-[#006837]/20 focus:border-[#006837] transition-all" onChange={(e) => setOtpCode(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleVerifyOTP()} />
+            <button onClick={handleVerifyOTP} disabled={loading} className="w-full py-4 bg-[#006837] hover:bg-[#004d29] text-white font-bold rounded-2xl transition-all">{loading ? "Verifying..." : "Access Dashboard"}</button>
             <button onClick={() => { setMfaRequired(false); setIsEnrolling(false); supabase.auth.signOut(); }} className="text-slate-400 text-xs font-semibold hover:text-red-500 cursor-pointer">Cancel Login</button>
           </div>
         </div>
@@ -292,25 +292,33 @@ const LoginPage = () => {
 
   return (
     <div className="min-h-screen w-full flex flex-col md:flex-row bg-white">
-      <div className="w-full md:w-1/2 bg-gradient-to-br from-[#006837] to-[#FFF200] flex flex-col items-center justify-center p-12 text-white relative overflow-hidden">
-        <img src={ChateauLogo} alt="Logo" className="w-48 md:w-64 mb-8 drop-shadow-2xl relative z-10" />
-        <h1 className="text-4xl md:text-5xl font-black uppercase relative z-10">CHATEAU</h1>
+      <div className="w-full md:w-1/2 bg-gradient-to-br from-[#006837] to-[#004d29] flex flex-col items-center justify-center p-12 text-white relative overflow-hidden">
+        {/* Decorative circles */}
+        <div className="absolute -top-20 -left-20 w-80 h-80 bg-white/5 rounded-full" />
+        <div className="absolute -bottom-20 -right-20 w-96 h-96 bg-[#FFF200]/10 rounded-full" />
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-white/[0.03] rounded-full" />
+        <img src={ChateauLogo} alt="Logo" className="w-40 md:w-52 mb-8 drop-shadow-2xl relative z-10" />
+        <h1 className="text-4xl md:text-5xl font-black uppercase relative z-10 tracking-widest">CHATEAU</h1>
+        <p className="text-white/60 text-sm font-medium mt-3 relative z-10 tracking-wider">Management System</p>
       </div>
-      <div className="w-full md:w-1/2 flex items-center justify-center p-8">
+      <div className="w-full md:w-1/2 flex items-center justify-center p-8 bg-white">
         <div className="w-full max-w-md">
-          <h2 className="text-3xl font-bold text-slate-900 mb-2">Welcome Back</h2>
-          <p className="text-slate-500 text-sm mb-10">Admin Login</p>
+          <div className="mb-10">
+            <p className="text-sm font-bold text-[#006837] uppercase tracking-widest mb-2">HOA Admin Portal</p>
+            <h2 className="text-3xl font-black text-slate-900">Welcome Back</h2>
+            <p className="text-slate-400 text-sm mt-1">Sign in to access your dashboard</p>
+          </div>
           <form onSubmit={handleLogin} className="space-y-6">
-            {errorMsg && <div className="p-4 bg-red-50 border border-red-100 rounded-xl flex items-center gap-3 text-red-600"><AlertCircle size={18} /><p className="text-xs font-bold uppercase">{errorMsg}</p></div>}
+            {errorMsg && <div className="p-4 bg-red-50 border border-red-100 rounded-2xl flex items-center gap-2.5 text-red-600"><AlertCircle size={16} className="shrink-0" /><p className="text-sm font-semibold">{errorMsg}</p></div>}
             <div className="space-y-2">
-              <label className="text-sm font-bold text-slate-700 uppercase">Email Address</label>
-              <div className="relative"><User className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20} /><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="w-full pl-12 pr-4 py-4 bg-slate-50 border rounded-xl" placeholder="admin@chateau.com" /></div>
+              <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Email Address</label>
+              <div className="relative"><User className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20} /><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="w-full pl-12 pr-4 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl text-sm text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#006837]/20 focus:border-[#006837] transition-all" placeholder="admin@chateau.com" /></div>
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-bold text-slate-700 uppercase">Password</label>
-              <div className="relative"><Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20} /><input type={showPassword ? "text" : "password"} value={password} onChange={(e) => setPassword(e.target.value)} className="w-full pl-12 pr-12 py-4 bg-slate-50 border rounded-xl" placeholder="••••••••" /><button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400">{showPassword ? <EyeOff size={20} /> : <Eye size={20} />}</button></div>
+              <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Password</label>
+              <div className="relative"><Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20} /><input type={showPassword ? "text" : "password"} value={password} onChange={(e) => setPassword(e.target.value)} className="w-full pl-12 pr-12 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl text-sm text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#006837]/20 focus:border-[#006837] transition-all" placeholder="••••••••" /><button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400">{showPassword ? <EyeOff size={20} /> : <Eye size={20} />}</button></div>
             </div>
-            <button type="submit" disabled={loading} className="w-full bg-slate-900 text-white font-bold py-4 rounded-xl flex items-center justify-center gap-2 cursor-pointer shadow-xl">{loading ? "Authenticating..." : "Sign In"}<ArrowRight size={18} /></button>
+            <button type="submit" disabled={loading} className="w-full bg-[#006837] hover:bg-[#004d29] text-white font-black py-4 rounded-2xl flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-[#006837]/20 transition-all text-sm tracking-wide">{loading ? "Authenticating..." : "Sign In"}<ArrowRight size={18} /></button>
           </form>
         </div>
       </div>

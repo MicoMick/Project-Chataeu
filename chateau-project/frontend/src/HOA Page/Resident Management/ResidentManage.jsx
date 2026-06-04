@@ -1,495 +1,449 @@
+// ResidentManage.jsx
+// All edits and deletions are now done DIRECTLY (no approval_requests table).
+// President, VP, Secretary can edit. President only can delete.
+
 import React, { useState, useEffect } from 'react';
-import { supabase } from '../supabaseAdmin'; 
-import { 
-  Users, UserPlus, UserCheck, UserMinus, Clock, Search, MoreHorizontal, X, User, Mail, MapPin, Calendar,
-  Phone, ShieldCheck, Home, Car, Dog, AlertTriangle, UserCircle, Briefcase,
-  Eye, Edit2, Trash2 
+import { supabase } from '../supabaseAdmin';
+import { logAudit } from '../auditLogger';
+import {
+  Users, UserPlus, UserCheck, Search, X,
+  Home, AlertTriangle, Eye, Edit2, Trash2,
+  RefreshCw, CheckCircle2,
 } from 'lucide-react';
 
-// --- ADDED: RequireRole Component ---
 const RequireRole = ({ userRole, allowedRoles, children }) => {
-  if (allowedRoles.includes(userRole) || userRole === 'super_admin') {
-    return children;
-  }
-  return null; // Don't render the button if they don't have the role
+  if (allowedRoles.includes(userRole) || userRole === 'super_admin') return children;
+  return null;
 };
 
-const StatCard = ({ title, value, icon: Icon, iconBg }) => (
-  <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col justify-between">
-    <div className="flex justify-between items-start">
+const KpiCard = ({ title, value, icon: Icon, iconBg, iconColor }) => (
+  <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm hover:shadow-md transition-shadow">
+    <div className="flex items-start justify-between">
       <div>
-        <p className="text-slate-500 text-xs font-medium uppercase tracking-wider">{title}</p>
-        <h3 className="text-3xl font-bold text-slate-900 mt-1">{value}</h3>
+        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">{title}</p>
+        <p className="text-3xl font-black text-slate-900">{value}</p>
       </div>
-      <div className={`p-3 rounded-xl ${iconBg}`}>
-        <Icon size={22} className="text-slate-700" />
-      </div>
+      <div className={`p-2.5 rounded-xl ${iconBg}`}><Icon size={18} className={iconColor} /></div>
     </div>
   </div>
 );
 
+const Toast = ({ toast }) => {
+  if (!toast.show) return null;
+  return (
+    <div className={`fixed top-6 right-6 z-[999] flex items-center gap-3 px-5 py-4 rounded-2xl shadow-2xl border
+      animate-in fade-in slide-in-from-top-4 duration-300
+      ${toast.type === 'success' ? 'bg-emerald-50 border-emerald-100 text-emerald-800' : 'bg-red-50 border-red-100 text-red-800'}`}>
+      {toast.type === 'success' ? <CheckCircle2 size={16} className="text-emerald-500" /> : <AlertTriangle size={16} className="text-red-500" />}
+      <p className="text-sm font-bold">{toast.message}</p>
+    </div>
+  );
+};
+
 const ResidentManage = () => {
-  const [residents, setResidents] = useState([]); 
-  const [loading, setLoading] = useState(true);
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [searchTerm, setSearchTerm] = useState('');
-  // REMOVED: openMenuId and menuPosition are no longer needed
+  const [residents,        setResidents]        = useState([]);
+  const [loading,          setLoading]          = useState(true);
+  const [searchTerm,       setSearchTerm]       = useState('');
   const [selectedResident, setSelectedResident] = useState(null);
   const [isViewingProfile, setIsViewingProfile] = useState(false);
-  const [showToast, setShowToast] = useState(false);
+  const [showEditModal,    setShowEditModal]     = useState(false);
   const [residentToDelete, setResidentToDelete] = useState(null);
-  
-  // --- ADDED: Notification Modal State ---
-  const [notification, setNotification] = useState({ show: false, title: '', message: '', type: 'success' });
-  
-  // --- ADDED: State for all edit fields ---
-  const [editFullName, setEditFullName] = useState('');
-  const [editEmail, setEditEmail] = useState('');
-  const [editFirstName, setEditFirstName] = useState('');
-  const [editLastName, setEditLastName] = useState('');
-  const [editMiddleInitial, setEditMiddleInitial] = useState('');
-  const [editUsername, setEditUsername] = useState('');
-  const [editResidentType, setEditResidentType] = useState('');
-  const [editAddress, setEditAddress] = useState('');
-  const [editStreet, setEditStreet] = useState('');
-  const [editPhone, setEditPhone] = useState('');
-  const [isSaving, setIsSaving] = useState(false);
+  const [isSaving,         setIsSaving]         = useState(false);
+  const [toast,            setToast]            = useState({ show: false, message: '', type: 'success' });
 
-  // --- ADDED: Get Current Role ---
+  const [editFields, setEditFields] = useState({
+    full_name: '', email: '', first_name: '', last_name: '',
+    middle_initial: '', username: '', resident_type: '',
+    address: '', street: '', phone: '',
+  });
+
   const currentUserRole = localStorage.getItem('userRole') || 'resident';
 
-// --- NEW: Helper for Audit Logs ---
-const logActivity = async (action, description) => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      await supabase.from('system_logs').insert({
-        user_email: user?.email || 'Admin', 
-        activity: `${action} - ${description}`,
-        severity: 'info', 
-        details: 'Success' 
-      });
-    } catch (err) {
-      console.error('Audit log failed', err);
-    }
+  const showToast = (message, type = 'success') => {
+    setToast({ show: true, message, type });
+    setTimeout(() => setToast({ show: false, message: '', type: 'success' }), 3500);
   };
 
-  useEffect(() => {
-    fetchResidents();
-  }, []);
-
-  // Initialize edit form when a resident is selected
-  useEffect(() => {
-    if (selectedResident) {
-      setEditFullName(selectedResident.full_name || '');
-      setEditEmail(selectedResident.email || '');
-      setEditFirstName(selectedResident.first_name || '');
-      setEditLastName(selectedResident.last_name || '');
-      setEditMiddleInitial(selectedResident.middle_initial || '');
-      setEditUsername(selectedResident.username || '');
-      setEditResidentType(selectedResident.resident_type || '');
-      setEditAddress(selectedResident.address || '');
-      setEditStreet(selectedResident.street || '');
-      setEditPhone(selectedResident.phone || '');
-    }
-  }, [selectedResident]);
-
   const fetchResidents = async () => {
+    setLoading(true);
     try {
-      setLoading(true);
       const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .order('created_at', { ascending: false });
-
+        .from('profiles').select('*').order('created_at', { ascending: false });
       if (error) throw error;
       setResidents(data || []);
-    } catch (error) {
-      console.error('Error fetching residents:', error.message);
+    } catch (e) {
+      showToast('Failed to load residents: ' + e.message, 'error');
     } finally {
       setLoading(false);
     }
   };
 
-  // --- UPDATED: Send Edit Request to Approval System + Log ---
+  useEffect(() => { fetchResidents(); }, []);
+
+  useEffect(() => {
+    if (selectedResident) {
+      setEditFields({
+        full_name:      selectedResident.full_name      || '',
+        email:          selectedResident.email          || '',
+        first_name:     selectedResident.first_name     || '',
+        last_name:      selectedResident.last_name      || '',
+        middle_initial: selectedResident.middle_initial || '',
+        username:       selectedResident.username       || '',
+        resident_type:  selectedResident.resident_type  || '',
+        address:        selectedResident.address        || '',
+        street:         selectedResident.street         || '',
+        phone:          selectedResident.phone          || '',
+      });
+    }
+  }, [selectedResident]);
+
+  // ── Direct edit — no approval needed ──────────────────────────────────────
   const handleUpdateResident = async (e) => {
     e.preventDefault();
     setIsSaving(true);
     try {
-      // Get the current user
-      const { data: { user } } = await supabase.auth.getUser();
-
       const { error } = await supabase
-        .from('approval_requests')
-        .insert({
-          action_type: 'UPDATE',
-          target_id: selectedResident.id,
-          requested_by: user?.id,
-          requested_data: { 
-            full_name: editFullName,
-            email: editEmail,
-            first_name: editFirstName,
-            last_name: editLastName,
-            middle_initial: editMiddleInitial,
-            username: editUsername,
-            resident_type: editResidentType,
-            address: editAddress,
-            street: editStreet,
-            phone: editPhone
-          },
-          status: 'PENDING'
-        });
-
+        .from('profiles')
+        .update(editFields)
+        .eq('id', selectedResident.id);
       if (error) throw error;
-      
-      // Log the audit event
-      await logActivity('UPDATE_REQUEST', `Requested updates for resident ID: ${selectedResident.id}`);
-
-      setNotification({ show: true, title: 'Success', message: 'Edit request submitted for Admin approval.', type: 'success' });
-      setShowAddModal(false);
+      await logAudit('UPDATE_RESIDENT', `Updated resident profile ID: ${selectedResident.id}`);
+      showToast('Resident updated successfully.');
+      setShowEditModal(false);
       setSelectedResident(null);
-    } catch (error) {
-      console.error('Error requesting update:', error.message);
-      setNotification({ show: true, title: 'Error', message: 'Failed to submit update request.', type: 'error' });
+      fetchResidents();
+    } catch (e) {
+      showToast('Failed to update resident: ' + e.message, 'error');
     } finally {
       setIsSaving(false);
     }
   };
 
-  // REMOVED: handleActionClick (dropdown logic)
-
-  const handleEdit = (resident) => {
-    setSelectedResident(resident);
-    setIsViewingProfile(false);
-    setShowAddModal(true); 
-  };
-
-  const handleViewProfile = (resident) => {
-    setSelectedResident(resident);
-    setIsViewingProfile(true);
-  }
-
-  const handleRemoveRequest = (id) => {
-    setResidentToDelete(id);
-    setShowToast(true);
-  };
-
-  // --- UPDATED: Send Delete Request to Approval System + Log ---
+  // ── Direct delete — President only ────────────────────────────────────────
   const confirmDelete = async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-
       const { error } = await supabase
-        .from('approval_requests')
-        .insert({
-          action_type: 'DELETE',
-          target_id: residentToDelete,
-          requested_by: user?.id,
-          status: 'PENDING'
-        });
-
+        .from('profiles')
+        .delete()
+        .eq('id', residentToDelete);
       if (error) throw error;
-
-      // Log the audit event
-      await logActivity('DELETE_REQUEST', `Requested deletion for resident ID: ${residentToDelete}`);
-
-      setNotification({ show: true, title: 'Success', message: 'Deletion request submitted for Admin approval.', type: 'success' });
-      setShowToast(false);
+      await logAudit('DELETE_RESIDENT', `Deleted resident profile ID: ${residentToDelete}`, 'warning');
+      showToast('Resident deleted successfully.');
       setResidentToDelete(null);
-    } catch (error) {
-      console.error('Error requesting deletion:', error.message);
-      setNotification({ show: true, title: 'Error', message: 'Failed to submit delete request.', type: 'error' });
+      fetchResidents();
+    } catch (e) {
+      showToast('Failed to delete resident: ' + e.message, 'error');
     }
   };
 
-  const filteredResidents = residents.filter((resident) => {
-    return searchTerm === '' || (
-      (resident.full_name?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
-      (resident.email?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
-      (resident.address?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
-      (resident.username?.toLowerCase() || '').includes(searchTerm.toLowerCase())
-    );
-  });
+  const filtered = residents.filter(r =>
+    !searchTerm || (
+      (r.full_name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (r.email     || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (r.username  || '').toLowerCase().includes(searchTerm.toLowerCase())
+    )
+  );
 
-  // --- ADDED: Advanced Stats Calculations ---
   const homeownersCount = residents.filter(r => (r.resident_type || '').toLowerCase().includes('homeowner')).length;
-  const tenantsCount = residents.filter(r => (r.resident_type || '').toLowerCase().includes('tenant')).length;
-  
-  const currentMonth = new Date().getMonth();
-  const currentYear = new Date().getFullYear();
-  const newThisMonth = residents.filter(r => {
+  const tenantsCount    = residents.filter(r => (r.resident_type || '').toLowerCase().includes('tenant')).length;
+  const now             = new Date();
+  const newThisMonth    = residents.filter(r => {
     if (!r.created_at) return false;
     const d = new Date(r.created_at);
-    return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+    return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
   }).length;
 
+  const inputClass = "w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#006837]/20 focus:border-[#006837] transition-all";
+  const labelClass = "block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5";
+
   return (
-    <div className="p-8 bg-slate-50 min-h-screen relative font-sans text-slate-900">
-      
-      {/* --- Notification Modal --- */}
-      {notification.show && (
-        // FIXED: Bumped z-index to 99999 so it sits perfectly over any other UI
-        <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setNotification({...notification, show: false})}></div>
-          <div className="relative bg-white shadow-2xl rounded-3xl p-8 flex flex-col items-center text-center gap-4 max-w-sm w-full animate-in fade-in zoom-in duration-200">
-            <div className={`p-4 rounded-full mb-2 ${notification.type === 'success' ? 'bg-green-50 text-green-500' : 'bg-red-50 text-red-500'}`}>
-              {notification.type === 'success' ? <ShieldCheck size={40} /> : <AlertTriangle size={40} />}
-            </div>
-            <div>
-              <p className="text-xl font-bold text-slate-900">{notification.title}</p>
-              <p className="text-sm text-slate-500 mt-2">{notification.message}</p>
-            </div>
-            <button onClick={() => setNotification({...notification, show: false})} className="w-full px-4 py-3 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl cursor-pointer transition-colors">Close</button>
-          </div>
-        </div>
-      )}
+    <div className="min-h-screen bg-slate-50 p-6 lg:p-8 space-y-6">
+      <Toast toast={toast} />
 
-      {showToast && (
-        <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowToast(false)}></div>
-          <div className="relative bg-white shadow-2xl rounded-3xl p-8 flex flex-col items-center text-center gap-4 max-w-sm w-full animate-in fade-in zoom-in duration-200">
-            <div className="bg-red-50 p-4 rounded-full text-red-500 mb-2">
-              <AlertTriangle size={40} />
+      {/* ── Delete confirm — President only ── */}
+      {residentToDelete && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-3xl p-7 w-full max-w-sm shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="w-12 h-12 bg-red-50 rounded-2xl flex items-center justify-center mb-4">
+              <Trash2 size={22} className="text-red-500" />
             </div>
-            <div>
-              <p className="text-xl font-bold text-slate-900">Confirm Deletion</p>
-              <p className="text-sm text-slate-500 mt-2">Are you sure you want to request the removal of this resident? This will be sent to the Super Admin for approval.</p>
-            </div>
-            <div className="flex gap-3 w-full mt-4">
-              <button onClick={() => setShowToast(false)} className="flex-1 px-4 py-3 text-sm font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 rounded-xl cursor-pointer transition-colors">Cancel</button>
-              <button onClick={confirmDelete} className="flex-1 px-4 py-3 text-sm font-bold bg-red-500 text-white hover:bg-red-600 rounded-xl cursor-pointer transition-all shadow-lg shadow-red-200">Confirm Request</button>
+            <h3 className="text-lg font-black text-slate-900 mb-2">Delete Resident?</h3>
+            <p className="text-sm text-slate-500 mb-6 leading-relaxed">
+              This will permanently remove the resident's profile. This action cannot be undone.
+            </p>
+            <div className="flex gap-3">
+              <button onClick={() => setResidentToDelete(null)}
+                className="flex-1 py-3 rounded-2xl bg-slate-100 text-slate-600 font-bold text-sm hover:bg-slate-200 cursor-pointer">
+                Cancel
+              </button>
+              <button onClick={confirmDelete}
+                className="flex-1 py-3 rounded-2xl bg-red-500 text-white font-bold text-sm hover:bg-red-600 shadow-lg shadow-red-100 cursor-pointer">
+                Delete
+              </button>
             </div>
           </div>
         </div>
       )}
 
-      <div className="flex justify-between items-start mb-8">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">Resident Management</h1>
-          <p className="text-slate-500 text-sm mt-1">Manage residents, approve registrations, and assign roles.</p>
-        </div>
-      </div>
-
-      {/* --- UPDATED: Replaced single stat card with a 4-column dashboard layout --- */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-        <StatCard title="Total Residents" value={residents.length} icon={Users} iconBg="bg-blue-50" />
-        <StatCard title="Homeowners" value={homeownersCount} icon={Home} iconBg="bg-emerald-50" />
-        <StatCard title="Tenants" value={tenantsCount} icon={UserCheck} iconBg="bg-indigo-50" />
-        <StatCard title="New This Month" value={newThisMonth} icon={UserPlus} iconBg="bg-orange-50" />
-      </div>
-
-      <div className="bg-white rounded-3xl shadow-sm border border-slate-100"> 
-        <div className="px-6 py-4">
-          <div className="relative max-w-sm">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-            <input type="text" placeholder="Search Residents..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all" />
-          </div>
-        </div>
-
-        <div className="px-6 pb-6 overflow-x-auto"> 
-          <table className="w-full text-left border-collapse min-w-[1400px]">
-            <thead>
-              <tr className="text-slate-400 text-[11px] uppercase tracking-widest font-bold border-b border-slate-50">
-                <th className="py-4 font-bold px-2">Resident</th>
-                <th className="py-4 font-bold px-2">Username</th>
-                <th className="py-4 font-bold px-2">Full Name</th>
-                <th className="py-4 font-bold px-2">First Name</th>
-                <th className="py-4 font-bold px-2">Last Name</th>
-                <th className="py-4 font-bold px-2">Middle Initial</th>
-                <th className="py-4 font-bold px-2">Resident Type</th>
-                <th className="py-4 font-bold px-2">Address</th>
-                <th className="py-4 font-bold px-2">Street</th>
-                <th className="py-4 font-bold px-2">Phone</th>
-                <th className="py-4 font-bold px-2">Joined Date</th>
-                <th className="py-4"></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50">
-              {loading ? (
-                <tr>
-                  <td colSpan="12" className="px-6 py-16">
-                    <div className="flex flex-col items-center justify-center gap-4">
-                      <div className="w-12 h-12 border-4 border-[#006837]/20 border-t-[#006837] rounded-full animate-spin"></div>
-                      <p className="text-[#006837] font-semibold animate-pulse tracking-wide">Loading residents...</p>
-                    </div>
-                  </td>
-                </tr>
-              ) : filteredResidents.length > 0 ? (
-                filteredResidents.map((resident) => (
-                  <tr key={resident.id} className="group hover:bg-slate-50 transition-colors">
-                    <td className="py-4 px-2">
-                        <div className="flex items-center gap-3">
-                            {resident.avatar_url ? (
-                                <img 
-                                    src={resident.avatar_url} 
-                                    alt={resident.full_name} 
-                                    className="w-10 h-10 rounded-full object-cover border border-slate-100"
-                                />
-                            ) : (
-                                <div className="w-10 h-10 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold text-xs border border-indigo-100">
-                                    {resident.full_name?.charAt(0) || resident.username?.charAt(0)}
-                                </div>
-                            )}
-                            <div>
-                                <div className="text-sm font-bold text-slate-800">{resident.full_name || resident.username}</div>
-                                <div className="text-[11px] text-slate-400">{resident.email}</div>
-                            </div>
-                        </div>
-                    </td>
-                    <td className="py-4 px-2 text-sm text-slate-500">{resident.username || 'N/A'}</td>
-                    <td className="py-4 px-2 text-sm text-slate-500">{resident.full_name || 'N/A'}</td>
-                    <td className="py-4 px-2 text-sm text-slate-500">{resident.first_name || 'N/A'}</td>
-                    <td className="py-4 px-2 text-sm text-slate-500">{resident.last_name || 'N/A'}</td>
-                    <td className="py-4 px-2 text-sm text-slate-500">{resident.middle_initial || 'N/A'}</td>
-                    <td className="py-4 px-2 text-sm text-slate-500">{resident.resident_type || 'N/A'}</td>
-                    <td className="py-4 px-2 text-sm text-slate-500">{resident.address || 'N/A'}</td>
-                    <td className="py-4 px-2 text-sm text-slate-500">{resident.street || 'N/A'}</td>
-                    <td className="py-4 px-2 text-sm text-slate-500">{resident.phone || 'N/A'}</td>
-                    <td className="py-4 px-2 text-sm text-slate-500">{new Date(resident.created_at).toLocaleDateString()}</td>
-                    {/* UPDATED: Action Buttons with RequireRole */}
-                    <td className="py-4 text-right flex justify-end gap-1">
-                      <button onClick={() => handleViewProfile(resident)} title="View Profile" className="p-2 hover:bg-white rounded-lg transition-all text-slate-400 hover:text-blue-500 border border-transparent hover:border-slate-200 cursor-pointer">
-                        <Eye size={18} />
-                      </button>
-                      
-                      <RequireRole userRole={currentUserRole} allowedRoles={['president', 'vice_president', 'secretary']}>
-                        <button onClick={() => handleEdit(resident)} title="Edit Resident" className="p-2 hover:bg-white rounded-lg transition-all text-slate-400 hover:text-emerald-500 border border-transparent hover:border-slate-200 cursor-pointer">
-                          <Edit2 size={18} />
-                        </button>
-                      </RequireRole>
-
-                      <RequireRole userRole={currentUserRole} allowedRoles={['president', 'vice_president', 'secretary']}>
-                        <button onClick={() => handleRemoveRequest(resident.id)} title="Remove Resident" className="p-2 hover:bg-white rounded-lg transition-all text-slate-400 hover:text-red-500 border border-transparent hover:border-slate-200 cursor-pointer">
-                          <Trash2 size={18} />
-                        </button>
-                      </RequireRole>
-
-                    </td>
-                  </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan="12" className="py-12 text-center">
-                    <div className="flex flex-col items-center justify-center text-slate-400 gap-2">
-                      <Clock size={32} className="opacity-20" />
-                      <p className="text-sm font-medium">No residents found.</p>
-                    </div>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
+      {/* ── View Profile modal ── */}
       {selectedResident && isViewingProfile && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setSelectedResident(null)}></div>
-          <div className="relative bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
-            <div className="bg-indigo-600 p-8 text-white relative text-center">
-                <button onClick={() => setSelectedResident(null)} className="absolute top-4 right-4 p-2 hover:bg-white/10 rounded-full transition-colors cursor-pointer"><X size={20} /></button>
-                {selectedResident.avatar_url ? (
-                    <img 
-                        src={selectedResident.avatar_url} 
-                        alt="" 
-                        className="w-24 h-24 rounded-full object-cover mb-4 border-4 border-white/30 mx-auto"
-                    />
-                ) : (
-                    <div className="w-24 h-24 bg-white/20 rounded-full flex items-center justify-center mb-4 border-4 border-white/30 text-3xl font-bold mx-auto">
-                      {selectedResident.full_name?.charAt(0) || selectedResident.username?.charAt(0)}
-                    </div>
-                )}
-                <h2 className="text-xl font-bold">{selectedResident.full_name || selectedResident.username}</h2>
-                <span className="inline-block px-3 py-1 bg-white/20 rounded-full text-xs font-medium mt-2">{selectedResident.role || 'Resident'}</span>
-            </div>
-            <div className="p-8 max-h-[70vh] overflow-y-auto">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="col-span-2 text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Personal Information</div>
-                  <div className="flex items-center gap-3 bg-slate-50 p-3 rounded-xl"><UserCircle className="text-indigo-500" size={18}/><div><p className="text-[10px] text-slate-400">Full Name</p><p className="text-sm font-medium">{selectedResident.full_name}</p></div></div>
-                  <div className="flex items-center gap-3 bg-slate-50 p-3 rounded-xl"><UserCircle className="text-indigo-500" size={18}/><div><p className="text-[10px] text-slate-400">First Name</p><p className="text-sm font-medium">{selectedResident.first_name || 'N/A'}</p></div></div>
-                  <div className="flex items-center gap-3 bg-slate-50 p-3 rounded-xl"><UserCircle className="text-indigo-500" size={18}/><div><p className="text-[10px] text-slate-400">Last Name</p><p className="text-sm font-medium">{selectedResident.last_name || 'N/A'}</p></div></div>
-                  <div className="flex items-center gap-3 bg-slate-50 p-3 rounded-xl"><UserCircle className="text-indigo-500" size={18}/><div><p className="text-[10px] text-slate-400">M.I.</p><p className="text-sm font-medium">{selectedResident.middle_initial || 'N/A'}</p></div></div>
-                  <div className="flex items-center gap-3 bg-slate-50 p-3 rounded-xl"><Calendar className="text-indigo-500" size={18}/><div><p className="text-[10px] text-slate-400">Birthdate</p><p className="text-sm font-medium">{selectedResident.birthdate || 'N/A'}</p></div></div>
-                  <div className="flex items-center gap-3 bg-slate-50 p-3 rounded-xl"><Briefcase className="text-indigo-500" size={18}/><div><p className="text-[10px] text-slate-400">Resident Type</p><p className="text-sm font-medium">{selectedResident.resident_type || 'N/A'}</p></div></div>
-                  
-                  <div className="col-span-2 text-xs font-bold text-slate-400 uppercase tracking-wider mt-4 mb-2">Contact & Location</div>
-                  <div className="flex items-center gap-3 bg-slate-50 p-3 rounded-xl"><div><p className="text-[10px] text-slate-400">Email</p><p className="text-sm font-medium">{selectedResident.email || 'N/A'}</p></div></div>
-                  <div className="flex items-center gap-3 bg-slate-50 p-3 rounded-xl"><Phone className="text-indigo-500" size={18}/><div><p className="text-[10px] text-slate-400">Phone</p><p className="text-sm font-medium">{selectedResident.phone || 'N/A'}</p></div></div>
-                  <div className="col-span-2 flex items-center gap-3 bg-slate-50 p-3 rounded-xl"><MapPin className="text-indigo-500" size={18}/><div><p className="text-[10px] text-slate-400">Address</p><p className="text-sm font-medium">{selectedResident.address || 'N/A'}</p></div></div>
-                  <div className="col-span-2 flex items-center gap-3 bg-slate-50 p-3 rounded-xl"><Home className="text-indigo-500" size={18}/><div><p className="text-[10px] text-slate-400">Street</p><p className="text-sm font-medium">{selectedResident.street || 'N/A'}</p></div></div>
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+            onClick={() => { setSelectedResident(null); setIsViewingProfile(false); }} />
+          <div className="relative bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 max-h-[90vh] flex flex-col">
+            <div className="bg-gradient-to-br from-[#006837] to-[#34a853] p-8 text-white text-center relative shrink-0">
+              <button onClick={() => { setSelectedResident(null); setIsViewingProfile(false); }}
+                className="absolute top-4 right-4 p-2 hover:bg-white/10 rounded-xl cursor-pointer">
+                <X size={18} />
+              </button>
+              <div className="w-20 h-20 bg-white/20 rounded-2xl flex items-center justify-center mb-4 border-2 border-white/30 text-2xl font-black mx-auto uppercase overflow-hidden">
+                {selectedResident.avatar_url
+                  ? <img src={selectedResident.avatar_url} alt="" className="w-full h-full object-cover" />
+                  : (selectedResident.full_name?.charAt(0) || selectedResident.username?.charAt(0) || '?')}
               </div>
-              <button onClick={() => setSelectedResident(null)} className="w-full py-3 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm transition-all mt-8 cursor-pointer">Close Profile</button>
+              <h2 className="text-xl font-black">{selectedResident.full_name || selectedResident.username}</h2>
+              <span className="inline-block px-3 py-1 bg-white/20 rounded-full text-xs font-bold mt-2">
+                {selectedResident.resident_type || 'Resident'}
+              </span>
+            </div>
+            <div className="p-6 overflow-y-auto space-y-3">
+              {[
+                { label: 'Email',     value: selectedResident.email    },
+                { label: 'Phone',     value: selectedResident.phone    },
+                { label: 'Username',  value: selectedResident.username },
+                { label: 'First Name',value: selectedResident.first_name },
+                { label: 'Last Name', value: selectedResident.last_name  },
+                { label: 'M.I.',      value: selectedResident.middle_initial },
+                { label: 'Address',   value: selectedResident.address  },
+                { label: 'Street',    value: selectedResident.street   },
+                { label: 'Block/Lot', value: [selectedResident.block && `Block ${selectedResident.block}`, selectedResident.lot && `Lot ${selectedResident.lot}`].filter(Boolean).join(', ') },
+                { label: 'Joined',    value: selectedResident.created_at ? new Date(selectedResident.created_at).toLocaleDateString() : null },
+              ].map(({ label, value }) => value ? (
+                <div key={label} className="flex justify-between items-center px-4 py-3 bg-slate-50 rounded-xl">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{label}</span>
+                  <span className="text-sm font-semibold text-slate-700">{value}</span>
+                </div>
+              ) : null)}
+              <button onClick={() => { setSelectedResident(null); setIsViewingProfile(false); }}
+                className="w-full py-3 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-2xl font-bold text-sm mt-4 cursor-pointer">
+                Close
+              </button>
             </div>
           </div>
         </div>
       )}
 
-      {showAddModal && selectedResident && (
+      {/* ── Edit modal — direct save, no approval ── */}
+      {showEditModal && selectedResident && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => { setShowAddModal(false); setSelectedResident(null); }}></div>
-          <div className="relative bg-white w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
-              <div className="p-6 border-b border-slate-50 flex justify-between items-center bg-white">
-                <h3 className="font-bold text-xl text-slate-900">Edit Resident Details</h3>
-                <button onClick={() => { setShowAddModal(false); setSelectedResident(null); }} className="p-2 hover:bg-slate-50 rounded-full transition-colors text-slate-400 cursor-pointer"><X size={20}/></button>
-               </div>
-               <form className="p-8 max-h-[80vh] overflow-y-auto" onSubmit={handleUpdateResident}>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="space-y-4">
-                        <div className="space-y-2">
-                            <label className="text-[11px] uppercase font-bold text-slate-400 tracking-widest px-1">Full Name</label>
-                            <input type="text" value={editFullName} onChange={(e) => setEditFullName(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all" />
-                        </div>
-                        <div className="space-y-2">
-                            <label className="text-[11px] uppercase font-bold text-slate-400 tracking-widest px-1">First Name</label>
-                            <input type="text" value={editFirstName} onChange={(e) => setEditFirstName(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all" />
-                        </div>
-                        <div className="space-y-2">
-                            <label className="text-[11px] uppercase font-bold text-slate-400 tracking-widest px-1">Last Name</label>
-                            <input type="text" value={editLastName} onChange={(e) => setEditLastName(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all" />
-                        </div>
-                        <div className="space-y-2">
-                            <label className="text-[11px] uppercase font-bold text-slate-400 tracking-widest px-1">Middle Initial</label>
-                            <input type="text" value={editMiddleInitial} onChange={(e) => setEditMiddleInitial(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all" />
-                        </div>
-                    </div>
-                    <div className="space-y-4">
-                        <div className="space-y-2">
-                            <label className="text-[11px] uppercase font-bold text-slate-400 tracking-widest px-1">Username</label>
-                            <input type="text" value={editUsername} onChange={(e) => setEditUsername(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all" />
-                        </div>
-                        <div className="space-y-2">
-                            <label className="text-[11px] uppercase font-bold text-slate-400 tracking-widest px-1">Email</label>
-                            <input type="email" value={editEmail} onChange={(e) => setEditEmail(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all" />
-                        </div>
-                        <div className="space-y-2">
-                            <label className="text-[11px] uppercase font-bold text-slate-400 tracking-widest px-1">Resident Type</label>
-                            <input type="text" value={editResidentType} onChange={(e) => setEditResidentType(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all" />
-                        </div>
-                        <div className="space-y-2">
-                            <label className="text-[11px] uppercase font-bold text-slate-400 tracking-widest px-1">Phone</label>
-                            <input type="text" value={editPhone} onChange={(e) => setEditPhone(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all" />
-                        </div>
-                    </div>
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+            onClick={() => { setShowEditModal(false); setSelectedResident(null); }} />
+          <div className="relative bg-white w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 max-h-[92vh] flex flex-col">
+            <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between shrink-0">
+              <div>
+                <h3 className="text-lg font-black text-slate-900">Edit Resident Details</h3>
+                <p className="text-xs text-slate-400 mt-0.5">Changes are saved directly to the resident profile</p>
+              </div>
+              <button onClick={() => { setShowEditModal(false); setSelectedResident(null); }}
+                className="p-2 hover:bg-slate-100 rounded-xl text-slate-400 cursor-pointer">
+                <X size={18} />
+              </button>
+            </div>
+            <form className="p-6 overflow-y-auto flex-1" onSubmit={handleUpdateResident}>
+              <div className="grid grid-cols-2 gap-4">
+                {[
+                  { label: 'Full Name',      key: 'full_name'      },
+                  { label: 'Username',       key: 'username'       },
+                  { label: 'First Name',     key: 'first_name'     },
+                  { label: 'Last Name',      key: 'last_name'      },
+                  { label: 'Middle Initial', key: 'middle_initial' },
+                  { label: 'Phone',          key: 'phone'          },
+                  { label: 'Resident Type',  key: 'resident_type'  },
+                  { label: 'Email',          key: 'email', type: 'email' },
+                ].map(({ label, key, type = 'text' }) => (
+                  <div key={key}>
+                    <label className={labelClass}>{label}</label>
+                    <input type={type} value={editFields[key]}
+                      onChange={e => setEditFields(p => ({ ...p, [key]: e.target.value }))}
+                      className={inputClass} />
+                  </div>
+                ))}
+                <div className="col-span-2">
+                  <label className={labelClass}>Address</label>
+                  <input value={editFields.address}
+                    onChange={e => setEditFields(p => ({ ...p, address: e.target.value }))}
+                    className={inputClass} />
                 </div>
-                <div className="space-y-4 mt-4">
-                    <div className="space-y-2">
-                        <label className="text-[11px] uppercase font-bold text-slate-400 tracking-widest px-1">Address</label>
-                        <input type="text" value={editAddress} onChange={(e) => setEditAddress(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all" />
-                    </div>
-                    <div className="space-y-2">
-                        <label className="text-[11px] uppercase font-bold text-slate-400 tracking-widest px-1">Street</label>
-                        <input type="text" value={editStreet} onChange={(e) => setEditStreet(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all" />
-                    </div>
+                <div className="col-span-2">
+                  <label className={labelClass}>Street</label>
+                  <input value={editFields.street}
+                    onChange={e => setEditFields(p => ({ ...p, street: e.target.value }))}
+                    className={inputClass} />
                 </div>
-                <div className="pt-8 flex gap-3">
-                  <button type="button" onClick={() => { setShowAddModal(false); setSelectedResident(null); }} className="flex-1 py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-2xl font-bold text-sm transition-all cursor-pointer">Cancel</button>
-                  <button type="submit" disabled={isSaving} className="flex-1 py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-bold text-sm transition-all shadow-lg shadow-indigo-200 cursor-pointer disabled:opacity-50">
-                    {isSaving ? "Submitting..." : "Submit for Approval"}
-                  </button>
-                </div>
-               </form>
+              </div>
+              <div className="flex gap-3 mt-6">
+                <button type="button"
+                  onClick={() => { setShowEditModal(false); setSelectedResident(null); }}
+                  className="flex-1 py-3 rounded-2xl bg-slate-100 text-slate-600 font-bold text-sm hover:bg-slate-200 cursor-pointer">
+                  Cancel
+                </button>
+                <button type="submit" disabled={isSaving}
+                  className="flex-1 py-3 rounded-2xl bg-[#006837] hover:bg-[#004d29] text-white font-bold text-sm shadow-lg shadow-[#006837]/20 cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2">
+                  {isSaving ? <><RefreshCw size={14} className="animate-spin" /> Saving…</> : 'Save Changes'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
+
+      {/* ── Header ── */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-black text-slate-900">Resident Management</h1>
+          <p className="text-sm text-slate-400 mt-0.5">View, edit, and manage resident profiles</p>
+        </div>
+        <button onClick={fetchResidents} disabled={loading}
+          className="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-semibold text-slate-600 hover:bg-slate-50 shadow-sm cursor-pointer disabled:opacity-50">
+          <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Refresh
+        </button>
+      </div>
+
+      {/* ── KPI Cards ── */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <KpiCard title="Total Residents" value={residents.length} icon={Users}     iconBg="bg-blue-50"    iconColor="text-blue-600"    />
+        <KpiCard title="Homeowners"      value={homeownersCount}  icon={Home}      iconBg="bg-emerald-50" iconColor="text-emerald-600" />
+        <KpiCard title="Tenants"         value={tenantsCount}     icon={UserCheck} iconBg="bg-indigo-50"  iconColor="text-indigo-600"  />
+        <KpiCard title="New This Month"  value={newThisMonth}     icon={UserPlus}  iconBg="bg-amber-50"   iconColor="text-amber-600"   />
+      </div>
+
+      {/* ── Table ── */}
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+        <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-3">
+          <div className="relative w-72">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input type="text" placeholder="Search residents…" value={searchTerm}
+              onChange={e => setSearchTerm(e.target.value)}
+              className="w-full pl-8 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#006837]/20 focus:border-[#006837] transition-all" />
+          </div>
+          <p className="text-xs text-slate-400 ml-auto font-medium">
+            {filtered.length} resident{filtered.length !== 1 ? 's' : ''}
+          </p>
+        </div>
+
+        <div className="overflow-x-auto">
+          {loading ? (
+            <div className="flex flex-col items-center justify-center py-20 gap-3">
+              <div className="w-10 h-10 border-4 border-[#006837]/20 border-t-[#006837] rounded-full animate-spin" />
+              <p className="text-sm text-slate-400 font-medium animate-pulse">Loading residents…</p>
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 text-slate-300">
+              <Users size={36} className="mb-2" />
+              <p className="text-sm font-semibold text-slate-400">
+                {searchTerm ? 'No residents match your search' : 'No residents found'}
+              </p>
+            </div>
+          ) : (
+            <table className="w-full text-left">
+              <thead className="bg-slate-50 border-b border-slate-100">
+                <tr>
+                  {['Resident','Contact','Block / Lot','Type','Status','Joined',''].map(h => (
+                    <th key={h} className="px-5 py-3.5 text-[10px] font-black text-slate-400 uppercase tracking-wider whitespace-nowrap">
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {filtered.map(r => {
+                  const statusCfg = {
+                    active:   { bg: 'bg-emerald-50 text-emerald-700 border-emerald-100', dot: 'bg-emerald-400', label: 'Active'   },
+                    pending:  { bg: 'bg-amber-50 text-amber-700 border-amber-100',       dot: 'bg-amber-400',   label: 'Pending'  },
+                    rejected: { bg: 'bg-red-50 text-red-600 border-red-100',             dot: 'bg-red-400',     label: 'Rejected' },
+                  }[r.account_status] || {
+                    bg: 'bg-slate-100 text-slate-500 border-slate-200',
+                    dot: 'bg-slate-300',
+                    label: r.account_status || '—',
+                  };
+
+                  return (
+                    <tr key={r.id} className="hover:bg-slate-50/60 transition-colors group">
+                      <td className="px-5 py-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-9 h-9 rounded-xl bg-[#006837]/10 text-[#006837] flex items-center justify-center font-bold text-sm uppercase overflow-hidden shrink-0">
+                            {r.avatar_url
+                              ? <img src={r.avatar_url} alt="" className="w-full h-full object-cover" />
+                              : (r.first_name?.charAt(0) || r.username?.charAt(0) || '?')}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-sm font-bold text-slate-800 truncate">{r.full_name || r.username}</p>
+                            <p className="text-xs text-slate-400 truncate">@{r.username || '—'}</p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-5 py-4">
+                        <p className="text-sm text-slate-600 truncate max-w-[160px]">{r.email || '—'}</p>
+                        <p className="text-xs text-slate-400">{r.phone || '—'}</p>
+                      </td>
+                      <td className="px-5 py-4">
+                        <p className="text-sm font-semibold text-slate-700">
+                          {[r.block && `Block ${r.block}`, r.lot && `Lot ${r.lot}`].filter(Boolean).join(', ') || '—'}
+                        </p>
+                        <p className="text-xs text-slate-400 truncate max-w-[100px]">{r.street || ''}</p>
+                      </td>
+                      <td className="px-5 py-4 text-sm text-slate-500 capitalize">{r.resident_type || '—'}</td>
+                      <td className="px-5 py-4">
+                        <span className={`inline-flex items-center gap-1.5 text-[10px] font-bold px-2.5 py-1 rounded-full border ${statusCfg.bg}`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${statusCfg.dot}`} />
+                          {statusCfg.label}
+                        </span>
+                      </td>
+                      <td className="px-5 py-4 text-sm text-slate-500 whitespace-nowrap">
+                        {r.created_at ? new Date(r.created_at).toLocaleDateString() : '—'}
+                      </td>
+                      <td className="px-5 py-4">
+                        <div className="flex items-center gap-1 justify-end">
+                          {/* View — all roles */}
+                          <button onClick={() => { setSelectedResident(r); setIsViewingProfile(true); }}
+                            title="View profile"
+                            className="p-2 hover:bg-blue-50 text-slate-400 hover:text-blue-600 rounded-lg transition-colors cursor-pointer">
+                            <Eye size={15} />
+                          </button>
+                          {/* Edit — president, VP, secretary */}
+                          <RequireRole userRole={currentUserRole} allowedRoles={['president','vice_president','secretary']}>
+                            <button onClick={() => { setSelectedResident(r); setIsViewingProfile(false); setShowEditModal(true); }}
+                              title="Edit resident"
+                              className="p-2 hover:bg-emerald-50 text-slate-400 hover:text-emerald-600 rounded-lg transition-colors cursor-pointer">
+                              <Edit2 size={15} />
+                            </button>
+                          </RequireRole>
+                          {/* Delete — President only */}
+                          <RequireRole userRole={currentUserRole} allowedRoles={['president']}>
+                            <button onClick={() => setResidentToDelete(r.id)}
+                              title="Delete resident"
+                              className="p-2 hover:bg-red-50 text-slate-400 hover:text-red-500 rounded-lg transition-colors cursor-pointer">
+                              <Trash2 size={15} />
+                            </button>
+                          </RequireRole>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        {!loading && filtered.length > 0 && (
+          <div className="px-5 py-3 border-t border-slate-100">
+            <p className="text-xs text-slate-400">
+              {filtered.length} of {residents.length} residents{searchTerm ? ' (filtered)' : ''}
+            </p>
+          </div>
+        )}
+      </div>
     </div>
   );
 };

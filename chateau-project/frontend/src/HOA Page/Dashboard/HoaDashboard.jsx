@@ -1,423 +1,359 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { supabase } from '../supabaseAdmin'; // Verified path
-import { 
-  Calendar, 
-  CreditCard, 
-  Vote, 
-  Users, 
-  Megaphone,
-  FileTerminal 
+import { supabase } from '../supabaseAdmin';
+import {
+  Calendar, CreditCard, Vote, Users, Megaphone,
+  ArrowRight, TrendingUp, Clock, AlertCircle,
+  CheckCircle2, Activity, Bell
 } from 'lucide-react';
 
-// --- ADDED: RequireRole Component ---
 const RequireRole = ({ userRole, allowedRoles, children }) => {
-  if (allowedRoles.includes(userRole) || userRole === 'super_admin') {
-    return children;
-  }
-  return null; 
+  if (allowedRoles.includes(userRole) || userRole === 'super_admin') return children;
+  return null;
 };
 
-// --- RESTORED COMPONENTS ---
-const StatCard = ({ title, value, icon: Icon, iconBg }) => (
-  <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col justify-between transition-shadow flex-1 min-w-[240px]">
-    <div className="flex justify-between items-start">
-      <div>
-        <p className="text-slate-500 text-sm font-medium">{title}</p>
-        <h3 className="text-3xl font-bold text-slate-900 mt-1">{value}</h3>
+// ─── Design tokens ─────────────────────────────────────────────
+const BRAND = '#006837';
+
+const STATUS_PILL = {
+  Approved:    'bg-emerald-50 text-emerald-700 border border-emerald-100',
+  approved:    'bg-emerald-50 text-emerald-700 border border-emerald-100',
+  Pending:     'bg-amber-50 text-amber-700 border border-amber-100',
+  pending:     'bg-amber-50 text-amber-700 border border-amber-100',
+  Rejected:    'bg-red-50 text-red-600 border border-red-100',
+  rejected:    'bg-red-50 text-red-600 border border-red-100',
+  Resolved:    'bg-emerald-50 text-emerald-700 border border-emerald-100',
+  'In Progress':'bg-blue-50 text-blue-700 border border-blue-100',
+  'On Hold':   'bg-slate-100 text-slate-600 border border-slate-200',
+  paid:        'bg-emerald-50 text-emerald-700 border border-emerald-100',
+  overdue:     'bg-red-50 text-red-600 border border-red-100',
+  unpaid:      'bg-amber-50 text-amber-700 border border-amber-100',
+};
+
+// ─── Sub-components ────────────────────────────────────────────
+
+const KpiCard = ({ title, value, icon: Icon, iconBg, iconColor, trend, onClick }) => (
+  <div
+    onClick={onClick}
+    className={`bg-white rounded-2xl p-5 border border-slate-100 shadow-sm flex flex-col gap-3
+      transition-all duration-200 hover:shadow-md hover:-translate-y-0.5 flex-1 min-w-[180px]
+      ${onClick ? 'cursor-pointer' : ''}`}
+  >
+    <div className="flex items-start justify-between">
+      <div className={`p-2.5 rounded-xl ${iconBg}`}>
+        <Icon size={18} className={iconColor} />
       </div>
-      <div className={`p-3 rounded-xl ${iconBg}`}>
-        <Icon size={24} className="text-slate-700" />
-      </div>
+      {trend != null && (
+        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1
+          ${trend >= 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-500'}`}>
+          <TrendingUp size={9} /> {trend >= 0 ? '+' : ''}{trend}%
+        </span>
+      )}
+    </div>
+    <div>
+      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">{title}</p>
+      <p className="text-3xl font-black text-slate-900">{value}</p>
     </div>
   </div>
 );
 
-// --- UPDATED: Added allowedRoles to conditionally render the link ---
-const SectionHeader = ({ title, linkText, onClick, userRole, allowedRoles }) => (
-  <div className="flex justify-between items-center mb-4">
-    <h4 className="text-lg font-bold text-slate-800">{title}</h4>
-    <RequireRole userRole={userRole} allowedRoles={allowedRoles}>
-      <button 
-        onClick={onClick} 
-        className="text-blue-600 text-sm font-semibold hover:underline focus:outline-none cursor-pointer"
-      >
-        {linkText}
-      </button>
-    </RequireRole>
+const SectionCard = ({ title, linkText, onLink, children, empty, emptyMsg }) => (
+  <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+    <div className="px-5 py-4 border-b border-slate-50 flex items-center justify-between">
+      <h4 className="text-sm font-bold text-slate-700">{title}</h4>
+      {linkText && (
+        <button
+          onClick={onLink}
+          className="flex items-center gap-1 text-xs font-bold text-[#006837] hover:underline cursor-pointer"
+        >
+          {linkText} <ArrowRight size={12} />
+        </button>
+      )}
+    </div>
+    <div className="divide-y divide-slate-50">
+      {empty ? (
+        <div className="py-10 flex flex-col items-center text-slate-300 gap-2">
+          <Activity size={28} />
+          <p className="text-sm text-slate-400">{emptyMsg || 'No data available'}</p>
+        </div>
+      ) : children}
+    </div>
   </div>
+);
+
+const StatusPill = ({ status }) => (
+  <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full whitespace-nowrap
+    ${STATUS_PILL[status] || 'bg-slate-100 text-slate-500'}`}>
+    {status}
+  </span>
 );
 
 const HoaDashboard = () => {
   const navigate = useNavigate();
-  const [liveReports, setLiveReports] = useState([]);
-  const [liveAnnouncements, setLiveAnnouncements] = useState([]); 
-  const [liveElections, setLiveElections] = useState([]); 
-  const [liveReservations, setLiveReservations] = useState([]);
-  const [totalResidents, setTotalResidents] = useState(0);
+  const [liveReports,        setLiveReports]        = useState([]);
+  const [liveAnnouncements,  setLiveAnnouncements]  = useState([]);
+  const [liveElections,      setLiveElections]      = useState([]);
+  const [liveReservations,   setLiveReservations]   = useState([]);
+  const [totalResidents,     setTotalResidents]     = useState(0);
+  const [livePayments,       setLivePayments]       = useState([]);
+  const [overdueCount,       setOverdueCount]       = useState(0);
+  const [isLoading,          setIsLoading]          = useState(true);
 
-  // ADDED: State for live payments
-  const [livePayments, setLivePayments] = useState([]);
-  
-  // --- ADDED: State for Overdue Count ---
-  const [overdueCount, setOverdueCount] = useState(0);
-
-  // ADDED: Loading state
-  const [isLoading, setIsLoading] = useState(true);
-
-  // --- ADDED: Get Current Role ---
   const currentUserRole = localStorage.getItem('userRole') || 'resident';
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
 
   useEffect(() => {
-    // ADDED: Wrapper to handle the loading state properly
-    const loadDashboardData = async () => {
+    const load = async () => {
       setIsLoading(true);
-      
-      // Wait for all fetches to complete before hiding the loading screen
       await Promise.all([
-        fetchLiveReports(),
-        fetchLiveAnnouncements(),
-        fetchLiveElections(),
-        fetchLiveReservations(),
-        fetchTotalResidents(),
-        fetchLivePayments(), // Added fetch call for payments
-        fetchOverdueCount()  // --- ADDED: Fetch call for overdue count ---
+        fetchLiveReports(), fetchLiveAnnouncements(), fetchLiveElections(),
+        fetchLiveReservations(), fetchTotalResidents(), fetchLivePayments(), fetchOverdueCount()
       ]);
-
       setIsLoading(false);
     };
-
-    loadDashboardData();
+    load();
   }, []);
 
   const fetchLiveReports = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('reports')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(5);
-
-      if (error) throw error;
-      setLiveReports(data || []);
-    } catch (error) {
-      console.error("Error fetching dashboard reports:", error.message);
-    }
+    const { data } = await supabase.from('reports').select('*').order('created_at', { ascending: false }).limit(5);
+    setLiveReports(data || []);
   };
-
   const fetchLiveAnnouncements = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('announcements')
-        .select('*')
-        .eq('status', 'published') 
-        .order('created_at', { ascending: false })
-        .limit(4);
-
-      if (error) throw error;
-      setLiveAnnouncements(data || []);
-    } catch (error) {
-      console.error("Error fetching dashboard announcements:", error.message);
-    }
+    const { data } = await supabase.from('announcements').select('*').eq('status', 'published').order('created_at', { ascending: false }).limit(4);
+    setLiveAnnouncements(data || []);
   };
-
-  // UPDATED: Now fetches the actual vote count from the 'votes' table for each active election
   const fetchLiveElections = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('elections')
-        .select('*')
-        .eq('status', 'active') 
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-
-      if (data) {
-        const electionsWithVoteCounts = await Promise.all(data.map(async (election) => {
-          const { count, error: countError } = await supabase
-            .from('votes')
-            .select('*', { count: 'exact', head: true })
-            .eq('election_id', election.id);
-          
-          return { ...election, actual_votes: count || 0 };
-        }));
-        setLiveElections(electionsWithVoteCounts);
-      }
-    } catch (error) {
-      console.error("Error fetching dashboard elections:", error.message);
+    const { data } = await supabase.from('elections').select('*').eq('status', 'active').order('created_at', { ascending: false });
+    if (data) {
+      const withCounts = await Promise.all(data.map(async (el) => {
+        const { count } = await supabase.from('votes').select('*', { count: 'exact', head: true }).eq('election_id', el.id);
+        return { ...el, actual_votes: count || 0 };
+      }));
+      setLiveElections(withCounts);
     }
   };
-
-  // --- ADDED: FETCH LIVE RESERVATIONS ---
   const fetchLiveReservations = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('reservations')
-        .select(`
-          *,
-          facilities ( name ),
-          profiles ( full_name )
-        `)
-        .order('date', { ascending: false })
-        .limit(4);
-
-      if (error) throw error;
-      setLiveReservations(data || []);
-    } catch (error) {
-      console.error("Error fetching live reservations:", error.message);
-    }
+    const { data } = await supabase.from('reservations').select('*, facilities(name), profiles(full_name)').order('date', { ascending: false }).limit(5);
+    setLiveReservations(data || []);
   };
-
-  // --- ADDED: FETCH TOTAL RESIDENTS COUNT ---
   const fetchTotalResidents = async () => {
-    try {
-      const { count, error } = await supabase
-        .from('profiles')
-        .select('*', { count: 'exact', head: true });
-
-      if (error) throw error;
-      setTotalResidents(count || 0);
-    } catch (error) {
-      console.error("Error fetching residents count:", error.message);
-    }
+    const { count } = await supabase.from('profiles').select('*', { count: 'exact', head: true });
+    setTotalResidents(count || 0);
   };
-
-  // --- ADDED: FETCH OVERDUE PAYMENTS COUNT ---
   const fetchOverdueCount = async () => {
-    try {
-      // Using ilike to catch 'Overdue' or 'overdue' regardless of capitalization
-      const { count, error } = await supabase
-        .from('payments')
-        .select('*', { count: 'exact', head: true })
-        .ilike('status', 'overdue');
-
-      if (error) throw error;
-      setOverdueCount(count || 0);
-    } catch (error) {
-      console.error("Error fetching overdue payments count:", error.message);
-    }
+    const { count } = await supabase.from('payments').select('*', { count: 'exact', head: true }).ilike('status', 'overdue');
+    setOverdueCount(count || 0);
   };
-
-  // --- ADDED: FETCH LIVE PAYMENTS ---
   const fetchLivePayments = async () => {
-    try {
-      const { data: paymentsData, error: paymentsError } = await supabase
-        .from('payments')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(4); // Only fetch the 4 most recent payments for the dashboard
-
-      if (paymentsError) throw paymentsError;
-
-      if (!paymentsData || paymentsData.length === 0) {
-        setLivePayments([]);
-        return;
-      }
-
-      const userIds = [...new Set(paymentsData.map(p => p.user_id).filter(Boolean))];
-      let profilesData = [];
-
-      if (userIds.length > 0) {
-        const { data: pData, error: pError } = await supabase
-          .from('profiles')
-          .select('id, full_name')
-          .in('id', userIds);
-
-        if (!pError) {
-          profilesData = pData || [];
-        }
-      }
-
-      const mergedData = paymentsData.map(payment => {
-        const profile = profilesData.find(p => p.id === payment.user_id);
-        return {
-          ...payment,
-          profiles: profile || null
-        };
-      });
-
-      setLivePayments(mergedData);
-    } catch (error) {
-      console.error("Error fetching live payments:", error.message);
+    const { data: pData } = await supabase.from('payments').select('*').order('created_at', { ascending: false }).limit(5);
+    if (!pData?.length) { setLivePayments([]); return; }
+    const ids = [...new Set(pData.map(p => p.user_id).filter(Boolean))];
+    let profiles = [];
+    if (ids.length) {
+      const { data: pr } = await supabase.from('profiles').select('id, full_name').in('id', ids);
+      profiles = pr || [];
     }
+    setLivePayments(pData.map(p => ({ ...p, profiles: profiles.find(pr => pr.id === p.user_id) || null })));
   };
 
-  const handleNavigate = (path) => {
-    navigate(`/hoa/${path}`);
-  };
+  const go = (path) => navigate(`/hoa/${path}`);
 
-  // ADDED: Loading Screen Animation
-  if (isLoading) {
-    return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-8">
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-12 h-12 border-4 border-[#006837]/20 border-t-[#006837] rounded-full animate-spin"></div>
-          <p className="text-[#006837] font-semibold animate-pulse tracking-wide">Loading Dashboard...</p>
-        </div>
+  if (isLoading) return (
+    <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+      <div className="flex flex-col items-center gap-4">
+        <div className="w-12 h-12 border-4 border-[#006837]/20 border-t-[#006837] rounded-full animate-spin" />
+        <p className="text-[#006837] font-semibold animate-pulse text-sm">Loading Dashboard…</p>
       </div>
-    );
-  }
+    </div>
+  );
 
   return (
-    <div className="p-8 bg-slate-50 min-h-screen animate-in fade-in duration-500">
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-slate-900">Dashboard</h1>
-        <p className="text-slate-500 text-sm">Welcome back! Here's what's happening in your community.</p>
-      </div>
+    <div className="min-h-screen bg-slate-50 p-6 lg:p-8 space-y-6">
 
-      {/* --- FIXED: Changed grid to flex-wrap to remove white space gaps --- */}
-      <div className="flex flex-wrap gap-6 mb-8">
-        <RequireRole userRole={currentUserRole} allowedRoles={['president', 'vice_president', 'secretary', 'auditor']}>
-          <StatCard title="Total Reservations" value={liveReservations.length} icon={Calendar} iconBg="bg-blue-50" />
-        </RequireRole>
-
-        <RequireRole userRole={currentUserRole} allowedRoles={['president', 'treasurer', 'auditor']}>
-          <StatCard title="Overdue Payments" value={overdueCount} icon={CreditCard} iconBg="bg-red-50" />
-        </RequireRole>
-
-        <RequireRole userRole={currentUserRole} allowedRoles={['president', 'vice_president', 'secretary', 'auditor']}>
-          <StatCard title="Active Elections" value={liveElections.length} icon={Vote} iconBg="bg-orange-50" />
-        </RequireRole>
-
-        <RequireRole userRole={currentUserRole} allowedRoles={['president', 'vice_president', 'secretary', 'auditor']}>
-          <StatCard title="Residents" value={totalResidents} icon={Users} iconBg="bg-purple-50" />
-        </RequireRole>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Left Column */}
-        <div className="space-y-8">
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-            <SectionHeader 
-              title="Recent Reservations" 
-              linkText="View All" 
-              onClick={() => handleNavigate('reservations')} 
-              userRole={currentUserRole}
-              allowedRoles={['president', 'vice_president', 'secretary', 'auditor', 'board_member']} 
-            />
-            <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
-              {liveReservations.length > 0 ? (
-                liveReservations.map((item) => (
-                  <div key={item.id} className="flex justify-between items-center p-3 border border-slate-50 rounded-xl hover:bg-slate-50 transition-colors">
-                    <div>
-                      <p className="text-sm font-semibold text-slate-800">{item.profiles?.full_name || 'Unknown User'}</p>
-                      <p className="text-xs text-slate-500">{item.facilities?.name} • {item.date}</p>
-                    </div>
-                    <span className={`px-3 py-1 text-[10px] font-bold uppercase rounded-full ${item.status === 'Approved' ? 'bg-green-50 text-green-600' : item.status === 'Pending' ? 'bg-blue-50 text-blue-600' : 'bg-red-50 text-red-600'}`}>
-                      {item.status}
-                    </span>
-                  </div>
-                ))
-              ) : (
-                <p className="text-sm text-slate-400 text-center py-4 italic">No reservations found.</p>
-              )}
-            </div>
-          </div>
-
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-            <SectionHeader 
-              title="Residents Reports" 
-              linkText="View All" 
-              onClick={() => handleNavigate('reports')}
-              userRole={currentUserRole}
-              allowedRoles={['president', 'vice_president', 'secretary', 'auditor', 'board_member']} 
-            />
-            <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
-              {liveReports.length > 0 ? (
-                liveReports.map((item) => (
-                  <div key={item.id} className="flex justify-between items-center p-3 border border-slate-50 rounded-xl hover:bg-slate-50 transition-colors">
-                    <div>
-                      <p className="text-sm font-semibold text-slate-800">{item.description}</p>
-                      <p className="text-xs text-slate-500">
-                        ID: {item.user_id?.substring(0,8)}... • {new Date(item.created_at).toLocaleDateString()}
-                      </p>
-                    </div>
-                    <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${
-                      item.status === 'Resolved' ? 'bg-green-50 text-green-600' : 
-                      item.status === 'Pending' ? 'bg-red-50 text-red-600' : 
-                      item.status === 'In Progress' ? 'bg-orange-50 text-orange-600' : 'bg-slate-100 text-slate-600'
-                    }`}>
-                      {item.status}
-                    </span>
-                  </div>
-                ))
-              ) : (
-                <p className="text-sm text-slate-400 text-center py-4">No live reports found.</p>
-              )}
-            </div>
-          </div>
+      {/* ── Header ── */}
+      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-2">
+        <div>
+          <p className="text-sm font-semibold text-slate-400">{greeting} 👋</p>
+          <h1 className="text-2xl font-black text-slate-900 mt-0.5">Dashboard</h1>
+          <p className="text-sm text-slate-400 mt-0.5">Here's what's happening in your community today.</p>
         </div>
+        <p className="text-xs font-medium text-slate-400">
+          {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
+        </p>
+      </div>
 
-        {/* Right Column */}
-        <div className="space-y-8">
-          <RequireRole userRole={currentUserRole} allowedRoles={['president', 'treasurer', 'auditor', 'board_member']}>
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-              <SectionHeader 
-                title="Recent Payments" 
-                linkText="View All" 
-                onClick={() => handleNavigate('payments')} 
-                userRole={currentUserRole}
-                allowedRoles={['president', 'treasurer', 'auditor', 'board_member']} 
-              />
-              <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
-                {livePayments.length > 0 ? (
-                  livePayments.map((item) => {
-                    const fullName = item.profiles?.full_name || 'Unknown Resident';
-                    const amount = item.amount ? `₱${Number(item.amount).toLocaleString()}` : '₱0';
-                    const date = item.due_date ? new Date(item.due_date).toLocaleDateString() : 'N/A';
-                    const status = (item.status || 'unpaid').toLowerCase();
-                    
-                    let statusColor = 'text-slate-500';
-                    if (status === 'paid') statusColor = 'text-green-500';
-                    if (status === 'pending') statusColor = 'text-orange-500';
-                    if (status === 'overdue') statusColor = 'text-red-500';
+      {/* ── KPI Row ── */}
+      <div className="flex flex-wrap gap-4">
+        <RequireRole userRole={currentUserRole} allowedRoles={['president','vice_president','secretary','auditor']}>
+          <KpiCard title="Reservations" value={liveReservations.length} icon={Calendar}
+            iconBg="bg-blue-50" iconColor="text-blue-600" onClick={() => go('reservations')} />
+        </RequireRole>
+        <RequireRole userRole={currentUserRole} allowedRoles={['president','treasurer','auditor']}>
+          <KpiCard title="Overdue Payments" value={overdueCount} icon={CreditCard}
+            iconBg="bg-red-50" iconColor="text-red-500" onClick={() => go('payments')} />
+        </RequireRole>
+        <RequireRole userRole={currentUserRole} allowedRoles={['president','vice_president','secretary','auditor']}>
+          <KpiCard title="Active Elections" value={liveElections.length} icon={Vote}
+            iconBg="bg-amber-50" iconColor="text-amber-600" onClick={() => go('elections')} />
+        </RequireRole>
+        <RequireRole userRole={currentUserRole} allowedRoles={['president','vice_president','secretary','auditor']}>
+          <KpiCard title="Total Residents" value={totalResidents} icon={Users}
+            iconBg="bg-purple-50" iconColor="text-purple-600" onClick={() => go('residents')} />
+        </RequireRole>
+      </div>
 
-                    return (
-                      <div key={item.id} className="flex justify-between items-center p-3 border border-slate-50 rounded-xl hover:bg-slate-50 transition-colors">
-                        <div>
-                          <p className="text-sm font-semibold text-slate-800">{fullName}</p>
-                          <p className="text-xs text-slate-500">Due: {date}</p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-sm font-bold text-slate-900">{amount}</p>
-                          <p className={`text-[10px] font-bold uppercase ${statusColor}`}>{status}</p>
-                        </div>
-                      </div>
-                    );
-                  })
-                ) : (
-                  <p className="text-sm text-slate-400 text-center py-4 italic">No recent payments found.</p>
-                )}
+      {/* ── Content Grid ── */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+
+        {/* Left */}
+        <div className="space-y-6">
+
+          {/* Reservations */}
+          <SectionCard
+            title="Recent Reservations"
+            linkText="View all"
+            onLink={() => go('reservations')}
+            empty={liveReservations.length === 0}
+            emptyMsg="No reservations yet"
+          >
+            {liveReservations.map((item) => (
+              <div key={item.id} className="px-5 py-3.5 flex items-center justify-between hover:bg-slate-50/60 transition-colors">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-8 h-8 rounded-xl bg-blue-50 flex items-center justify-center shrink-0">
+                    <Calendar size={14} className="text-blue-600" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-slate-800 truncate">{item.profiles?.full_name || 'Unknown'}</p>
+                    <p className="text-xs text-slate-400 truncate">{item.facilities?.name} • {item.date}</p>
+                  </div>
+                </div>
+                <StatusPill status={item.status} />
               </div>
-            </div>
-          </RequireRole>
+            ))}
+          </SectionCard>
 
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-            <SectionHeader 
-              title="Recent Announcements" 
-              linkText="View All" 
-              onClick={() => handleNavigate('announcements')} 
-              userRole={currentUserRole}
-              allowedRoles={['president', 'vice_president', 'secretary', 'auditor', 'board_member']} 
-            />
-            <div className="space-y-4 max-h-[350px] overflow-y-auto pr-2 custom-scrollbar">
-              {liveAnnouncements.length > 0 ? (
-                liveAnnouncements.map((item) => (
-                  <div key={item.id} className={`p-4 border rounded-xl ${item.is_emergency ? 'border-red-100 bg-red-50/30' : 'border-slate-50 bg-slate-50/50'}`}>
-                    <div className="flex justify-between items-start mb-1">
-                      <p className={`text-sm font-bold ${item.is_emergency ? 'text-red-900' : 'text-slate-800'}`}>{item.title}</p>
-                      <Megaphone size={14} className={item.is_emergency ? 'text-red-500' : 'text-slate-400'} />
-                    </div>
-                    <p className="text-xs text-slate-500">
-                      {new Date(item.created_at).toLocaleDateString()} • {item.category}
+          {/* Reports */}
+          <SectionCard
+            title="Resident Reports"
+            linkText="View all"
+            onLink={() => go('reports')}
+            empty={liveReports.length === 0}
+            emptyMsg="No reports submitted"
+          >
+            {liveReports.map((item) => (
+              <div key={item.id} className="px-5 py-3.5 flex items-center justify-between hover:bg-slate-50/60 transition-colors">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-8 h-8 rounded-xl bg-orange-50 flex items-center justify-center shrink-0">
+                    <AlertCircle size={14} className="text-orange-500" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-slate-800 truncate">{item.description}</p>
+                    <p className="text-xs text-slate-400">
+                      {item.category} • {new Date(item.created_at).toLocaleDateString()}
                     </p>
                   </div>
-                ))
-              ) : (
-                <p className="text-sm text-slate-400 text-center py-4">No recent announcements.</p>
-              )}
-            </div>
-          </div>
+                </div>
+                <StatusPill status={item.status} />
+              </div>
+            ))}
+          </SectionCard>
+        </div>
+
+        {/* Right */}
+        <div className="space-y-6">
+
+          {/* Payments */}
+          <RequireRole userRole={currentUserRole} allowedRoles={['president','treasurer','auditor','board_member']}>
+            <SectionCard
+              title="Recent Payments"
+              linkText="View all"
+              onLink={() => go('payments')}
+              empty={livePayments.length === 0}
+              emptyMsg="No payment records"
+            >
+              {livePayments.map((item) => {
+                const status = (item.status || 'unpaid').toLowerCase();
+                return (
+                  <div key={item.id} className="px-5 py-3.5 flex items-center justify-between hover:bg-slate-50/60 transition-colors">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-8 h-8 rounded-xl bg-emerald-50 flex items-center justify-center shrink-0">
+                        <CreditCard size={14} className="text-emerald-600" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-slate-800 truncate">
+                          {item.profiles?.full_name || 'Unknown Resident'}
+                        </p>
+                        <p className="text-xs text-slate-400">
+                          ₱{Number(item.amount || 0).toLocaleString()} • Due {item.due_date ? new Date(item.due_date).toLocaleDateString() : 'N/A'}
+                        </p>
+                      </div>
+                    </div>
+                    <StatusPill status={status} />
+                  </div>
+                );
+              })}
+            </SectionCard>
+          </RequireRole>
+
+          {/* Announcements */}
+          <SectionCard
+            title="Recent Announcements"
+            linkText="View all"
+            onLink={() => go('announcements')}
+            empty={liveAnnouncements.length === 0}
+            emptyMsg="No announcements published"
+          >
+            {liveAnnouncements.map((item) => (
+              <div key={item.id}
+                className={`px-5 py-4 flex items-start gap-3 hover:bg-slate-50/60 transition-colors
+                  ${item.is_emergency ? 'border-l-2 border-red-400' : ''}`}>
+                <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 mt-0.5
+                  ${item.is_emergency ? 'bg-red-50' : 'bg-[#006837]/10'}`}>
+                  <Megaphone size={14} className={item.is_emergency ? 'text-red-500' : 'text-[#006837]'} />
+                </div>
+                <div className="min-w-0">
+                  <p className={`text-sm font-bold truncate ${item.is_emergency ? 'text-red-800' : 'text-slate-800'}`}>
+                    {item.title}
+                    {item.is_emergency && (
+                      <span className="ml-2 text-[9px] font-black bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full uppercase tracking-wider">
+                        Urgent
+                      </span>
+                    )}
+                  </p>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    {new Date(item.created_at).toLocaleDateString()} • {item.category}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </SectionCard>
+
+          {/* Active Elections */}
+          {liveElections.length > 0 && (
+            <RequireRole userRole={currentUserRole} allowedRoles={['president','vice_president','secretary','auditor','board_member']}>
+              <SectionCard title="Active Elections" linkText="Manage" onLink={() => go('elections')}>
+                {liveElections.map((el) => (
+                  <div key={el.id} className="px-5 py-4 flex items-center justify-between hover:bg-slate-50/60 transition-colors">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-8 h-8 rounded-xl bg-amber-50 flex items-center justify-center shrink-0">
+                        <Vote size={14} className="text-amber-600" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-bold text-slate-800 truncate">{el.title}</p>
+                        <p className="text-xs text-slate-400">
+                          {el.actual_votes} vote{el.actual_votes !== 1 ? 's' : ''} • Ends {el.end_date}
+                        </p>
+                      </div>
+                    </div>
+                    <span className="text-[10px] font-black px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-100">
+                      ACTIVE
+                    </span>
+                  </div>
+                ))}
+              </SectionCard>
+            </RequireRole>
+          )}
         </div>
       </div>
     </div>

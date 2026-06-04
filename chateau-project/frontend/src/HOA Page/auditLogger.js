@@ -1,33 +1,30 @@
 import { supabase } from './supabaseAdmin';
 
-const logger = {
-  // Added 'log' method to fix "logger.log is not a function"
-  log: async (message, severity = 'info', details = null) => {
-    console.log(`${severity.toUpperCase()}:`, message);
-    try {
-      await supabase.from('system_logs').insert([
-        {
-          activity: message, // Corrected to use 'activity' column
-          severity: severity,
-          details: details ? (typeof details === 'string' ? details : JSON.stringify(details)) : null,
-          user_email: 'system'
-        }
-      ]);
-    } catch (e) {
-      console.error(`Failed to log ${severity}:`, e);
-    }
-  },
-
-  // Helper methods now call the main log function
-  info: async (message) => {
-    await logger.log(message, 'info');
-  },
-
-  error: async (message, errorObj) => {
-    await logger.log(message, 'error', errorObj?.message || errorObj);
+const writeLog = async (activity, details, severity = 'info') => {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    const role = (localStorage.getItem('userRole') || 'unknown').toUpperCase();
+    await supabase.from('system_logs').insert({
+      user_email: user?.email || 'unknown',
+      activity,
+      severity,
+      details: `[${role}] ${details}`,
+    });
+  } catch (err) {
+    console.warn('[auditLogger] Failed to write log:', err?.message);
   }
 };
 
-// Exporting both ensures compatibility with different import styles
-export { logger }; 
+// Named export — used by most pages
+export const logAudit = writeLog;
+
+// Default export — used by ElectionPage (logger.info / logger.error)
+const logger = {
+  info:    (activity, meta = {}) => writeLog(activity, JSON.stringify(meta), 'info'),
+  warn:    (activity, meta = {}) => writeLog(activity, JSON.stringify(meta), 'warning'),
+  warning: (activity, meta = {}) => writeLog(activity, JSON.stringify(meta), 'warning'),
+  error:   (activity, meta = {}) => writeLog(activity, JSON.stringify(meta), 'danger'),
+  danger:  (activity, meta = {}) => writeLog(activity, JSON.stringify(meta), 'danger'),
+};
+
 export default logger;
