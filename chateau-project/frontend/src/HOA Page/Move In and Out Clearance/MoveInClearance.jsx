@@ -201,16 +201,16 @@ const ClearanceRow = ({ item, onApprove, onReject, actionLoadingId }) => {
               ? new Date(item.move_in_date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
               : null} />
 
-            {/* Owner-specific */}
-            {isOwner && (
-              <DetailRow label="Proof of Ownership" value={item.proof_of_ownership} url={!!item.proof_of_ownership} />
+            {/* Owner-specific — proof of ownership */}
+            {isOwner && item.proof_of_ownership_url && (
+              <DetailRow label="Proof of Ownership" value={item.proof_of_ownership_url} url={true} />
             )}
 
             {/* Renter-specific */}
             {!isOwner && (
               <>
-                <DetailRow label="Barangay Clearance"   value={item.barangay_clearance}  url={!!item.barangay_clearance}   />
-                <DetailRow label="Contract Copy"        value={item.contract_copy_url}   url={!!item.contract_copy_url}    />
+                <DetailRow label="Barangay Clearance" value={item.barangay_clearance_url} url={!!item.barangay_clearance_url} />
+                <DetailRow label="Contract Copy"      value={item.contract_copy_url}      url={!!item.contract_copy_url}      />
               </>
             )}
 
@@ -336,9 +336,11 @@ const MoveInClearance = () => {
         .from('move_in_clearances')
         .select(`
           id, user_id, move_in_date, resident_type,
-          proof_of_ownership, barangay_clearance, contract_copy_url,
+          proof_of_ownership_url, barangay_clearance_url, contract_copy_url,
           status, admin_notes, created_at, reviewed_at, reviewed_by,
-          profiles (id, full_name, first_name, last_name, block, lot, street, email)
+          profiles!move_in_clearances_user_id_fkey (
+            id, full_name, first_name, last_name, block, lot, street, email
+          )
         `)
         .order('created_at', { ascending: false });
 

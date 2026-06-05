@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   Search, Plus, CreditCard, AlertCircle, CheckCircle2, DollarSign,
-  Edit2, Trash2, FileText, X, Filter, Loader2, Zap,
+  Edit2, Trash2, FileText, X, Filter, Loader2, Download,
   Calendar, Users, ChevronDown, LayoutList, TableProperties,
 } from 'lucide-react';
 import { supabase } from '../supabaseAdmin';
@@ -28,6 +28,15 @@ const getMonthYear = (date) => {
   const d = new Date(date);
   return { month: d.getMonth(), year: d.getFullYear() };
 };
+
+// ─── Reference number generator ───────────────────────────────────────────────
+// Generates a short unique ref like HOA-062026-A3F9
+const generateRefNo = (month, year) => {
+  const mm   = String(month + 1).padStart(2, '0');
+  const rand = Math.random().toString(36).substring(2, 6).toUpperCase();
+  return `HOA-${mm}${year}-${rand}`;
+};
+
 
 // ─── StatCard ─────────────────────────────────────────────────────────────────
 const StatCard = ({ title, value, icon: Icon, iconColor, bgColor }) => (
@@ -100,218 +109,12 @@ const ModalOverlay = ({ title, subtitle, isOpen, onClose, children, actionLabel,
   );
 };
 
-// ─── GenerateDuesModal ────────────────────────────────────────────────────────
-// The key new feature: bulk-generate ₱150 for all active residents for a given month
-const GenerateDuesModal = ({ isOpen, onClose, residentsList, onSuccess }) => {
-  const now       = new Date();
-  const [selMonth, setSelMonth]   = useState(now.getMonth());
-  const [selYear,  setSelYear]    = useState(now.getFullYear());
-  const [dueDate,  setDueDate]    = useState('');
-  const [loading,  setLoading]    = useState(false);
-  const [preview,  setPreview]    = useState([]);    // residents who will get a due
-  const [skipped,  setSkipped]    = useState([]);    // already have one this month
-  const [checked,  setChecked]    = useState(false);
-
-  const years = [now.getFullYear() - 1, now.getFullYear(), now.getFullYear() + 1];
-
-  // Preview: check which residents already have a due for the selected month/year
-  const runPreview = async () => {
-    setLoading(true);
-    try {
-      const monthStart = new Date(selYear, selMonth, 1).toISOString().split('T')[0];
-      const monthEnd   = new Date(selYear, selMonth + 1, 0).toISOString().split('T')[0];
-
-      const { data: existing } = await supabase
-        .from('payments')
-        .select('user_id')
-        .gte('due_date', monthStart)
-        .lte('due_date', monthEnd);
-
-      const alreadyBilled = new Set((existing || []).map(r => r.user_id));
-
-      const toIssue = residentsList.filter(r => !alreadyBilled.has(r.id));
-      const toSkip  = residentsList.filter(r =>  alreadyBilled.has(r.id));
-
-      setPreview(toIssue);
-      setSkipped(toSkip);
-      setChecked(true);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleGenerate = async () => {
-    if (!dueDate)       { alert('Please set a due date.'); return; }
-    if (!preview.length){ alert('No residents to bill.'); return; }
-
-    setLoading(true);
-    try {
-      const rows = preview.map(r => ({
-        user_id:      r.id,
-        amount:       MONTHLY_DUE_AMOUNT,
-        due_date:     dueDate,
-        status:       'unpaid',
-        reference_no: `Monthly HOA Due — ${MONTHS[selMonth]} ${selYear}`,
-      }));
-
-      const { error } = await supabase.from('payments').insert(rows);
-      if (error) throw error;
-
-      await logAudit(
-        'BULK_ISSUE_MONTHLY_DUE',
-        `Generated ₱${MONTHLY_DUE_AMOUNT} monthly dues for ${rows.length} residents — ${MONTHS[selMonth]} ${selYear}.`
-      );
-
-      onClose();
-      onSuccess(`₱${MONTHLY_DUE_AMOUNT} monthly dues issued to ${rows.length} residents for ${MONTHS[selMonth]} ${selYear}.`);
-    } catch (e) {
-      alert('Error: ' + e.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Reset when reopened
-  useEffect(() => {
-    if (isOpen) { setChecked(false); setPreview([]); setSkipped([]); setDueDate(''); }
-  }, [isOpen]);
-
-  if (!isOpen) return null;
-
-  return (
-    <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={onClose} />
-      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg relative animate-in fade-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]">
-
-        {/* Header */}
-        <div className="px-7 pt-7 pb-5 border-b border-slate-100 flex items-start justify-between shrink-0">
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              <div className="p-2 bg-[#006837]/10 rounded-xl"><CreditCard size={16} className="text-[#006837]" /></div>
-              <h2 className="text-xl font-black text-slate-900">Generate Monthly Dues</h2>
-            </div>
-            <p className="text-sm text-slate-400">Bulk-issue ₱{MONTHLY_DUE_AMOUNT} to all active residents for the selected month. Already-billed residents are automatically skipped.</p>
-          </div>
-          <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-xl text-slate-400 cursor-pointer shrink-0 ml-3"><X size={18} /></button>
-        </div>
-
-        <div className="px-7 py-5 overflow-y-auto flex-1 space-y-5">
-
-          {/* Month/Year picker */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Month</label>
-              <select value={selMonth} onChange={e => { setSelMonth(Number(e.target.value)); setChecked(false); }}
-                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#006837]/20 cursor-pointer">
-                {MONTHS.map((m, i) => <option key={m} value={i}>{m}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Year</label>
-              <select value={selYear} onChange={e => { setSelYear(Number(e.target.value)); setChecked(false); }}
-                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#006837]/20 cursor-pointer">
-                {years.map(y => <option key={y} value={y}>{y}</option>)}
-              </select>
-            </div>
-          </div>
-
-          {/* Due date */}
-          <div>
-            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Due Date</label>
-            <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)}
-              className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#006837]/20 focus:border-[#006837] cursor-pointer" />
-          </div>
-
-          {/* Amount display */}
-          <div className="flex items-center justify-between p-4 bg-[#006837]/5 border border-[#006837]/15 rounded-2xl">
-            <div>
-              <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Amount per resident</p>
-              <p className="text-2xl font-black text-[#006837] mt-0.5">₱{MONTHLY_DUE_AMOUNT.toLocaleString()}</p>
-            </div>
-            <div className="text-right">
-              <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Reference label</p>
-              <p className="text-sm font-semibold text-slate-600 mt-0.5">Monthly HOA Due — {MONTHS[selMonth]} {selYear}</p>
-            </div>
-          </div>
-
-          {/* Preview button */}
-          {!checked && (
-            <button onClick={runPreview} disabled={loading}
-              className="w-full py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-sm rounded-2xl cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2">
-              {loading ? <><Loader2 size={14} className="animate-spin" /> Checking…</> : <><Search size={14} /> Preview Who Gets Billed</>}
-            </button>
-          )}
-
-          {/* Preview results */}
-          {checked && (
-            <div className="space-y-3">
-              <div className="p-4 bg-emerald-50 border border-emerald-100 rounded-2xl">
-                <p className="text-xs font-black text-emerald-700 uppercase tracking-wider mb-2">
-                  Will be billed ({preview.length} residents)
-                </p>
-                {preview.length === 0
-                  ? <p className="text-sm text-emerald-600">All residents already have a due for this month.</p>
-                  : (
-                    <div className="max-h-32 overflow-y-auto space-y-1">
-                      {preview.map(r => (
-                        <div key={r.id} className="flex items-center gap-2">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
-                          <span className="text-sm text-slate-700">{r.full_name}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-              </div>
-              {skipped.length > 0 && (
-                <div className="p-4 bg-amber-50 border border-amber-100 rounded-2xl">
-                  <p className="text-xs font-black text-amber-700 uppercase tracking-wider mb-2">
-                    Skipped — already billed ({skipped.length})
-                  </p>
-                  <div className="max-h-24 overflow-y-auto space-y-1">
-                    {skipped.map(r => (
-                      <div key={r.id} className="flex items-center gap-2">
-                        <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
-                        <span className="text-sm text-slate-600">{r.full_name}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-              <button onClick={() => setChecked(false)}
-                className="text-xs text-slate-400 hover:text-slate-600 underline cursor-pointer">
-                ← Change month / year
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* Footer */}
-        <div className="px-7 pb-7 pt-4 border-t border-slate-100 flex gap-3 shrink-0">
-          <button onClick={onClose}
-            className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-2xl cursor-pointer">
-            Cancel
-          </button>
-          <button
-            onClick={handleGenerate}
-            disabled={loading || !checked || preview.length === 0}
-            className="flex-1 py-3 bg-[#006837] hover:bg-[#004d29] text-white font-bold rounded-2xl shadow-lg shadow-[#006837]/20 cursor-pointer disabled:opacity-40 flex items-center justify-center gap-2"
-          >
-            {loading
-              ? <><Loader2 size={14} className="animate-spin" /> Generating…</>
-              : <><Plus size={14} /> Generate {preview.length} Dues</>}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
 
 // ─── Standing Ledger View ──────────────────────────────────────────────────────
 // Mirrors the physical paper ledger: one row per resident, shows standing + last payment date
 const StandingLedger = ({ residentsList, payments }) => {
-  const [search, setSearch] = useState('');
+  const [search,          setSearch]          = useState('');
+  const [residentFilter,  setResidentFilter]  = useState('All');  // ← new resident filter
 
   // Build one row per resident
   const rows = residentsList.map(r => {
@@ -352,9 +155,10 @@ const StandingLedger = ({ residentsList, payments }) => {
   });
 
   const filtered = rows.filter(r =>
-    !search || r.full_name.toLowerCase().includes(search.toLowerCase()) ||
+    (residentFilter === 'All' || r.id === residentFilter) &&
+    (!search || r.full_name.toLowerCase().includes(search.toLowerCase()) ||
     r.block.toLowerCase().includes(search.toLowerCase()) ||
-    r.lot.toLowerCase().includes(search.toLowerCase())
+    r.lot.toLowerCase().includes(search.toLowerCase()))
   );
 
   const goodCount    = rows.filter(r => r.standing === 'Good').length;
@@ -362,19 +166,72 @@ const StandingLedger = ({ residentsList, payments }) => {
   const pendingCount = rows.filter(r => r.standing === 'Pending').length;
   const noRecord     = rows.filter(r => r.standing === 'No Record').length;
 
+
+  // ── Export to CSV — matches physical ledger column order ─────────────────
+  const exportToCSV = () => {
+    const today = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+    const headers = ['Block','Lot','Street','Last Name','First Name','Status','Standing','Date of Last Payment','Unpaid Dues'];
+
+    const csvRows = [
+      // Title row like the physical ledger
+      [`Updated Monthly Dues Payment as of ${today}`],
+      [],
+      headers,
+      ...filtered.map(r => {
+        // Split full_name into Last, First if possible (assumes "First Last" format)
+        const parts     = r.full_name.split(' ');
+        const lastName  = parts.length > 1 ? parts[parts.length - 1] : r.full_name;
+        const firstName = parts.length > 1 ? parts.slice(0, -1).join(' ') : '';
+        return [
+          r.block,
+          r.lot,
+          r.street,
+          lastName,
+          firstName,
+          r.resident_type,
+          r.standing,
+          r.lastPaidDate,
+          r.unpaidCount > 0 ? `${r.unpaidCount} unpaid` : 'Good',
+        ];
+      }),
+    ];
+
+    const csvContent = csvRows
+      .map(row => row.map(cell => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(','))
+      .join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `Monthly_Dues_Standing_${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
       {/* Header */}
       <div className="px-5 py-4 border-b border-slate-100">
         <div className="flex items-center justify-between mb-3">
           <div>
-            <h3 className="text-sm font-black text-slate-700 flex items-center gap-2">
-              <TableProperties size={15} className="text-[#006837]" />
-              Monthly Dues Standing Ledger
-            </h3>
-            <p className="text-xs text-slate-400 mt-0.5">
-              Mirrors the physical ledger — one row per resident, showing current standing and last payment date
-            </p>
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-sm font-black text-slate-700 flex items-center gap-2">
+                  <TableProperties size={15} className="text-[#006837]" />
+                  Monthly Dues Standing Ledger
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Mirrors the physical ledger — one row per resident, showing current standing and last payment date
+                </p>
+              </div>
+              <button
+                onClick={exportToCSV}
+                className="flex items-center gap-2 px-4 py-2.5 bg-[#006837] hover:bg-[#004d29] text-white rounded-xl text-xs font-bold shadow-lg shadow-[#006837]/20 cursor-pointer transition-all shrink-0"
+              >
+                <Download size={13} /> Export CSV
+              </button>
+            </div>
           </div>
         </div>
 
@@ -399,6 +256,16 @@ const StandingLedger = ({ residentsList, payments }) => {
             placeholder="Search resident, block, lot…"
             className="w-full pl-8 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#006837]/20 focus:border-[#006837] transition-all" />
         </div>
+        <select
+          value={residentFilter}
+          onChange={e => setResidentFilter(e.target.value)}
+          className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-600 focus:outline-none focus:ring-2 focus:ring-[#006837]/20 cursor-pointer"
+        >
+          <option value="All">All Residents</option>
+          {rows.map(r => (
+            <option key={r.id} value={r.id}>{r.full_name}</option>
+          ))}
+        </select>
       </div>
 
       <div className="overflow-x-auto">
@@ -464,8 +331,6 @@ const Payment = () => {
   const [selectedPayment,       setSelectedPayment]       = useState(null);
   const [isConfirmVoidOpen,     setIsConfirmVoidOpen]     = useState(false);
   const [isAddPayableOpen,      setIsAddPayableOpen]      = useState(false);
-  const [isGenerateDuesOpen,    setIsGenerateDuesOpen]    = useState(false);
-
   const [residentsList,     setResidentsList]     = useState([]);
 
   const [isStatementModalOpen, setIsStatementModalOpen] = useState(false);
@@ -478,6 +343,69 @@ const Payment = () => {
   const currentUserRole = localStorage.getItem('userRole') || 'resident';
 
   useEffect(() => { fetchPayments(); fetchResidentsList(); }, []);
+
+  // ── Auto-generate monthly dues on the 1st of each month ──────────────────
+  // Runs once on mount. If today is the 1st AND this month hasn't been billed
+  // yet, silently bulk-issues ₱150 for every resident and posts an announcement.
+  useEffect(() => {
+    const runMonthlyAutoGenerate = async () => {
+      const today = new Date();
+      if (today.getDate() !== 1) return; // Only runs on the 1st
+
+      const month = today.getMonth();
+      const year  = today.getFullYear();
+
+      // Check if dues already exist for this month (any resident)
+      const monthStart = new Date(year, month, 1).toISOString().split('T')[0];
+      const monthEnd   = new Date(year, month + 1, 0).toISOString().split('T')[0];
+
+      const { data: existing } = await supabase
+        .from('payments')
+        .select('id')
+        .gte('due_date', monthStart)
+        .lte('due_date', monthEnd)
+        .limit(1);
+
+      if (existing?.length) return; // Already generated this month
+
+      // Fetch all residents
+      const { data: residents } = await supabase
+        .from('profiles')
+        .select('id, full_name')
+        .order('full_name');
+
+      if (!residents?.length) return;
+
+      // Due date = last day of current month
+      const dueDate = monthEnd;
+
+      const rows = residents.map(r => ({
+        user_id:      r.id,
+        amount:       MONTHLY_DUE_AMOUNT,
+        due_date:     dueDate,
+        status:       'unpaid',
+        reference_no: generateRefNo(month, year),
+      }));
+
+      const { error } = await supabase.from('payments').insert(rows);
+      if (error) {
+        console.error('[AutoGenerate] Failed:', error.message);
+        return;
+      }
+
+      await logAudit(
+        'AUTO_MONTHLY_DUE',
+        `Auto-generated ₱${MONTHLY_DUE_AMOUNT} monthly dues for ${rows.length} residents — ${MONTHS[month]} ${year}. Due: ${dueDate}.`
+      );
+
+      // Refresh payments list
+      fetchPayments();
+    };
+
+    runMonthlyAutoGenerate();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
 
   const fetchResidentsList = async () => {
     try {
@@ -564,7 +492,7 @@ const Payment = () => {
         }]);
         if (error) throw error;
         await logAudit('REQUEST_VOID_PAYMENT', `Void request for Ref: ${selectedPayment.reference_no}.`);
-        setTransaction({ status: 'success', message: 'Void request sent to Super Admin.' });
+        setTransaction({ status: 'success', message: 'Void request sent to the President for approval.' });
       } catch (e) { setTransaction({ status: 'error', message: 'Failed: ' + e.message }); }
     }
   };
@@ -624,31 +552,20 @@ const Payment = () => {
       <AddPayable isOpen={isAddPayableOpen} onClose={() => setIsAddPayableOpen(false)}
         onPayableAdded={() => fetchPayments()} />
 
-      {/* ── Generate Monthly Dues Modal ── */}
-      <GenerateDuesModal
-        isOpen={isGenerateDuesOpen}
-        onClose={() => setIsGenerateDuesOpen(false)}
-        residentsList={residentsList}
-        onSuccess={(msg) => {
-          fetchPayments();
-          setTransaction({ status: 'success', message: msg });
-        }}
-      />
+
 
       {/* ── Void confirm ── */}
       <ModalOverlay
         isOpen={isConfirmVoidOpen} onClose={() => setIsConfirmVoidOpen(false)}
-        title={currentUserRole === 'super_admin' ? 'Void Transaction' : 'Request Void Approval'}
-        subtitle={currentUserRole === 'super_admin' ? 'This is permanent and cannot be undone.' : 'This requires Super Admin approval.'}
-        actionLabel={currentUserRole === 'super_admin' ? 'Yes, Void It' : 'Submit Request'}
+        title="Request Void Approval"
+        subtitle="This requires President approval before the transaction is removed."
+        actionLabel="Submit Request"
         onAction={handleVoidTransaction}
       >
         <div className="p-4 bg-red-50 text-red-700 rounded-2xl flex items-center gap-3">
           <AlertCircle size={18} />
           <p className="text-sm font-semibold">
-            {currentUserRole === 'super_admin'
-              ? 'This action is permanent.'
-              : 'The Super Admin will review and approve this deletion.'}
+            The President will review and approve this deletion.
           </p>
         </div>
       </ModalOverlay>
@@ -763,7 +680,7 @@ const Payment = () => {
               </select>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
-              <RequireRole userRole={currentUserRole} allowedRoles={['president','treasurer']}>
+              <RequireRole userRole={currentUserRole} allowedRoles={['treasurer']}>
                 <button onClick={() => setIsAddPayableOpen(true)}
                   className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold cursor-pointer transition-all">
                   + Add Expense
@@ -775,14 +692,7 @@ const Payment = () => {
                   <FileText size={14} /> Statement
                 </button>
               </RequireRole>
-              <RequireRole userRole={currentUserRole} allowedRoles={['president','treasurer']}>
-                {/* Auto-generate ₱150 for all residents */}
-                <button onClick={() => setIsGenerateDuesOpen(true)}
-                  className="flex items-center gap-1.5 px-4 py-2.5 bg-[#006837] hover:bg-[#004d29] text-white rounded-xl text-xs font-bold shadow-lg shadow-[#006837]-500/20 cursor-pointer transition-all">
-                  <Plus size={14} /> Issue Monthly Dues
-                </button>
 
-              </RequireRole>
             </div>
           </div>
 
@@ -817,14 +727,14 @@ const Payment = () => {
                       <td className="px-5 py-4 text-sm text-slate-500">{p.paid_at ? new Date(p.paid_at).toLocaleDateString() : '—'}</td>
                       <td className="px-5 py-4 text-right">
                         <div className="flex items-center justify-end gap-2">
-                          <RequireRole userRole={currentUserRole} allowedRoles={['president','treasurer']}>
+                          <RequireRole userRole={currentUserRole} allowedRoles={['treasurer']}>
                             <button
                               onClick={() => { setSelectedPayment(p); setEditFormData({ amount: p.amount || '', status: p.status || 'unpaid', due_date: p.due_date?.split('T')[0] || '', reference_no: p.reference_no || '', paid_at: p.paid_at?.split('T')[0] || '' }); setIsEditTransactionOpen(true); }}
                               className="text-slate-400 hover:text-[#006837] p-1.5 hover:bg-[#006837]/10 rounded-lg transition-all cursor-pointer" title="Edit">
                               <Edit2 size={15} />
                             </button>
                           </RequireRole>
-                          <RequireRole userRole={currentUserRole} allowedRoles={['president','treasurer','super_admin']}>
+                          <RequireRole userRole={currentUserRole} allowedRoles={['treasurer']}>
                             <button onClick={() => { setSelectedPayment(p); setIsConfirmVoidOpen(true); }}
                               className="text-slate-400 hover:text-red-600 p-1.5 hover:bg-red-50 rounded-lg transition-all cursor-pointer" title="Void">
                               <Trash2 size={15} />
