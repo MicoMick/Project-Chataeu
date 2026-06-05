@@ -40,6 +40,20 @@ const ProfileManage = () => {
   const fileInputRef = useRef(null);
   const strength = getPasswordStrength(newPassword);
 
+  // ── Dynamic role label ────────────────────────────────────────────────────
+  const currentUserRole = localStorage.getItem('userRole') || 'admin';
+  const roleLabelMap = {
+    president:      'President — CREVHAI',
+    vice_president: 'Vice President — CREVHAI',
+    secretary:      'Secretary — CREVHAI',
+    treasurer:      'Treasurer — CREVHAI',
+    auditor:        'Auditor — CREVHAI',
+    board_member:   'Board Member — CREVHAI',
+    elecom:         'Elecom — CREVHAI',
+    super_admin:    'Super Administrator',
+  };
+  const roleLabel = roleLabelMap[currentUserRole] || 'HOA Administrator';
+
   // ── Toast helper ──────────────────────────────────────────────────────────
   const triggerToast = (message, type = 'success') => {
     setToast({ show: true, message, type });
@@ -219,7 +233,7 @@ const ProfileManage = () => {
             <h2 className="text-lg font-black text-slate-900 mt-5 truncate w-full text-center">
               {[firstName, lastName].filter(Boolean).join(' ') || 'HOA Admin'}
             </h2>
-            <p className="text-[#006837] text-xs font-bold uppercase tracking-widest mt-1">HOA Administrator</p>
+            <p className="text-[#006837] text-xs font-bold uppercase tracking-widest mt-1">{roleLabel}</p>
 
             <div className="w-full h-px bg-slate-100 my-5" />
 

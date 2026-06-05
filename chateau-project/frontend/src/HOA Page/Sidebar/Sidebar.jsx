@@ -20,11 +20,12 @@ const ROLES = {
 
 const GOVERNANCE  = [ROLES.PRESIDENT, ROLES.VICE_PRESIDENT, ROLES.SECRETARY, ROLES.BOARD_MEMBER];
 const OPERATIONS  = [ROLES.PRESIDENT, ROLES.VICE_PRESIDENT, ROLES.SECRETARY, ROLES.BOARD_MEMBER];
-const ELECTIONS   = [ROLES.PRESIDENT, ROLES.VICE_PRESIDENT, ROLES.SECRETARY];
+const ELECTIONS   = ['elecom']; // Election page — Elecom only
 const PAYMENTS    = [ROLES.PRESIDENT, ROLES.TREASURER];
 const STATISTICS  = [ROLES.PRESIDENT, ROLES.VICE_PRESIDENT, ROLES.SECRETARY, ROLES.AUDITOR, ROLES.BOARD_MEMBER];
 const AUDITOR_WS  = [ROLES.AUDITOR];
 const APPROVALS   = [ROLES.PRESIDENT]; // President only
+const CLEARANCES  = [ROLES.PRESIDENT, ROLES.TREASURER]; // Move In/Out clearances
 
 // ─── RequireRole ──────────────────────────────────────────────────────────────
 const RequireRole = ({ userRole, allowedRoles, children }) => {
@@ -112,7 +113,7 @@ const Sidebar = () => {
       icon:  <UserCheck size={22} />,
       label: 'Account Approval',
       path:  '/hoa/account-approval',
-      allowedRoles: OPERATIONS,
+      allowedRoles: APPROVALS,
     },
 
     // ── Pending Approvals — president only ────────────────────────────────────
@@ -123,12 +124,12 @@ const Sidebar = () => {
       allowedRoles: APPROVALS,
     },
 
-    // ── Move In / Move Out Clearances ─────────────────────────────────────────
+    // ── Move In / Move Out Clearances — president + treasurer ─────────────────
     {
       icon:  <ClipboardList size={22} />,
       label: 'Move In / Out Clearance',
       path:  '/hoa/move-in-clearances',
-      allowedRoles: OPERATIONS,
+      allowedRoles: CLEARANCES,
     },
 
     // ── Reservations ──────────────────────────────────────────────────────────
@@ -147,8 +148,7 @@ const Sidebar = () => {
       allowedRoles: PAYMENTS,
     },
 
-    // ── Elections — president, VP, secretary ──────────────────────────────────
-    // Board members are not managers; they vote as residents, not as admins.
+    // ── Elections — Elecom only ───────────────────────────────────────────────
     {
       icon:  <Vote size={22} />,
       label: 'Elections',
@@ -190,6 +190,7 @@ const Sidebar = () => {
     auditor:        'Auditor',
     board_member:   'Board Member',
     super_admin:    'Super Admin',
+    elecom:         'Elecom',
   }[currentUserRole] || currentUserRole;
 
   return (

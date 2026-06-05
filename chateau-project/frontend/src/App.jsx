@@ -24,7 +24,7 @@ import SuperAdProfile from './HOA Page/SuperAdmin/Super Admin Profile/SuperAdPro
 import AdminControl from './HOA Page/SuperAdmin/Admin Profiles/AdminControl.jsx'; 
 import Residents from './HOA Page/SuperAdmin/Profiles Residents/Residents.jsx'; 
 import SystemLogs from './HOA Page/SuperAdmin/System AuditLogs/SystemLogs.jsx';
-import PendingApproval from './HOA Page/Pending Approval/PendingApproval.jsx'; 
+import PendingApproval from './HOA Page/Pending Approval/PendingApproval.jsx'; // ✅ Moved to HOA admin side — president only
 import AuditorDashboard from './HOA Page/AuditorBoard/AuditorDashboard.jsx'; 
 import Statistics from './HOA Page/Statistics/Statistics.jsx';
 import AccountApproval from './HOA Page/Account Approval/AccountApproval.jsx';
@@ -52,11 +52,14 @@ const ACCESS = {
   // Resident/operational management
   OPERATIONS:  [ROLES.PRESIDENT, ROLES.VICE_PRESIDENT, ROLES.SECRETARY, ROLES.BOARD_MEMBER],
 
-  // Election management — board members are observers only, not managers
-  ELECTIONS:   [ROLES.PRESIDENT, ROLES.VICE_PRESIDENT, ROLES.SECRETARY],
+  // Election management — only Elecom role can manage; no other HOA role has access
+  ELECTIONS:   ['elecom'],
 
   // Financial — only president and treasurer can add/void payments
   PAYMENTS:    [ROLES.PRESIDENT, ROLES.TREASURER],
+
+  // Move In/Out Clearances — president + treasurer manage these
+  CLEARANCES:  [ROLES.PRESIDENT, ROLES.TREASURER],
 
   // Statistics — everyone except treasurer (no operational context)
   STATISTICS:  [ROLES.PRESIDENT, ROLES.VICE_PRESIDENT, ROLES.SECRETARY, ROLES.AUDITOR, ROLES.BOARD_MEMBER],
@@ -65,7 +68,7 @@ const ACCESS = {
   AUDITOR:     [ROLES.AUDITOR],
 
   // Profile — everyone
-  PROFILE:     [ROLES.PRESIDENT, ROLES.VICE_PRESIDENT, ROLES.SECRETARY, ROLES.TREASURER, ROLES.AUDITOR, ROLES.BOARD_MEMBER],
+  PROFILE:     [ROLES.PRESIDENT, ROLES.VICE_PRESIDENT, ROLES.SECRETARY, ROLES.TREASURER, ROLES.AUDITOR, ROLES.BOARD_MEMBER, 'elecom'],
 };
 
 // ─── Auth + role helpers ──────────────────────────────────────────────────────
@@ -136,6 +139,9 @@ const DashboardRedirect = () => {
   // Auditor lands on their dedicated workspace
   if (role === ROLES.AUDITOR) return <Navigate to="/hoa/auditor-workspace" replace />;
 
+  // Elecom lands directly on Elections — that's their only page
+  if (role === 'elecom') return <Navigate to="/hoa/elections" replace />;
+
   // Everyone else: president, vice_president, secretary, board_member → Dashboard
   return (
     <RoleBasedRoute allowedRoles={[...ACCESS.GOVERNANCE, 'super_admin']}>
@@ -189,16 +195,16 @@ function App() {
             </RoleBasedRoute>
           } />
 
-          {/* ── Account approval ── */}
+          {/* ── Account approval — president only ── */}
           <Route path="account-approval" element={
-            <RoleBasedRoute allowedRoles={ACCESS.OPERATIONS}>
+            <RoleBasedRoute allowedRoles={['president']}>
               <AccountApproval />
             </RoleBasedRoute>
           } />
 
           {/* ── Move In / Move Out Clearances ── */}
           <Route path="move-in-clearances" element={
-            <RoleBasedRoute allowedRoles={ACCESS.OPERATIONS}>
+            <RoleBasedRoute allowedRoles={ACCESS.CLEARANCES}>
               <MoveInClearance />
             </RoleBasedRoute>
           } />

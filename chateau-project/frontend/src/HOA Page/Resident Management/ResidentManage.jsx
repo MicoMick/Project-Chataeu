@@ -1,14 +1,10 @@
-// ResidentManage.jsx
-// All edits and deletions are now done DIRECTLY (no approval_requests table).
-// President, VP, Secretary can edit. President only can delete.
-
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseAdmin';
 import { logAudit } from '../auditLogger';
 import {
   Users, UserPlus, UserCheck, Search, X,
   Home, AlertTriangle, Eye, Edit2, Trash2,
-  RefreshCw, CheckCircle2,
+  RefreshCw, CheckCircle2, Info,
 } from 'lucide-react';
 
 const RequireRole = ({ userRole, allowedRoles, children }) => {
@@ -33,8 +29,12 @@ const Toast = ({ toast }) => {
   return (
     <div className={`fixed top-6 right-6 z-[999] flex items-center gap-3 px-5 py-4 rounded-2xl shadow-2xl border
       animate-in fade-in slide-in-from-top-4 duration-300
-      ${toast.type === 'success' ? 'bg-emerald-50 border-emerald-100 text-emerald-800' : 'bg-red-50 border-red-100 text-red-800'}`}>
-      {toast.type === 'success' ? <CheckCircle2 size={16} className="text-emerald-500" /> : <AlertTriangle size={16} className="text-red-500" />}
+      ${toast.type === 'success' ? 'bg-emerald-50 border-emerald-100 text-emerald-800'
+      : toast.type === 'info'    ? 'bg-blue-50 border-blue-100 text-blue-800'
+      :                            'bg-red-50 border-red-100 text-red-800'}`}>
+      {toast.type === 'success' ? <CheckCircle2 size={16} className="text-emerald-500" />
+      : toast.type === 'info'   ? <Info          size={16} className="text-blue-500"    />
+      :                           <AlertTriangle  size={16} className="text-red-500"     />}
       <p className="text-sm font-bold">{toast.message}</p>
     </div>
   );
@@ -58,6 +58,8 @@ const ResidentManage = () => {
   });
 
   const currentUserRole = localStorage.getItem('userRole') || 'resident';
+  const isPresident  = currentUserRole === 'president';
+  const isSecretary  = currentUserRole === 'secretary';
 
   const showToast = (message, type = 'success') => {
     setToast({ show: true, message, type });
@@ -97,35 +99,51 @@ const ResidentManage = () => {
     }
   }, [selectedResident]);
 
-  // ── Direct edit — no approval needed ──────────────────────────────────────
+  // ── Save handler — President saves directly; Secretary submits for approval ──
   const handleUpdateResident = async (e) => {
     e.preventDefault();
     setIsSaving(true);
     try {
-      const { error } = await supabase
-        .from('profiles')
-        .update(editFields)
-        .eq('id', selectedResident.id);
-      if (error) throw error;
-      await logAudit('UPDATE_RESIDENT', `Updated resident profile ID: ${selectedResident.id}`);
-      showToast('Resident updated successfully.');
+      if (isPresident) {
+        // President: direct save
+        const { error } = await supabase
+          .from('profiles')
+          .update(editFields)
+          .eq('id', selectedResident.id);
+        if (error) throw error;
+        await logAudit('UPDATE_RESIDENT', `President updated resident profile ID: ${selectedResident.id}`);
+        showToast('Resident updated successfully.');
+        fetchResidents();
+      } else if (isSecretary) {
+        // Secretary: submit to approval_requests for President review
+        const { data: { user } } = await supabase.auth.getUser();
+        const { error } = await supabase.from('approval_requests').insert([{
+          target_table:   'profiles',
+          target_id:      selectedResident.id,
+          action_type:    'UPDATE',
+          requested_data: editFields,
+          status:         'PENDING',
+          requested_by:   user?.id || null,
+        }]);
+        if (error) throw error;
+        await logAudit('REQUEST_UPDATE_RESIDENT',
+          `Secretary submitted edit request for resident ID: ${selectedResident.id}`);
+        showToast('Edit request submitted to the President for approval.', 'info');
+      }
       setShowEditModal(false);
       setSelectedResident(null);
-      fetchResidents();
     } catch (e) {
-      showToast('Failed to update resident: ' + e.message, 'error');
+      showToast('Failed: ' + e.message, 'error');
     } finally {
       setIsSaving(false);
     }
   };
 
-  // ── Direct delete — President only ────────────────────────────────────────
+  // ── Delete — President only (direct) ─────────────────────────────────────
   const confirmDelete = async () => {
     try {
       const { error } = await supabase
-        .from('profiles')
-        .delete()
-        .eq('id', residentToDelete);
+        .from('profiles').delete().eq('id', residentToDelete);
       if (error) throw error;
       await logAudit('DELETE_RESIDENT', `Deleted resident profile ID: ${residentToDelete}`, 'warning');
       showToast('Resident deleted successfully.');
@@ -156,11 +174,17 @@ const ResidentManage = () => {
   const inputClass = "w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#006837]/20 focus:border-[#006837] transition-all";
   const labelClass = "block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5";
 
+  // Button label changes depending on role
+  const saveLabel = isPresident ? 'Save Changes' : 'Submit for Approval';
+  const saveHint  = isSecretary
+    ? 'Your changes will be reviewed by the President before applying.'
+    : '';
+
   return (
     <div className="min-h-screen bg-slate-50 p-6 lg:p-8 space-y-6">
       <Toast toast={toast} />
 
-      {/* ── Delete confirm — President only ── */}
+      {/* Delete confirm — President only */}
       {residentToDelete && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
           <div className="bg-white rounded-3xl p-7 w-full max-w-sm shadow-2xl animate-in zoom-in-95 duration-200">
@@ -185,7 +209,7 @@ const ResidentManage = () => {
         </div>
       )}
 
-      {/* ── View Profile modal ── */}
+      {/* View Profile modal */}
       {selectedResident && isViewingProfile && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm"
@@ -208,14 +232,14 @@ const ResidentManage = () => {
             </div>
             <div className="p-6 overflow-y-auto space-y-3">
               {[
-                { label: 'Email',     value: selectedResident.email    },
-                { label: 'Phone',     value: selectedResident.phone    },
-                { label: 'Username',  value: selectedResident.username },
-                { label: 'First Name',value: selectedResident.first_name },
-                { label: 'Last Name', value: selectedResident.last_name  },
-                { label: 'M.I.',      value: selectedResident.middle_initial },
-                { label: 'Address',   value: selectedResident.address  },
-                { label: 'Street',    value: selectedResident.street   },
+                { label: 'Email',     value: selectedResident.email           },
+                { label: 'Phone',     value: selectedResident.phone           },
+                { label: 'Username',  value: selectedResident.username        },
+                { label: 'First Name',value: selectedResident.first_name      },
+                { label: 'Last Name', value: selectedResident.last_name       },
+                { label: 'M.I.',      value: selectedResident.middle_initial  },
+                { label: 'Address',   value: selectedResident.address         },
+                { label: 'Street',    value: selectedResident.street          },
                 { label: 'Block/Lot', value: [selectedResident.block && `Block ${selectedResident.block}`, selectedResident.lot && `Lot ${selectedResident.lot}`].filter(Boolean).join(', ') },
                 { label: 'Joined',    value: selectedResident.created_at ? new Date(selectedResident.created_at).toLocaleDateString() : null },
               ].map(({ label, value }) => value ? (
@@ -233,7 +257,7 @@ const ResidentManage = () => {
         </div>
       )}
 
-      {/* ── Edit modal — direct save, no approval ── */}
+      {/* Edit modal — President (direct) or Secretary (sends to approval) */}
       {showEditModal && selectedResident && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm"
@@ -242,7 +266,14 @@ const ResidentManage = () => {
             <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between shrink-0">
               <div>
                 <h3 className="text-lg font-black text-slate-900">Edit Resident Details</h3>
-                <p className="text-xs text-slate-400 mt-0.5">Changes are saved directly to the resident profile</p>
+                {isSecretary && (
+                  <p className="text-xs text-blue-500 font-semibold mt-0.5 flex items-center gap-1">
+                    <Info size={11} /> Changes will be submitted to the President for approval
+                  </p>
+                )}
+                {isPresident && (
+                  <p className="text-xs text-slate-400 mt-0.5">Changes are saved directly to the resident profile</p>
+                )}
               </div>
               <button onClick={() => { setShowEditModal(false); setSelectedResident(null); }}
                 className="p-2 hover:bg-slate-100 rounded-xl text-slate-400 cursor-pointer">
@@ -281,6 +312,17 @@ const ResidentManage = () => {
                     className={inputClass} />
                 </div>
               </div>
+
+              {/* Secretary hint banner */}
+              {isSecretary && (
+                <div className="mt-4 p-3.5 bg-blue-50 border border-blue-100 rounded-2xl flex items-start gap-2.5">
+                  <Info size={15} className="text-blue-500 shrink-0 mt-0.5" />
+                  <p className="text-xs text-blue-700 leading-relaxed">
+                    As Secretary, your edits will be sent to the <strong>President</strong> as a pending approval request. The changes won't apply until the President approves them.
+                  </p>
+                </div>
+              )}
+
               <div className="flex gap-3 mt-6">
                 <button type="button"
                   onClick={() => { setShowEditModal(false); setSelectedResident(null); }}
@@ -288,8 +330,13 @@ const ResidentManage = () => {
                   Cancel
                 </button>
                 <button type="submit" disabled={isSaving}
-                  className="flex-1 py-3 rounded-2xl bg-[#006837] hover:bg-[#004d29] text-white font-bold text-sm shadow-lg shadow-[#006837]/20 cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2">
-                  {isSaving ? <><RefreshCw size={14} className="animate-spin" /> Saving…</> : 'Save Changes'}
+                  className={`flex-1 py-3 rounded-2xl text-white font-bold text-sm cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2
+                    ${isSecretary
+                      ? 'bg-blue-500 hover:bg-blue-600 shadow-lg shadow-blue-100'
+                      : 'bg-[#006837] hover:bg-[#004d29] shadow-lg shadow-[#006837]/20'}`}>
+                  {isSaving
+                    ? <><RefreshCw size={14} className="animate-spin" /> {isSecretary ? 'Submitting…' : 'Saving…'}</>
+                    : saveLabel}
                 </button>
               </div>
             </form>
@@ -349,9 +396,7 @@ const ResidentManage = () => {
               <thead className="bg-slate-50 border-b border-slate-100">
                 <tr>
                   {['Resident','Contact','Block / Lot','Type','Status','Joined',''].map(h => (
-                    <th key={h} className="px-5 py-3.5 text-[10px] font-black text-slate-400 uppercase tracking-wider whitespace-nowrap">
-                      {h}
-                    </th>
+                    <th key={h} className="px-5 py-3.5 text-[10px] font-black text-slate-400 uppercase tracking-wider whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -368,13 +413,11 @@ const ResidentManage = () => {
                   };
 
                   return (
-                    <tr key={r.id} className="hover:bg-slate-50/60 transition-colors group">
+                    <tr key={r.id} className="hover:bg-slate-50/60 transition-colors">
                       <td className="px-5 py-4">
                         <div className="flex items-center gap-3">
                           <div className="w-9 h-9 rounded-xl bg-[#006837]/10 text-[#006837] flex items-center justify-center font-bold text-sm uppercase overflow-hidden shrink-0">
-                            {r.avatar_url
-                              ? <img src={r.avatar_url} alt="" className="w-full h-full object-cover" />
-                              : (r.first_name?.charAt(0) || r.username?.charAt(0) || '?')}
+                            {r.avatar_url ? <img src={r.avatar_url} alt="" className="w-full h-full object-cover" /> : (r.first_name?.charAt(0) || r.username?.charAt(0) || '?')}
                           </div>
                           <div className="min-w-0">
                             <p className="text-sm font-bold text-slate-800 truncate">{r.full_name || r.username}</p>
@@ -410,10 +453,10 @@ const ResidentManage = () => {
                             className="p-2 hover:bg-blue-50 text-slate-400 hover:text-blue-600 rounded-lg transition-colors cursor-pointer">
                             <Eye size={15} />
                           </button>
-                          {/* Edit — president, VP, secretary */}
-                          <RequireRole userRole={currentUserRole} allowedRoles={['president','vice_president','secretary']}>
+                          {/* Edit — President (direct) and Secretary (via approval). VP cannot edit. */}
+                          <RequireRole userRole={currentUserRole} allowedRoles={['president','secretary']}>
                             <button onClick={() => { setSelectedResident(r); setIsViewingProfile(false); setShowEditModal(true); }}
-                              title="Edit resident"
+                              title={isSecretary ? 'Edit (requires President approval)' : 'Edit resident'}
                               className="p-2 hover:bg-emerald-50 text-slate-400 hover:text-emerald-600 rounded-lg transition-colors cursor-pointer">
                               <Edit2 size={15} />
                             </button>
