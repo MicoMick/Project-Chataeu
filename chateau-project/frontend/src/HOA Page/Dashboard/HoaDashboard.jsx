@@ -173,8 +173,8 @@ const HoaDashboard = () => {
 
       {/* ── Header ── */}
       <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-2">
-        <div>
-          <p className="text-sm font-semibold text-slate-400">{greeting} 👋</p>
+        <div> 
+          <p className="text-lg font-semibold text-slate-500">{greeting}!</p>
           <h1 className="text-2xl font-black text-slate-900 mt-0.5">Dashboard</h1>
           <p className="text-sm text-slate-400 mt-0.5">Here's what's happening in your community today.</p>
         </div>

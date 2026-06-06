@@ -7,6 +7,54 @@ import {
 import { supabase } from '../supabaseAdmin';
 import { logAudit } from '../auditLogger';
 
+// ─── Pagination hook ─────────────────────────────────────────────────────────
+const usePagination = (items, rowsPerPage = 10) => {
+  const [page, setPage] = React.useState(1);
+  const totalPages = Math.max(1, Math.ceil(items.length / rowsPerPage));
+  // Reset to page 1 whenever the list changes (filter/search)
+  React.useEffect(() => { setPage(1); }, [items.length]);
+  const paginated = items.slice((page - 1) * rowsPerPage, page * rowsPerPage);
+  return { paginated, page, setPage, totalPages, total: items.length };
+};
+
+// ─── Pagination bar ───────────────────────────────────────────────────────────
+const PaginationBar = ({ page, totalPages, setPage, total, rowsPerPage }) => {
+  if (totalPages <= 1) return null;
+  const from = (page - 1) * rowsPerPage + 1;
+  const to   = Math.min(page * rowsPerPage, total);
+  const pages = [];
+  if (totalPages <= 7) {
+    for (let i = 1; i <= totalPages; i++) pages.push(i);
+  } else {
+    pages.push(1);
+    if (page > 3) pages.push('…');
+    for (let i = Math.max(2, page - 1); i <= Math.min(totalPages - 1, page + 1); i++) pages.push(i);
+    if (page < totalPages - 2) pages.push('…');
+    pages.push(totalPages);
+  }
+  return (
+    <div className="px-5 py-3 border-t border-slate-100 flex items-center justify-between gap-4 flex-wrap">
+      <p className="text-xs text-slate-400 font-medium">
+        Showing <span className="font-bold text-slate-600">{from}–{to}</span> of <span className="font-bold text-slate-600">{total}</span>
+      </p>
+      <div className="flex items-center gap-1">
+        <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
+          className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer text-sm font-bold transition-all">‹</button>
+        {pages.map((p, i) =>
+          p === '…'
+            ? <span key={i} className="w-8 h-8 flex items-center justify-center text-slate-300 text-sm">…</span>
+            : <button key={p} onClick={() => setPage(p)}
+                className={`w-8 h-8 flex items-center justify-center rounded-lg text-xs font-bold transition-all cursor-pointer
+                  ${page === p ? 'bg-[#006837] text-white shadow-sm' : 'text-slate-500 hover:bg-slate-100'}`}>{p}</button>
+        )}
+        <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
+          className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer text-sm font-bold transition-all">›</button>
+      </div>
+    </div>
+  );
+};
+
+
 const RequireRole = ({ userRole, allowedRoles, children }) => {
   if (allowedRoles.includes(userRole) || userRole === 'super_admin') return children;
   return null;
@@ -89,7 +137,7 @@ const RowMenu = ({ ann, currentUserRole, onEdit, onPin, onDelete }) => {
 
       <PortalMenu anchorRef={btnRef} open={open} onClose={() => setOpen(false)}>
         <div className="p-1.5 space-y-0.5">
-          <RequireRole userRole={currentUserRole} allowedRoles={['president','vice_president','secretary']}>
+          <RequireRole userRole={currentUserRole} allowedRoles={['president','vice_president','secretary','board_member']}>
             <button
               onClick={() => { onEdit(); setOpen(false); }}
               className="w-full flex items-center gap-2 px-3 py-2.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 rounded-xl cursor-pointer"
@@ -443,6 +491,7 @@ const Announcements = () => {
       return matchSearch && matchCategory && matchStatus;
     })
     .sort((a, b) => (a.is_pinned === b.is_pinned ? 0 : a.is_pinned ? -1 : 1));
+  const { paginated: paginatedAnn, page: annPage, setPage: setAnnPage, totalPages: annTotalPages, total: filteredTotal } = usePagination(filtered, 10);
 
   const formProps = {
     newTitle, setNewTitle, newContent, setNewContent,
@@ -539,7 +588,7 @@ const Announcements = () => {
           <h1 className="text-2xl font-black text-slate-900">Announcements</h1>
           <p className="text-sm text-slate-400 mt-0.5">Manage and publish community announcements</p>
         </div>
-        <RequireRole userRole={currentUserRole} allowedRoles={['president','vice_president','secretary']}>
+        <RequireRole userRole={currentUserRole} allowedRoles={['president','vice_president','secretary','board_member']}>
           <button onClick={() => { resetForm(); setShowModal(true); }}
             className="flex items-center gap-2 px-5 py-2.5 bg-[#006837] hover:bg-[#004d29] text-white rounded-xl text-sm font-bold shadow-lg shadow-[#006837]/20 transition-all cursor-pointer">
             <Plus size={16} /> New Announcement
@@ -603,7 +652,7 @@ const Announcements = () => {
               <Megaphone size={36} className="mb-2" />
               <p className="text-sm font-semibold text-slate-400">No announcements found</p>
             </div>
-          ) : filtered.map(ann => (
+          ) : paginatedAnn.map(ann => (
             <div key={ann.id}
               className={`px-5 py-4 flex items-start gap-4 hover:bg-slate-50/60 transition-colors
                 ${ann.is_emergency ? 'border-l-2 border-red-400' : ''}`}>
@@ -660,11 +709,14 @@ const Announcements = () => {
         </div>
 
         {!loading && filtered.length > 0 && (
-          <div className="px-5 py-3 border-t border-slate-100">
-            <p className="text-xs text-slate-400">
-              {filtered.length} announcement{filtered.length !== 1 ? 's' : ''}
-            </p>
-          </div>
+          <>
+            <PaginationBar page={annPage} totalPages={annTotalPages} setPage={setAnnPage} total={filtered.length} rowsPerPage={10} />
+            <div className="px-5 py-3 border-t border-slate-100">
+              <p className="text-xs text-slate-400">
+                {filtered.length} announcement{filtered.length !== 1 ? 's' : ''}
+              </p>
+            </div>
+          </>
         )}
       </div>
     </div>

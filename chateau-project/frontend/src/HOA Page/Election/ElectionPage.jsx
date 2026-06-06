@@ -11,9 +11,6 @@ import CandidatesPage from "./CandidatesPage.jsx";
 import Results from "./Results.jsx";
 import logger from '../auditLogger';
 
-// ─── Current user role ────────────────────────────────────────────────────────
-const currentUserRole = localStorage.getItem('userRole') || 'resident';
-const canManage = currentUserRole === 'elecom' || currentUserRole === 'super_admin';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const formatDate = (d) => d ? d.split('T')[0] : '';
@@ -81,7 +78,7 @@ const DeleteConfirm = ({ show, onCancel, onConfirm }) => {
 };
 
 // ─── Election Card ────────────────────────────────────────────────────────────
-const ElectionCard = ({ election, onView, onEdit, onDelete }) => {
+const ElectionCard = ({ election, onView, onEdit, onDelete, canManage }) => {
   const cfg = statusCfg[election.status] || statusCfg.closed;
   return (
     <div className="group bg-white rounded-2xl border border-slate-100 shadow-sm hover:shadow-lg hover:border-[#006837]/20 transition-all duration-300 flex flex-col overflow-hidden">
@@ -384,6 +381,10 @@ const ElectionDetailView = ({ election, electionTab, setElectionTab, onBack, tot
 
 // ─── Main ElectionPage ────────────────────────────────────────────────────────
 const ElectionPage = () => {
+  // ── Role — read inside component so it's always fresh after login ──────
+  const currentUserRole = localStorage.getItem('userRole') || 'resident';
+  const canManage = currentUserRole === 'elecom' || currentUserRole === 'super_admin';
+
   const [elections,          setElections]          = useState([]);
   const [loading,            setLoading]            = useState(true);
   const [activeTab,          setActiveTab]          = useState('all');
@@ -675,6 +676,7 @@ const ElectionPage = () => {
             <ElectionCard
               key={election.id}
               election={election}
+              canManage={canManage}
               onView={id => { setSelectedElectionId(id); setElectionTab('overview'); }}
               onEdit={openEdit}
               onDelete={id => setDeleteConfirm({ show: true, id })}

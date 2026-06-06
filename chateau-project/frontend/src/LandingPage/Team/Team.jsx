@@ -1,93 +1,119 @@
-import React, { useEffect, useRef } from 'react'; // Added useEffect and useRef
-import RaffyTuvilla from '../../assets/RaffyTuvilla.png'; 
-import MichaelNocum from '../../assets/MichaelNocum.png';
-import JanetVillar from '../../assets/JanetVillar.png';
-import JoevyMelegrito from '../../assets/JoevyMelegrito.png';
-import DivineArenas from '../../assets/DivineArenas.png';
-import DaisyJimenez from '../../assets/DaisyJimenez.png';
-import BabyArboleda from '../../assets/BabyArboleda.png';
-import RonelSantos from '../../assets/RonelSantos.png';
-import MarkAlvinTahir from '../../assets/MarkAlvinTahir.png';
+import React, { useEffect } from 'react';
+import RaffyTuvilla     from '../../assets/RaffyTuvilla.png';
+import MichaelNocum     from '../../assets/MichaelNocum.png';
+import JanetVillar      from '../../assets/JanetVillar.png';
+import JoevyMelegrito   from '../../assets/JoevyMelegrito.png';
+import DivineArenas     from '../../assets/DivineArenas.png';
+import DaisyJimenez     from '../../assets/DaisyJimenez.png';
+import BabyArboleda     from '../../assets/BabyArboleda.png';
+import RonelSantos      from '../../assets/RonelSantos.png';
+import MarkAlvinTahir   from '../../assets/MarkAlvinTahir.png';
 
+const ROLE_COLORS = {
+  'President':         'bg-[#006837]/10 text-[#006837] border-[#006837]/20',
+  'Vice President':    'bg-blue-50 text-blue-700 border-blue-100',
+  'Treasurer':         'bg-amber-50 text-amber-700 border-amber-100',
+  'Secretary':         'bg-violet-50 text-violet-700 border-violet-100',
+  'Auditor':           'bg-rose-50 text-rose-700 border-rose-100',
+  'Board of Directors':'bg-slate-100 text-slate-600 border-slate-200',
+};
+
+const teamMembers = [
+  { name: 'Raffy Tuvilla',     role: 'President',          url: RaffyTuvilla    },
+  { name: 'Michael Nocum',     role: 'Vice President',     url: MichaelNocum    },
+  { name: 'Janet Villar',      role: 'Treasurer',          url: JanetVillar     },
+  { name: 'Joevy Melegrito',   role: 'Secretary',          url: JoevyMelegrito  },
+  { name: 'Divine Arenas',     role: 'Auditor',            url: DivineArenas    },
+  { name: 'Daisy Jimenez',     role: 'Board of Directors', url: DaisyJimenez   },
+  { name: 'Baby Arboleda',     role: 'Board of Directors', url: BabyArboleda   },
+  { name: 'Ronel Santos',      role: 'Board of Directors', url: RonelSantos    },
+  { name: 'Mark Alvin Tahir',  role: 'Board of Directors', url: MarkAlvinTahir },
+];
 
 const Team = () => {
-  const teamMembers = [
-    { name: "Raffy Tuvilla", role: "President", url: RaffyTuvilla }, 
-    { name: "Michael Nocum", role: "Vice President", url: MichaelNocum },
-    { name: "Janet Villar", role: "Treasurer", url: JanetVillar },
-    { name: "Joevy Melegrito", role: "Secretary", url: JoevyMelegrito },
-    { name: "Divine Arenas", role: "Auditor", url: DivineArenas },
-    { name: "Daisy Jimenez", role: "Board of Directors", url: DaisyJimenez },
-    { name: "Baby Arboleda", role: "Board of Directors", url: BabyArboleda },
-    { name: "Jessica Taylor", role: "Board of Directors", url: RonelSantos },
-    { name: "David Anderson", role: "Board of Directors", url: MarkAlvinTahir },
-  ];
-
-  // Logic to handle scroll-triggered animation
   useEffect(() => {
-    const observerOptions = {
-      threshold: 0.1, // Trigger when 10% of the card is visible
-    };
-
-    const observer = new IntersectionObserver((entries) => {
-      entries.forEach((entry) => {
-        if (entry.isIntersecting) {
-          entry.target.classList.add('animate-reveal');
-          observer.unobserve(entry.target); // Run animation only once
-        }
-      });
-    }, observerOptions);
-
-    const cards = document.querySelectorAll('.team-card');
-    cards.forEach((card) => observer.observe(card));
-
-    return () => observer.disconnect();
+    const obs = new IntersectionObserver(
+      entries => entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add('tc-visible'); obs.unobserve(e.target); }}),
+      { threshold: 0.1 }
+    );
+    document.querySelectorAll('.tc-card').forEach(el => obs.observe(el));
+    return () => obs.disconnect();
   }, []);
 
+  // Separate President for feature spotlight
+  const [president, ...rest] = teamMembers;
+
   return (
-    <section id="team" className="py-24 bg-[#F7FAFC]">
-      {/* Internal CSS for the Pop-up effect */}
-      <style dangerouslySetInnerHTML={{ __html: `
-        @keyframes revealPopup {
-          0% { opacity: 0; transform: translateY(30px) scale(0.9); }
-          100% { opacity: 1; transform: translateY(0) scale(1); }
+    <section id="team" className="py-28 bg-white overflow-hidden relative">
+      <style>{`
+        @keyframes tcPop {
+          from { opacity:0; transform:translateY(30px) scale(0.96); }
+          to   { opacity:1; transform:translateY(0) scale(1); }
         }
-        .team-card {
-          opacity: 0; /* Hidden by default */
-        }
-        .animate-reveal {
-          animation: revealPopup 0.6s ease-out forwards;
-        }
-      `}} />
+        .tc-card { opacity:0; }
+        .tc-card.tc-visible { animation: tcPop 0.6s cubic-bezier(.22,.68,0,1.2) forwards; }
+      `}</style>
 
-      <div className="container mx-auto px-6 text-center">
-        <h4 className="text-[#006837] font-bold uppercase tracking-widest mb-3 text-sm">Meet Our People</h4>
-        <h2 className="text-4xl md:text-5xl font-black mb-4 text-slate-900">Board of Directors</h2>
-        <p className="max-w-2xl mx-auto text-slate-600 mb-16 text-lg">
-          The Board of Directors is here to serve <span className="text-[#006837] font-semibold">Chateau Real</span>, working to make your neighborhood experience simple, smart, and secure.
-        </p>
+      {/* Subtle top gradient band */}
+      <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-[#006837] via-[#FFF200] to-[#006837]" />
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 text-center">
-          {teamMembers.map((member, index) => (
-            <div 
-              key={index} 
-              // Added "team-card" class and dynamic animation delay
-              className="team-card bg-white p-8 rounded-2xl shadow-sm border border-slate-100 flex flex-col items-center text-center hover:shadow-xl hover:-translate-y-2 transition-all duration-300 group"
-              style={{ animationDelay: `${index * 100}ms` }}
-            >
-              {/* Image Element */}
-              <img 
-                src={member.url} 
-                alt={member.name}
-                className="w-24 h-24 rounded-full object-cover mb-6 border-2 border-white shadow-md group-hover:scale-105 transition-transform duration-300"
-              />
-              
-              <h3 className="text-xl font-bold mb-1 text-slate-800">{member.name}</h3>
-              <p className="text-[#006837] font-medium text-sm mb-3">
-                {member.role}
-              </p>
+      <div className="container mx-auto px-6">
+
+        {/* Header */}
+        <div className="text-center mb-16 reveal">
+          <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-[#006837]/10 border border-[#006837]/20 rounded-full text-[#006837] text-xs font-black uppercase tracking-widest mb-4">
+            <span className="w-1.5 h-1.5 rounded-full bg-[#006837]" />
+            Meet Our People
+          </div>
+          <h2 className="text-5xl md:text-6xl font-black text-slate-900 mb-4 tracking-tight">
+            Board of <span className="text-[#006837]">Directors</span>
+          </h2>
+          <p className="max-w-2xl mx-auto text-slate-500 text-lg leading-relaxed">
+            The Board of Directors is here to serve{' '}
+            <span className="text-[#006837] font-semibold">Chateau Real</span>,
+            working to make your neighborhood experience simple, smart, and secure.
+          </p>
+        </div>
+
+        {/* President spotlight */}
+        <div className="tc-card flex justify-center mb-12" style={{ animationDelay: '0ms' }}>
+          <div className="group bg-gradient-to-br from-[#006837] to-[#004d29] rounded-3xl p-8 flex flex-col items-center text-center w-72 shadow-2xl shadow-[#006837]/20 hover:-translate-y-2 transition-all duration-300 relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-40 h-40 bg-white/5 rounded-full -translate-y-20 translate-x-20 pointer-events-none" />
+            <div className="absolute bottom-0 left-0 w-32 h-32 bg-[#FFF200]/10 rounded-full translate-y-16 -translate-x-10 pointer-events-none" />
+            {/* ── Photo: fixed-size square container with object-cover ── */}
+            <div className="relative w-28 h-28 rounded-2xl overflow-hidden border-4 border-white/30 shadow-xl mb-5 shrink-0">
+              <img src={president.url} alt={president.name}
+                className="w-full h-full object-cover object-top group-hover:scale-110 transition-transform duration-500" />
             </div>
-          ))}
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-[#FFF200] text-[#006837] rounded-full text-[10px] font-black uppercase tracking-widest mb-3">
+              {president.role}
+            </span>
+            <h3 className="text-xl font-black text-white">{president.name}</h3>
+          </div>
+        </div>
+
+        {/* Rest of team */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+          {rest.map((member, i) => {
+            const roleColor = ROLE_COLORS[member.role] || ROLE_COLORS['Board of Directors'];
+            return (
+              <div key={i}
+                className="tc-card group bg-white border border-slate-100 rounded-2xl p-6 flex flex-col items-center text-center shadow-sm hover:shadow-xl hover:border-[#006837]/20 hover:-translate-y-1 transition-all duration-300"
+                style={{ animationDelay: `${(i + 1) * 80}ms` }}>
+
+                {/* ── Photo: fixed square, object-cover object-top ── */}
+                <div className="relative w-24 h-24 rounded-2xl overflow-hidden border-2 border-slate-100 shadow-md mb-4 shrink-0 group-hover:border-[#006837]/20 transition-colors">
+                  <img src={member.url} alt={member.name}
+                    className="w-full h-full object-cover object-top group-hover:scale-110 transition-transform duration-500" />
+                </div>
+
+                <h3 className="text-base font-black text-slate-900 mb-2">{member.name}</h3>
+                <span className={`inline-flex text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full border ${roleColor}`}>
+                  {member.role}
+                </span>
+              </div>
+            );
+          })}
         </div>
       </div>
     </section>

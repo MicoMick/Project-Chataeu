@@ -4,7 +4,23 @@ import { logAudit } from '../../auditLogger';
 import {
   Users, Search, RefreshCw, Key, CheckCircle2,
   AlertTriangle, X, UserPlus, UserCheck, Clock,
+  Eye, EyeOff,
 } from 'lucide-react';
+
+// ─── Password strength helper ─────────────────────────────────────────────────
+const getStrength = (pw) => {
+  if (!pw) return { score: 0, label: '', color: '', bar: '' };
+  let score = 0;
+  if (pw.length >= 8)           score += 25;
+  if (pw.length >= 12)          score += 10;
+  if (/[A-Z]/.test(pw))         score += 20;
+  if (/[0-9]/.test(pw))         score += 20;
+  if (/[^A-Za-z0-9]/.test(pw))  score += 25;
+  if (score < 30)  return { score,       label: 'Weak',   color: 'text-red-500',    bar: 'bg-red-400'     };
+  if (score < 60)  return { score,       label: 'Fair',   color: 'text-amber-500',  bar: 'bg-amber-400'   };
+  if (score < 80)  return { score,       label: 'Good',   color: 'text-blue-500',   bar: 'bg-blue-400'    };
+                   return { score: 100,  label: 'Strong', color: 'text-emerald-500',bar: 'bg-emerald-500'  };
+};
 
 const fullName = (p) =>
   [p.first_name, p.middle_initial ? p.middle_initial + '.' : '', p.last_name]
@@ -44,14 +60,21 @@ const StatCard = ({ title, value, icon: Icon, iconBg, iconColor }) => (
 const PasswordModal = ({ resident, onClose, onSuccess }) => {
   const [newPassword,     setNewPassword]     = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [showNew,         setShowNew]         = useState(false);
+  const [showConfirm,     setShowConfirm]     = useState(false);
   const [loading,         setLoading]         = useState(false);
   const [error,           setError]           = useState('');
+
+  const strength = getStrength(newPassword);
+  const mismatch = confirmPassword && newPassword !== confirmPassword;
+  const canSubmit = newPassword && strength.score >= 60 && newPassword === confirmPassword;
 
   const handleReset = async (e) => {
     e.preventDefault();
     setError('');
-    if (newPassword.length < 8) { setError('Password must be at least 8 characters.'); return; }
-    if (newPassword !== confirmPassword) { setError('Passwords do not match.'); return; }
+    if (newPassword.length < 8)          { setError('Password must be at least 8 characters.'); return; }
+    if (newPassword !== confirmPassword)  { setError('Passwords do not match.'); return; }
+    if (strength.score < 60)             { setError('Password is too weak. Aim for at least Fair strength.'); return; }
     setLoading(true);
     try {
       const { error: pwErr } = await supabaseAdminAuth.auth.admin.updateUserById(
@@ -69,10 +92,14 @@ const PasswordModal = ({ resident, onClose, onSuccess }) => {
     }
   };
 
+  const inputCls = "w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#006837]/20 focus:border-[#006837] transition-all pr-11";
+
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 backdrop-blur-sm px-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md animate-in zoom-in-95 duration-200"
         onClick={e => e.stopPropagation()}>
+
+        {/* Header */}
         <div className="px-6 pt-6 pb-4 border-b border-slate-100 flex items-start justify-between">
           <div className="flex items-center gap-3">
             <div className="w-11 h-11 rounded-2xl bg-amber-50 flex items-center justify-center">
@@ -87,31 +114,86 @@ const PasswordModal = ({ resident, onClose, onSuccess }) => {
             <X size={16} className="text-slate-400" />
           </button>
         </div>
+
+        {/* Form */}
         <form onSubmit={handleReset} className="px-6 py-5 space-y-4">
+
+          {/* New password */}
           <div>
-            <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1.5">New Password</label>
-            <input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)}
-              placeholder="Min. 8 characters" required
-              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#006837]/20 focus:border-[#006837] transition-all" />
+            <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1.5">
+              New Password
+            </label>
+            <div className="relative">
+              <input type={showNew ? 'text' : 'password'} value={newPassword}
+                onChange={e => setNewPassword(e.target.value)}
+                placeholder="Min. 8 characters" required className={inputCls} />
+              <button type="button" onClick={() => setShowNew(v => !v)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer">
+                {showNew ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
+
+            {/* Strength bar */}
+            {newPassword && (
+              <div className="mt-2.5 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex gap-1 flex-1 mr-3">
+                    {[25, 50, 75, 100].map((threshold, i) => (
+                      <div key={i} className={`h-1.5 flex-1 rounded-full transition-all duration-300
+                        ${strength.score >= threshold ? strength.bar : 'bg-slate-100'}`} />
+                    ))}
+                  </div>
+                  <span className={`text-[10px] font-black uppercase tracking-wider ${strength.color}`}>
+                    {strength.label}
+                  </span>
+                </div>
+                <p className="text-[10px] text-slate-400">
+                  Use 12+ chars, uppercase, numbers, and symbols for a strong password.
+                </p>
+              </div>
+            )}
           </div>
+
+          {/* Confirm password */}
           <div>
-            <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1.5">Confirm Password</label>
-            <input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)}
-              placeholder="Re-enter password" required
-              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#006837]/20 focus:border-[#006837] transition-all" />
+            <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1.5">
+              Confirm Password
+            </label>
+            <div className="relative">
+              <input type={showConfirm ? 'text' : 'password'} value={confirmPassword}
+                onChange={e => setConfirmPassword(e.target.value)}
+                placeholder="Re-enter password" required className={inputCls} />
+              <button type="button" onClick={() => setShowConfirm(v => !v)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer">
+                {showConfirm ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
+            {mismatch && (
+              <p className="text-[10px] font-bold text-red-500 uppercase mt-1.5">Passwords do not match</p>
+            )}
+            {confirmPassword && !mismatch && (
+              <p className="text-[10px] font-bold text-emerald-500 uppercase mt-1.5">✓ Passwords match</p>
+            )}
           </div>
+
           {error && (
             <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-100 rounded-xl text-sm text-red-600 font-medium">
               <AlertTriangle size={14} className="shrink-0" />{error}
             </div>
           )}
+
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onClose} disabled={loading}
               className="flex-1 py-3 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-sm cursor-pointer disabled:opacity-50">
               Cancel
             </button>
-            <button type="submit" disabled={loading}
-              className="flex-1 py-3 rounded-2xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-sm shadow-lg shadow-amber-500/20 cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2">
+            <button type="submit" disabled={loading || !canSubmit}
+              title={
+                !newPassword           ? 'Enter a new password'              :
+                strength.score < 60    ? "Password must be at least 'Fair'"  :
+                mismatch               ? 'Passwords must match'              : ''
+              }
+              className="flex-1 py-3 rounded-2xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-sm shadow-lg shadow-amber-500/20 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all">
               {loading ? <><RefreshCw size={13} className="animate-spin" /> Resetting…</> : <><Key size={13} /> Reset Password</>}
             </button>
           </div>

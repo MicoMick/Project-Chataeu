@@ -27,8 +27,8 @@ import SystemLogs from './HOA Page/SuperAdmin/System AuditLogs/SystemLogs.jsx';
 import PendingApproval from './HOA Page/Pending Approval/PendingApproval.jsx'; // ✅ Moved to HOA admin side — president only
 import AuditorDashboard from './HOA Page/AuditorBoard/AuditorDashboard.jsx'; 
 import Statistics from './HOA Page/Statistics/Statistics.jsx';
-import AccountApproval from './HOA Page/Account Approval/AccountApproval.jsx';
 import MoveInClearance from './HOA Page/Move In and Out Clearance/MoveInClearance.jsx';
+import CourtPermit from './HOA Page/Court Permit/CourtPermit.jsx';
 import { supabase } from './HOA Page/supabaseAdmin'; 
 import ProtectedRoute from './HOA Page/Protect Route/ProtectedRoute';
 
@@ -47,10 +47,13 @@ const ROLES = {
 // Who can access each page
 const ACCESS = {
   // Full governance (everything except financial detail)
-  GOVERNANCE:  [ROLES.PRESIDENT, ROLES.VICE_PRESIDENT, ROLES.SECRETARY, ROLES.BOARD_MEMBER],
+  GOVERNANCE:  [ROLES.PRESIDENT, ROLES.VICE_PRESIDENT, ROLES.SECRETARY],
 
   // Resident/operational management
-  OPERATIONS:  [ROLES.PRESIDENT, ROLES.VICE_PRESIDENT, ROLES.SECRETARY, ROLES.BOARD_MEMBER],
+  OPERATIONS:  [ROLES.PRESIDENT, ROLES.VICE_PRESIDENT, ROLES.SECRETARY],
+
+  // Announcements + Reports — board_member can manage these
+  COMM_OPS:    [ROLES.PRESIDENT, ROLES.VICE_PRESIDENT, ROLES.SECRETARY, ROLES.BOARD_MEMBER],
 
   // Election management — only Elecom role can manage; no other HOA role has access
   ELECTIONS:   ['elecom'],
@@ -62,10 +65,13 @@ const ACCESS = {
   CLEARANCES:  [ROLES.PRESIDENT, ROLES.TREASURER],
 
   // Statistics — everyone except treasurer (no operational context)
-  STATISTICS:  [ROLES.PRESIDENT, ROLES.VICE_PRESIDENT, ROLES.SECRETARY, ROLES.AUDITOR, ROLES.BOARD_MEMBER],
+  STATISTICS:  [ROLES.PRESIDENT, ROLES.VICE_PRESIDENT, ROLES.SECRETARY, ROLES.AUDITOR],
 
   // Auditor workspace — exclusive to auditor
   AUDITOR:     [ROLES.AUDITOR],
+
+  // Court Permit — board_member only (Sports Committee)
+  COURT_PERMIT: [ROLES.BOARD_MEMBER],
 
   // Profile — everyone
   PROFILE:     [ROLES.PRESIDENT, ROLES.VICE_PRESIDENT, ROLES.SECRETARY, ROLES.TREASURER, ROLES.AUDITOR, ROLES.BOARD_MEMBER, 'elecom'],
@@ -142,6 +148,9 @@ const DashboardRedirect = () => {
   // Elecom lands directly on Elections — that's their only page
   if (role === 'elecom') return <Navigate to="/hoa/elections" replace />;
 
+  // Board Member lands on Announcements — Dashboard is not in their access
+  if (role === ROLES.BOARD_MEMBER) return <Navigate to="/hoa/announcements" replace />;
+
   // Everyone else: president, vice_president, secretary, board_member → Dashboard
   return (
     <RoleBasedRoute allowedRoles={[...ACCESS.GOVERNANCE, 'super_admin']}>
@@ -195,12 +204,6 @@ function App() {
             </RoleBasedRoute>
           } />
 
-          {/* ── Account approval — president only ── */}
-          <Route path="account-approval" element={
-            <RoleBasedRoute allowedRoles={['president']}>
-              <AccountApproval />
-            </RoleBasedRoute>
-          } />
 
           {/* ── Move In / Move Out Clearances ── */}
           <Route path="move-in-clearances" element={
@@ -238,14 +241,14 @@ function App() {
 
           {/* ── Reports / Issues ── */}
           <Route path="reports" element={
-            <RoleBasedRoute allowedRoles={ACCESS.OPERATIONS}>
+            <RoleBasedRoute allowedRoles={ACCESS.COMM_OPS}>
               <Reports />
             </RoleBasedRoute>
           } />
 
           {/* ── Announcements ── */}
           <Route path="announcements" element={
-            <RoleBasedRoute allowedRoles={ACCESS.OPERATIONS}>
+            <RoleBasedRoute allowedRoles={ACCESS.COMM_OPS}>
               <Announcements />
             </RoleBasedRoute>
           } />
@@ -254,6 +257,13 @@ function App() {
           <Route path="statistics" element={
             <RoleBasedRoute allowedRoles={ACCESS.STATISTICS}>
               <Statistics />
+            </RoleBasedRoute>
+          } />
+
+          {/* ── Court Permit — board_member (Sports Committee) only ── */}
+          <Route path="court-permit" element={
+            <RoleBasedRoute allowedRoles={ACCESS.COURT_PERMIT}>
+              <CourtPermit />
             </RoleBasedRoute>
           } />
 

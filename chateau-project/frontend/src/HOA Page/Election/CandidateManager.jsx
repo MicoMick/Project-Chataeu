@@ -7,9 +7,6 @@ import {
 } from "lucide-react";
 import logger from '../auditlogger';
 
-// ─── Access ───────────────────────────────────────────────────────────────────
-const currentUserRole = localStorage.getItem('userRole') || 'resident';
-const canManage = currentUserRole === 'elecom' || currentUserRole === 'super_admin';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const POSITIONS = ["President", "Vice President", "Secretary", "Treasurer", "Auditor", "Board Member"];
@@ -220,7 +217,7 @@ const CandidateFormPanel = ({ isOpen, isEditing, onClose, form, setForm, onSubmi
 };
 
 // ─── Candidate Card ───────────────────────────────────────────────────────────
-const CandidateCard = ({ c, onView, onEdit, onDelete }) => {
+const CandidateCard = ({ c, onView, onEdit, onDelete, canManage }) => {
   const posColor = POSITION_COLORS[c.position] || POSITION_COLORS["Board Member"];
   return (
     <div className="group bg-white border border-slate-100 rounded-2xl shadow-sm hover:shadow-md hover:border-[#006837]/20 transition-all duration-200 flex flex-col overflow-hidden">
@@ -280,7 +277,10 @@ const CandidateCard = ({ c, onView, onEdit, onDelete }) => {
 };
 
 // ─── Main Component ───────────────────────────────────────────────────────────
+// ─── Access — inside component so it re-reads after login ───────────────────
 const CandidateManager = ({ electionId }) => {
+  const currentUserRole = localStorage.getItem('userRole') || 'resident';
+  const canManage = currentUserRole === 'elecom' || currentUserRole === 'super_admin';
   const [candidates,    setCandidates]    = useState([]);
   const [loading,       setLoading]       = useState(true);
   const [uploading,     setUploading]     = useState(false);
@@ -509,6 +509,7 @@ const CandidateManager = ({ electionId }) => {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {filtered.map(c => (
             <CandidateCard key={c.id} c={c}
+              canManage={canManage}
               onView={setViewCandidate}
               onEdit={openEdit}
               onDelete={c => setDeleteConfirm({ show: true, id: c.id, name: c.full_name })}

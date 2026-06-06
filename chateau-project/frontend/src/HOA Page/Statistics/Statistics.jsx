@@ -1,6 +1,3 @@
-// Statistics.jsx  —  React 19 compatible (no Recharts, no external chart libs)
-// Path: src/HOA Page/Statistics/Statistics.jsx
-
 import React, { useState } from 'react';
 import {
   TrendingUp, TrendingDown, Users, Calendar, DollarSign, ShoppingCart,
@@ -635,7 +632,7 @@ const Statistics = () => {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <KpiCard title="Total Revenue"    value={payLoading ? '…' : fmtCurrency(payData?.kpi?.totalRevenue)}  icon={DollarSign}   iconBg="bg-green-50"   iconColor="text-[#006837]" delta={payData?.kpi?.revDelta} />
         <KpiCard title="Active Users"     value={payLoading ? '…' : fmt(payData?.kpi?.activeUsers)}           icon={Users}        iconBg="bg-blue-50"    iconColor="text-blue-600"  subtitle="With transactions" />
-        <KpiCard title="Total Orders"     value={payLoading ? '…' : fmt(payData?.kpi?.totalOrders)}           icon={ShoppingCart} iconBg="bg-amber-50"   iconColor="text-amber-600" subtitle="Payment records" />
+        <KpiCard title="Total Dues"     value={payLoading ? '…' : fmtCurrency(payData?.kpi?.totalDues)}           icon={ShoppingCart} iconBg="bg-amber-50"   iconColor="text-amber-600" subtitle="Payment records" />
         <KpiCard title="Avg. Order Value" value={payLoading ? '…' : fmtCurrency(payData?.kpi?.avgOrderValue)} icon={Activity}     iconBg="bg-purple-50"  iconColor="text-purple-600" />
       </div>
 
