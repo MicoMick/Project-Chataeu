@@ -2,11 +2,45 @@ import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { 
   LayoutDashboard, Users, CalendarCheck, CreditCard, Vote, Megaphone,
+  ScrollText,
   BarChart3, ChevronLeft, Menu, ChevronDown, ShieldCheck, UserCircle,
   LogOut, ClipboardCheck, PieChart, UserCheck, ListChecks, ClipboardList,
 } from 'lucide-react';
 import ChateauLogo from '../../assets/ChataueLogo.png';
 import { supabase } from '../supabaseAdmin'; 
+
+// ── Sidebar scrollbar style ──────────────────────────────────────────────────
+const SidebarScrollStyle = () => (
+  <style>{`
+    .sidebar-scroll::-webkit-scrollbar {
+      width: 4px;
+    }
+    .sidebar-scroll::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .sidebar-scroll::-webkit-scrollbar-thumb {
+      background: transparent;
+      border-radius: 99px;
+      transition: background 0.2s;
+    }
+    .sidebar-scroll:hover::-webkit-scrollbar-thumb {
+      background: rgba(0, 104, 55, 0.25);
+    }
+    .sidebar-scroll::-webkit-scrollbar-thumb:hover {
+      background: rgba(0, 104, 55, 0.5);
+    }
+    .sidebar-scroll {
+      scrollbar-width: thin;
+      scrollbar-color: transparent transparent;
+      transition: scrollbar-color 0.2s;
+    }
+    .sidebar-scroll:hover {
+      scrollbar-color: rgba(0, 104, 55, 0.25) transparent;
+    }
+  `}</style>
+);
+
+
 
 // ─── Role constants (must match App.jsx) ─────────────────────────────────────
 const ROLES = {
@@ -18,13 +52,15 @@ const ROLES = {
   BOARD_MEMBER:   'board_member',
 };
 
-const GOVERNANCE  = [ROLES.PRESIDENT, ROLES.VICE_PRESIDENT, ROLES.SECRETARY, ROLES.BOARD_MEMBER];
-const OPERATIONS  = [ROLES.PRESIDENT, ROLES.VICE_PRESIDENT, ROLES.SECRETARY, ROLES.BOARD_MEMBER];
+const GOVERNANCE  = [ROLES.PRESIDENT, ROLES.VICE_PRESIDENT, ROLES.SECRETARY];
+const OPERATIONS  = [ROLES.PRESIDENT, ROLES.VICE_PRESIDENT, ROLES.SECRETARY];
+const COMM_OPS    = [ROLES.PRESIDENT, ROLES.VICE_PRESIDENT, ROLES.SECRETARY, ROLES.BOARD_MEMBER]; // Announcements + Reports
 const ELECTIONS   = ['elecom']; // Election page — Elecom only
 const PAYMENTS    = [ROLES.PRESIDENT, ROLES.TREASURER];
-const STATISTICS  = [ROLES.PRESIDENT, ROLES.VICE_PRESIDENT, ROLES.SECRETARY, ROLES.AUDITOR, ROLES.BOARD_MEMBER];
+const STATISTICS  = [ROLES.PRESIDENT, ROLES.VICE_PRESIDENT, ROLES.SECRETARY, ROLES.AUDITOR];
 const AUDITOR_WS  = [ROLES.AUDITOR];
-const APPROVALS   = [ROLES.PRESIDENT]; // President only
+const APPROVALS      = [ROLES.PRESIDENT]; // President only
+const COURT_PERMIT   = [ROLES.BOARD_MEMBER];  // Board Member — Sports Committee
 const CLEARANCES  = [ROLES.PRESIDENT, ROLES.TREASURER]; // Move In/Out clearances
 
 // ─── RequireRole ──────────────────────────────────────────────────────────────
@@ -109,12 +145,6 @@ const Sidebar = () => {
       path:  '/hoa/residents',
       allowedRoles: OPERATIONS,
     },
-    {
-      icon:  <UserCheck size={22} />,
-      label: 'Account Approval',
-      path:  '/hoa/account-approval',
-      allowedRoles: APPROVALS,
-    },
 
     // ── Pending Approvals — president only ────────────────────────────────────
     {
@@ -161,7 +191,7 @@ const Sidebar = () => {
       icon:  <Megaphone size={22} />,
       label: 'Announcements',
       path:  '/hoa/announcements',
-      allowedRoles: OPERATIONS,
+      allowedRoles: COMM_OPS,
     },
 
     // ── Reports/Issues ────────────────────────────────────────────────────────
@@ -169,7 +199,7 @@ const Sidebar = () => {
       icon:  <BarChart3 size={22} />,
       label: 'Reports',
       path:  '/hoa/reports',
-      allowedRoles: OPERATIONS,
+      allowedRoles: COMM_OPS,
     },
 
     // ── Statistics — everyone except treasurer ────────────────────────────────
@@ -178,6 +208,14 @@ const Sidebar = () => {
       label: 'Statistics',
       path:  '/hoa/statistics',
       allowedRoles: STATISTICS,
+    },
+
+    // ── Court Permit — board_member (Sports Committee) only ──────────────────
+    {
+      icon:  <ScrollText size={22} />,
+      label: 'Court Permits',
+      path:  '/hoa/court-permit',
+      allowedRoles: COURT_PERMIT,
     },
   ];
 
@@ -195,6 +233,7 @@ const Sidebar = () => {
 
   return (
     <>
+      <SidebarScrollStyle />
       <aside className={`relative flex flex-col min-h-screen transition-all duration-300 ease-in-out shadow-2xl z-40
         ${isCollapsed ? 'w-20' : 'w-72'} 
         bg-gradient-to-b from-[#006837] to-[#004d29]`}>
@@ -218,7 +257,7 @@ const Sidebar = () => {
         </div>
 
         {/* Nav */}
-        <nav className={`px-3 space-y-1 flex-1 overflow-y-auto overflow-x-hidden pb-6
+        <nav className={`px-3 space-y-1 flex-1 overflow-y-auto overflow-x-hidden pb-6 sidebar-scroll
           ${isCollapsed ? 'mt-16' : 'mt-4'}`}>
           {menuItems.map((item, i) => {
             const isActive = location.pathname === item.path;

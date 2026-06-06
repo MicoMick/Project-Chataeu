@@ -3,87 +3,87 @@ import { MapPin, Facebook, ArrowUp } from 'lucide-react';
 import ChateauLogo from '../../assets/ChataueLogo.png';
 
 const Footer = () => {
-  const scrollToTop = () => {
-    window.scrollTo({
-      top: 0,
-      behavior: 'smooth'
-    });
-  };
+  const scrollToTop = () => window.scrollTo({ top: 0, behavior: 'smooth' });
+
+  const links = [
+    { label: 'Our Team',    href: '#team'         },
+    { label: 'How It Works',href: '#how-it-works' },
+    { label: 'About Us',    href: '#about'        },
+    { label: 'Download App',href: '#download'     },
+  ];
 
   return (
-    <footer className="bg-[#006837] text-white py-16 relative">
-      <div className="container mx-auto px-6 lg:px-16">
-        <div className="flex flex-col md:flex-row justify-center items-start gap-12 md:gap-32">
-          
-          {/* Brand Section */}
-          <div className="flex flex-col items-start gap-4">
-            <div className="flex-shrink-0">
-              <img 
-                src={ChateauLogo} 
-                alt="Chateau Real Logo" 
-                className="h-25 md:h-25 w-auto object-contain" 
-              />
-            </div>
-            <p className="text-white/60 text-xs tracking-[0.2em] uppercase font-bold pl-1">
+    <footer className="bg-[#006837] text-white relative overflow-hidden">
+
+      {/* Top edge decoration */}
+      <div className="h-1 bg-gradient-to-r from-[#004d29] via-[#FFF200] to-[#004d29]" />
+
+      {/* Background glow */}
+      <div className="absolute bottom-0 right-0 w-96 h-96 bg-[#FFF200]/5 rounded-full blur-[120px] pointer-events-none" />
+
+      <div className="container mx-auto px-6 lg:px-16 py-16 relative z-10">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-10 mb-12">
+
+          {/* Brand */}
+          <div className="flex flex-col gap-4 reveal reveal-left">
+            <img src={ChateauLogo} alt="Chateau Real" className="h-16 w-auto object-contain" />
+            <p className="text-white/50 text-xs tracking-[0.2em] uppercase font-bold pl-1">
               Metropolis Greens
+            </p>
+            <p className="text-white/60 text-sm leading-relaxed max-w-xs">
+              Your trusted homeowners association — making community living smarter, safer, and more connected.
             </p>
           </div>
 
-          {/* Quick Links */}
-          <div className="flex flex-col gap-4">
-            <h3 className="font-bold text-lg mb-2 text-[#FFF200]">Quick Links</h3>
-            <ul className="space-y-3 text-white/80">
-              <li><a href="#team" className="hover:text-[#FFF200] transition-colors">Our Team</a></li>
-              <li><a href="#how-it-works" className="hover:text-[#FFF200] transition-colors">How It Works</a></li>
-              <li><a href="#about" className="hover:text-[#FFF200] transition-colors">About Us</a></li>
-              <li><a href="#download" className="hover:text-[#FFF200] transition-colors">Download App</a></li>
+          {/* Quick links */}
+          <div className="reveal reveal-delay-1">
+            <h3 className="font-black text-base mb-5 text-[#FFF200] uppercase tracking-widest text-xs">Quick Links</h3>
+            <ul className="space-y-3">
+              {links.map(l => (
+                <li key={l.label}>
+                  <a href={l.href}
+                    className="text-white/70 hover:text-[#FFF200] transition-colors duration-200 text-sm font-medium flex items-center gap-2 group">
+                    <span className="w-0 group-hover:w-3 h-px bg-[#FFF200] transition-all duration-200 rounded" />
+                    {l.label}
+                  </a>
+                </li>
+              ))}
             </ul>
           </div>
 
-          {/* Contact Section */}
-          <div className="flex flex-col gap-4">
-            <h3 className="font-bold text-lg mb-2 text-[#FFF200]">Contact Us</h3>
+          {/* Contact */}
+          <div className="reveal reveal-delay-2">
+            <h3 className="font-black text-base mb-5 text-[#FFF200] uppercase tracking-widest text-xs">Contact Us</h3>
             <div className="space-y-4">
-              
-              {/* Added Facebook Page Link */}
-              <div className="flex items-center gap-3 text-white/80">
-                <Facebook size={20} className="text-[#FFF200]" />
-                <a 
-                  href="https://www.facebook.com/share/g/1EB3Q4yPB6/" 
-                  target="_blank" 
-                  rel="noopener noreferrer" 
-                  className="hover:text-white transition-colors"
-                >
-                  Chateau Real Facebook Page
-                </a>
-              </div>
-
-              <div className="flex items-start gap-3 text-white/80">
-                <MapPin size={20} className="mt-1 flex-shrink-0 text-[#FFF200]" />
-                <span className="max-w-[250px]">
-                  Metropolis Dr, Manggahan, General Trias, Cavite
+              <a href="https://www.facebook.com/share/g/1EB3Q4yPB6/" target="_blank" rel="noopener noreferrer"
+                className="flex items-center gap-3 text-white/70 hover:text-white transition-colors group">
+                <div className="w-9 h-9 bg-white/10 rounded-xl flex items-center justify-center group-hover:bg-[#1877F2]/20 transition-colors">
+                  <Facebook size={16} className="text-[#FFF200]" />
+                </div>
+                <span className="text-sm font-medium">Chateau Real Facebook Page</span>
+              </a>
+              <div className="flex items-start gap-3 text-white/70">
+                <div className="w-9 h-9 bg-white/10 rounded-xl flex items-center justify-center shrink-0 mt-0.5">
+                  <MapPin size={16} className="text-[#FFF200]" />
+                </div>
+                <span className="text-sm font-medium leading-relaxed">
+                  Metropolis Dr, Manggahan,<br />General Trias, Cavite
                 </span>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Scroll to Top Button - Now aligned to the Right */}
-        <div className="flex justify-end mt-4 md:mt-0">
-          <button 
-            onClick={scrollToTop}
-            className="group flex flex-col items-center gap-2 text-white/50 hover:text-[#FFF200] transition-all duration-300 cursor-pointer"
-          >
-            <div className="p-2.5 border border-white/10 rounded-full group-hover:border-[#FFF200] group-hover:bg-[#FFF200]/10 group-hover:-translate-y-1 transition-all">
-              <ArrowUp size={18} />
+        {/* Bottom bar */}
+        <div className="border-t border-white/10 pt-8 flex reveal reveal-delay-3 flex-col sm:flex-row items-center justify-between gap-4">
+          <p className="text-white/40 text-sm">© 2026 CHATEAU. All rights reserved.</p>
+          <button onClick={scrollToTop}
+            className="group flex items-center gap-2 text-white/50 hover:text-[#FFF200] transition-all duration-300 cursor-pointer">
+            <span className="text-xs font-bold uppercase tracking-widest">Back to top</span>
+            <div className="w-8 h-8 border border-white/10 rounded-xl flex items-center justify-center group-hover:border-[#FFF200] group-hover:bg-[#FFF200]/10 group-hover:-translate-y-1 transition-all">
+              <ArrowUp size={15} />
             </div>
-            <span className="text-[9px] uppercase tracking-[0.2em] font-bold">Top</span>
           </button>
-        </div>
-
-        {/* Bottom Bar */}
-        <div className="border-t border-white/10 mt-8 pt-8 text-center text-white/50 text-sm">
-          <p>© 2026 CHATEAU. All rights reserved.</p>
         </div>
       </div>
     </footer>

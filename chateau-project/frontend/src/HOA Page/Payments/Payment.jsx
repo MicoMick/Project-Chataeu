@@ -1,17 +1,68 @@
 import React, { useState, useEffect } from 'react';
 import {
   Search, Plus, CreditCard, AlertCircle, CheckCircle2, DollarSign,
-  Edit2, Trash2, FileText, X, Filter, Loader2, Download,
+  Edit2, Trash2, X, Filter, Loader2, Download,
   Calendar, Users, ChevronDown, LayoutList, TableProperties,
 } from 'lucide-react';
 import { supabase } from '../supabaseAdmin';
 import { logAudit } from '../auditLogger';
 import ChateauLogo from '../../assets/ChataueLogo.png';
-import PaymentReports from './PaymentReports';
-import AddPayable from './AddPayable';
+
+// ─── Pagination hook ─────────────────────────────────────────────────────────
+const usePagination = (items, rowsPerPage = 10) => {
+  const [page, setPage] = React.useState(1);
+  const totalPages = Math.max(1, Math.ceil(items.length / rowsPerPage));
+  // Reset to page 1 whenever the list changes (filter/search)
+  React.useEffect(() => { setPage(1); }, [items.length]);
+  const paginated = items.slice((page - 1) * rowsPerPage, page * rowsPerPage);
+  return { paginated, page, setPage, totalPages, total: items.length };
+};
+
+// ─── Pagination bar ───────────────────────────────────────────────────────────
+const PaginationBar = ({ page, totalPages, setPage, total, rowsPerPage }) => {
+  if (totalPages <= 1) return null;
+  const from = (page - 1) * rowsPerPage + 1;
+  const to   = Math.min(page * rowsPerPage, total);
+  const pages = [];
+  if (totalPages <= 7) {
+    for (let i = 1; i <= totalPages; i++) pages.push(i);
+  } else {
+    pages.push(1);
+    if (page > 3) pages.push('…');
+    for (let i = Math.max(2, page - 1); i <= Math.min(totalPages - 1, page + 1); i++) pages.push(i);
+    if (page < totalPages - 2) pages.push('…');
+    pages.push(totalPages);
+  }
+  return (
+    <div className="px-5 py-3 border-t border-slate-100 flex items-center justify-between gap-4 flex-wrap">
+      <p className="text-xs text-slate-400 font-medium">
+        Showing <span className="font-bold text-slate-600">{from}–{to}</span> of <span className="font-bold text-slate-600">{total}</span>
+      </p>
+      <div className="flex items-center gap-1">
+        <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
+          className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer text-sm font-bold transition-all">‹</button>
+        {pages.map((p, i) =>
+          p === '…'
+            ? <span key={i} className="w-8 h-8 flex items-center justify-center text-slate-300 text-sm">…</span>
+            : <button key={p} onClick={() => setPage(p)}
+                className={`w-8 h-8 flex items-center justify-center rounded-lg text-xs font-bold transition-all cursor-pointer
+                  ${page === p ? 'bg-[#006837] text-white shadow-sm' : 'text-slate-500 hover:bg-slate-100'}`}>{p}</button>
+        )}
+        <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
+          className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer text-sm font-bold transition-all">›</button>
+      </div>
+    </div>
+  );
+};
+
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const MONTHLY_DUE_AMOUNT = 150; // ₱150 standard monthly HOA due
+
+// ── DEV/DEMO MODE ─────────────────────────────────────────────────────────────
+// Set to true during demo/capstone defense so test buttons are visible.
+// Set back to false before submitting or going live.
+const DEV_MODE = true;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const RequireRole = ({ userRole, allowedRoles, children }) => {
@@ -160,6 +211,7 @@ const StandingLedger = ({ residentsList, payments }) => {
     r.block.toLowerCase().includes(search.toLowerCase()) ||
     r.lot.toLowerCase().includes(search.toLowerCase()))
   );
+  const { paginated: paginatedPayment, page: payPage, setPage: setPayPage, totalPages: payTotalPages, total: filteredTotal } = usePagination(filtered, 10);
 
   const goodCount    = rows.filter(r => r.standing === 'Good').length;
   const overdueCount = rows.filter(r => r.standing === 'Overdue').length;
@@ -213,26 +265,22 @@ const StandingLedger = ({ residentsList, payments }) => {
     <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
       {/* Header */}
       <div className="px-5 py-4 border-b border-slate-100">
-        <div className="flex items-center justify-between mb-3">
+        <div className="flex items-start justify-between gap-4 mb-3">
           <div>
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h3 className="text-sm font-black text-slate-700 flex items-center gap-2">
-                  <TableProperties size={15} className="text-[#006837]" />
-                  Monthly Dues Standing Ledger
-                </h3>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  Mirrors the physical ledger — one row per resident, showing current standing and last payment date
-                </p>
-              </div>
-              <button
-                onClick={exportToCSV}
-                className="flex items-center gap-2 px-4 py-2.5 bg-[#006837] hover:bg-[#004d29] text-white rounded-xl text-xs font-bold shadow-lg shadow-[#006837]/20 cursor-pointer transition-all shrink-0"
-              >
-                <Download size={13} /> Export CSV
-              </button>
-            </div>
+            <h3 className="text-sm font-black text-slate-700 flex items-center gap-2">
+              <TableProperties size={15} className="text-[#006837]" />
+              Monthly Dues Standing Ledger
+            </h3>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Mirrors the physical ledger — one row per resident, showing current standing and last payment date
+            </p>
           </div>
+          <button
+            onClick={exportToCSV}
+            className="flex items-center gap-2 px-4 py-2.5 bg-[#006837] hover:bg-[#004d29] text-white rounded-xl text-xs font-bold shadow-lg shadow-[#006837]/20 cursor-pointer transition-all shrink-0"
+          >
+            <Download size={13} /> Export CSV
+          </button>
         </div>
 
         {/* Mini KPI strip */}
@@ -250,22 +298,24 @@ const StandingLedger = ({ residentsList, payments }) => {
           ))}
         </div>
 
-        <div className="relative w-64">
-          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input value={search} onChange={e => setSearch(e.target.value)}
-            placeholder="Search resident, block, lot…"
-            className="w-full pl-8 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#006837]/20 focus:border-[#006837] transition-all" />
+        <div className="flex items-center gap-3">
+          <div className="relative flex-1">
+            <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input value={search} onChange={e => setSearch(e.target.value)}
+              placeholder="Search resident, block, lot…"
+              className="w-full pl-8 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#006837]/20 focus:border-[#006837] transition-all" />
+          </div>
+          <select
+            value={residentFilter}
+            onChange={e => setResidentFilter(e.target.value)}
+            className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-600 focus:outline-none focus:ring-2 focus:ring-[#006837]/20 cursor-pointer shrink-0"
+          >
+            <option value="All">All Residents</option>
+            {rows.map(r => (
+              <option key={r.id} value={r.id}>{r.full_name}</option>
+              ))}
+          </select>
         </div>
-        <select
-          value={residentFilter}
-          onChange={e => setResidentFilter(e.target.value)}
-          className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-600 focus:outline-none focus:ring-2 focus:ring-[#006837]/20 cursor-pointer"
-        >
-          <option value="All">All Residents</option>
-          {rows.map(r => (
-            <option key={r.id} value={r.id}>{r.full_name}</option>
-          ))}
-        </select>
       </div>
 
       <div className="overflow-x-auto">
@@ -280,7 +330,7 @@ const StandingLedger = ({ residentsList, payments }) => {
           <tbody className="divide-y divide-slate-50">
             {filtered.length === 0 ? (
               <tr><td colSpan={8} className="px-4 py-12 text-center text-slate-300 text-sm">No residents found</td></tr>
-            ) : filtered.map(r => (
+            ) : paginatedPayment.map(r => (
               <tr key={r.id} className="hover:bg-slate-50/60 transition-colors">
                 <td className="px-4 py-3">
                   <p className="text-sm font-bold text-slate-800">{r.full_name}</p>
@@ -312,9 +362,12 @@ const StandingLedger = ({ residentsList, payments }) => {
       </div>
 
       {filtered.length > 0 && (
-        <div className="px-5 py-3 border-t border-slate-100">
-          <p className="text-xs text-slate-400">{filtered.length} of {rows.length} residents</p>
-        </div>
+        <>
+          <PaginationBar page={payPage} totalPages={payTotalPages} setPage={setPayPage} total={filtered.length} rowsPerPage={10} />
+          <div className="px-5 py-3 border-t border-slate-100">
+            <p className="text-xs text-slate-400">{filtered.length} of {rows.length} residents</p>
+          </div>
+        </>
       )}
     </div>
   );
@@ -330,79 +383,116 @@ const Payment = () => {
   const [isEditTransactionOpen, setIsEditTransactionOpen] = useState(false);
   const [selectedPayment,       setSelectedPayment]       = useState(null);
   const [isConfirmVoidOpen,     setIsConfirmVoidOpen]     = useState(false);
-  const [isAddPayableOpen,      setIsAddPayableOpen]      = useState(false);
   const [residentsList,     setResidentsList]     = useState([]);
 
-  const [isStatementModalOpen, setIsStatementModalOpen] = useState(false);
-  const [statementResId,       setStatementResId]       = useState('');
   const [transaction,          setTransaction]          = useState({ status: null, message: '' });
   const [editFormData,         setEditFormData]         = useState({ amount: '', status: '', due_date: '', reference_no: '', paid_at: '' });
   const [payments,             setPayments]             = useState([]);
   const [loading,              setLoading]              = useState(true);
 
   const currentUserRole = localStorage.getItem('userRole') || 'resident';
+  const [testLoading,   setTestLoading]   = useState(null);  // 'dues' | 'delinquent' | null
+  const [testResult,    setTestResult]    = useState(null);  // { type, message } | null
 
   useEffect(() => { fetchPayments(); fetchResidentsList(); }, []);
 
-  // ── Auto-generate monthly dues on the 1st of each month ──────────────────
-  // Runs once on mount. If today is the 1st AND this month hasn't been billed
-  // yet, silently bulk-issues ₱150 for every resident and posts an announcement.
-  useEffect(() => {
-    const runMonthlyAutoGenerate = async () => {
-      const today = new Date();
-      if (today.getDate() !== 1) return; // Only runs on the 1st
+  // ── Extracted: generate dues for current month ──────────────────────────────
+  // Called automatically on the 1st, OR manually via the demo test button.
+  // force=true skips the "already generated this month" check.
+  const runGenerateDues = async (force = false) => {
+    const today      = new Date();
+    today.setHours(0, 0, 0, 0);
+    const month      = today.getMonth();
+    const year       = today.getFullYear();
+    const monthEnd   = new Date(year, month + 1, 0).toISOString().split('T')[0];
+    const monthStart = new Date(year, month,     1).toISOString().split('T')[0];
 
-      const month = today.getMonth();
-      const year  = today.getFullYear();
-
-      // Check if dues already exist for this month (any resident)
-      const monthStart = new Date(year, month, 1).toISOString().split('T')[0];
-      const monthEnd   = new Date(year, month + 1, 0).toISOString().split('T')[0];
-
+    if (!force) {
       const { data: existing } = await supabase
-        .from('payments')
-        .select('id')
-        .gte('due_date', monthStart)
-        .lte('due_date', monthEnd)
-        .limit(1);
+        .from('payments').select('id')
+        .gte('due_date', monthStart).lte('due_date', monthEnd).limit(1);
+      if (existing?.length) return { skipped: true, reason: 'Already generated for this month.' };
+    }
 
-      if (existing?.length) return; // Already generated this month
+    const { data: residents } = await supabase
+      .from('profiles').select('id, full_name')
+      .eq('account_status', 'active').order('full_name');
+    if (!residents?.length) return { skipped: true, reason: 'No active residents found.' };
 
-      // Fetch all residents
-      const { data: residents } = await supabase
-        .from('profiles')
-        .select('id, full_name')
-        .order('full_name');
+    const rows = residents.map(r => ({
+      user_id:      r.id,
+      amount:       MONTHLY_DUE_AMOUNT,
+      due_date:     monthEnd,
+      status:       'unpaid',
+      reference_no: generateRefNo(month, year),
+    }));
 
-      if (!residents?.length) return;
+    const { error } = await supabase.from('payments').insert(rows);
+    if (error) return { success: false, error: error.message };
 
-      // Due date = last day of current month
-      const dueDate = monthEnd;
+    await logAudit('AUTO_MONTHLY_DUE',
+      `Generated ₱${MONTHLY_DUE_AMOUNT} monthly dues for ${rows.length} residents — ${MONTHS[month]} ${year}. Due: ${monthEnd}.`);
+    fetchPayments();
+    return { success: true, count: rows.length, month: MONTHS[month], year };
+  };
 
-      const rows = residents.map(r => ({
-        user_id:      r.id,
-        amount:       MONTHLY_DUE_AMOUNT,
-        due_date:     dueDate,
-        status:       'unpaid',
-        reference_no: generateRefNo(month, year),
-      }));
+  // ── Extracted: 3-month grace period delinquency check ────────────────────
+  // Called on mount, OR manually via the demo test button.
+  // graceDays lets the test button simulate a shorter grace period (e.g. 1 day).
+  const runDelinquencyCheck = async (graceDays = null) => {
+    const today       = new Date();
+    today.setHours(0, 0, 0, 0);
+    const cutoff      = new Date(today);
 
-      const { error } = await supabase.from('payments').insert(rows);
-      if (error) {
-        console.error('[AutoGenerate] Failed:', error.message);
-        return;
+    if (graceDays !== null) {
+      // Test mode: use custom days instead of 3 months
+      cutoff.setDate(cutoff.getDate() - graceDays);
+    } else {
+      cutoff.setMonth(cutoff.getMonth() - 3);
+    }
+    const cutoffStr = cutoff.toISOString().split('T')[0];
+
+    const { data: overduePayments } = await supabase
+      .from('payments').select('user_id')
+      .in('status', ['unpaid', 'overdue', 'pending'])
+      .lt('due_date', cutoffStr);
+
+    if (!overduePayments?.length) return { success: true, count: 0 };
+
+    const delinquentIds = [...new Set(overduePayments.map(p => p.user_id))];
+    const { data: activeResidents } = await supabase
+      .from('profiles').select('id, full_name')
+      .in('id', delinquentIds).eq('account_status', 'active');
+
+    if (!activeResidents?.length) return { success: true, count: 0 };
+
+    const idsToFlag = activeResidents.map(r => r.id);
+    const { error } = await supabase.from('profiles')
+      .update({ account_status: 'delinquent' }).in('id', idsToFlag);
+
+    if (error) return { success: false, error: error.message };
+
+    await logAudit('AUTO_DELINQUENT',
+      `Marked ${idsToFlag.length} resident(s) as delinquent — grace period expired. Residents: ${activeResidents.map(r => r.full_name).join(', ')}`);
+    return { success: true, count: idsToFlag.length, names: activeResidents.map(r => r.full_name) };
+  };
+
+  // ── Auto-generate monthly dues on the 1st of each month ─────────────────
+  // Also runs the 3-month grace period delinquency check on every mount.
+  useEffect(() => {
+    const runMonthlyTasks = async () => {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      // ── Task 1: Auto-generate ₱150 dues on the 1st of the month ────────────
+      if (today.getDate() === 1) {
+        await runGenerateDues(false); // false = don't force if already generated
       }
-
-      await logAudit(
-        'AUTO_MONTHLY_DUE',
-        `Auto-generated ₱${MONTHLY_DUE_AMOUNT} monthly dues for ${rows.length} residents — ${MONTHS[month]} ${year}. Due: ${dueDate}.`
-      );
-
-      // Refresh payments list
-      fetchPayments();
+      // ── Task 2: 3-month grace period delinquency check ──────────────────────
+      await runDelinquencyCheck(); // null = use real 3-month window
     };
 
-    runMonthlyAutoGenerate();
+    runMonthlyTasks();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -448,7 +538,17 @@ const Payment = () => {
 
   const handleEditChange = (e) => {
     const { name, value } = e.target;
-    setEditFormData(prev => ({ ...prev, [name]: value }));
+    setEditFormData(prev => ({
+      ...prev,
+      [name]: value,
+      // Auto-fill paid_at with today when status is switched to 'paid'
+      // Clear it if status is switched away from 'paid'
+      ...(name === 'status' && value === 'paid' && !prev.paid_at
+        ? { paid_at: new Date().toISOString().split('T')[0] }
+        : name === 'status' && value !== 'paid'
+        ? { paid_at: '' }
+        : {}),
+    }));
   };
 
   const submitEditTransaction = async () => {
@@ -460,12 +560,59 @@ const Payment = () => {
         status: editFormData.status, due_date: editFormData.due_date || null, reference_no: editFormData.reference_no || null,
         paid_at: editFormData.status === 'paid' ? (editFormData.paid_at ? new Date(editFormData.paid_at).toISOString() : new Date().toISOString()) : null,
       };
+
       const { error } = await supabase.from('payments').update(payload).eq('id', selectedPayment.id);
       if (error) throw error;
       await logAudit('EDIT_PAYMENT', `Updated Ref: ${payload.reference_no || selectedPayment.reference_no} → ${payload.status}.`);
+
+      // ── Auto-reactivate delinquent resident if all dues are now paid ────
+      // Only runs when the payment being updated is marked as 'paid'
+      if (payload.status === 'paid' && selectedPayment.user_id) {
+        // Check if the resident is currently delinquent
+        const { data: residentData } = await supabase
+          .from('profiles')
+          .select('id, full_name, account_status')
+          .eq('id', selectedPayment.user_id)
+          .single();
+
+        if (residentData?.account_status === 'delinquent') {
+          // Check if this resident still has any remaining unpaid dues
+          const { data: remainingUnpaid } = await supabase
+            .from('payments')
+            .select('id')
+            .eq('user_id', selectedPayment.user_id)
+            .in('status', ['unpaid', 'overdue', 'pending'])
+            .neq('id', selectedPayment.id) // exclude the one we just paid
+            .limit(1);
+
+          // No more unpaid dues — reactivate the account
+          if (!remainingUnpaid?.length) {
+            const { error: reactivateErr } = await supabase
+              .from('profiles')
+              .update({ account_status: 'active' })
+              .eq('id', selectedPayment.user_id);
+
+            if (!reactivateErr) {
+              await logAudit(
+                'AUTO_REACTIVATE',
+                `${residentData.full_name} auto-reactivated — all dues are now paid.`
+              );
+              setIsEditTransactionOpen(false);
+              fetchPayments();
+              setTransaction({
+                status: 'success',
+                message: `Payment recorded. ${residentData.full_name}'s account has been automatically reactivated — all dues are now settled.`,
+              });
+              return;
+            }
+          }
+        }
+      }
+      // ────────────────────────────────────────────────────────────────────
+
       setIsEditTransactionOpen(false);
       fetchPayments();
-      setTransaction({ status: 'success', message: 'Transaction updated.' });
+      setTransaction({ status: 'success', message: 'Transaction updated successfully.' });
     } catch (e) { setTransaction({ status: 'error', message: 'Failed: ' + e.message }); }
   };
 
@@ -503,6 +650,7 @@ const Payment = () => {
       (statusFilter   === 'All' || (p.status || '').toLowerCase() === statusFilter.toLowerCase()) &&
       (residentFilter === 'All' || p.user_id === residentFilter);
   });
+  const { paginated: paginatedPayments, page: transPage, setPage: setTransPage, totalPages: transTotalPages } = usePagination(filteredPayments, 10);
 
   const getStatusStyle = (s) => {
     switch ((s || '').toLowerCase()) {
@@ -519,12 +667,6 @@ const Payment = () => {
   const overdueCount   = payments.filter(p => p.status?.toLowerCase() === 'overdue').length;
   const paidCount      = payments.filter(p => p.status?.toLowerCase() === 'paid').length;
 
-  const residentPayments   = payments.filter(p => p.user_id === statementResId);
-  const residentProfile    = statementResId ? residentsList.find(r => r.id === statementResId) : null;
-  const selProfile         = residentPayments[0]?.profiles || null;
-  const invTotalPaid       = residentPayments.filter(p => p.status?.toLowerCase() === 'paid').reduce((a, c) => a + Number(c.amount || 0), 0);
-  const invTotalOverdue    = residentPayments.filter(p => p.status?.toLowerCase() === 'overdue').reduce((a, c) => a + Number(c.amount || 0), 0);
-  const invTotalDue        = residentPayments.filter(p => ['pending','unpaid','overdue'].includes(p.status?.toLowerCase())).reduce((a, c) => a + Number(c.amount || 0), 0);
 
   if (loading) return (
     <div className="min-h-screen bg-slate-50 flex items-center justify-center">
@@ -540,20 +682,6 @@ const Payment = () => {
 
       <TransactionModal status={transaction.status} message={transaction.message}
         onClose={() => { setTransaction({ status: null, message: '' }); fetchPayments(); }} />
-
-      <PaymentReports
-        isOpen={isStatementModalOpen} onClose={() => setIsStatementModalOpen(false)}
-        statementResId={statementResId} setStatementResId={setStatementResId}
-        residentsList={residentsList} residentPayments={residentPayments}
-        residentProfile={residentProfile} selectedPaymentProfile={selProfile}
-        invTotalPaid={invTotalPaid} invTotalOverdue={invTotalOverdue} invTotalDue={invTotalDue}
-      />
-
-      <AddPayable isOpen={isAddPayableOpen} onClose={() => setIsAddPayableOpen(false)}
-        onPayableAdded={() => fetchPayments()} />
-
-
-
       {/* ── Void confirm ── */}
       <ModalOverlay
         isOpen={isConfirmVoidOpen} onClose={() => setIsConfirmVoidOpen(false)}
@@ -569,9 +697,6 @@ const Payment = () => {
           </p>
         </div>
       </ModalOverlay>
-
-
-
       {/* ── Edit transaction ── */}
       <ModalOverlay isOpen={isEditTransactionOpen} onClose={() => setIsEditTransactionOpen(false)}
         title="Edit Transaction" subtitle="Update resident payment details"
@@ -650,6 +775,94 @@ const Payment = () => {
         <StatCard title="Paid This Month"  value={paidCount}                              icon={CheckCircle2}iconColor="text-emerald-600"bgColor="bg-emerald-50"    />
       </div>
 
+      {/* ── DEV/DEMO Test Panel — hidden in production (DEV_MODE = false) ── */}
+      {DEV_MODE && (
+        <div className="border-2 border-dashed border-amber-300 bg-amber-50 rounded-2xl p-5 space-y-4">
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 bg-amber-400 rounded-full animate-pulse" />
+            <p className="text-xs font-black text-amber-700 uppercase tracking-widest">Demo / Test Mode</p>
+            <p className="text-xs text-amber-600 ml-1">— Remove before going live by setting <code className="bg-amber-100 px-1 rounded font-mono">DEV_MODE = false</code></p>
+          </div>
+
+          {/* Test result feedback */}
+          {testResult && (
+            <div className={`flex items-start gap-3 p-3 rounded-xl text-sm font-semibold border
+              ${testResult.type === 'success' ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+              : testResult.type === 'info'    ? 'bg-blue-50 text-blue-800 border-blue-200'
+              :                                 'bg-red-50 text-red-800 border-red-200'}`}>
+              <span className="shrink-0 mt-0.5">
+                {testResult.type === 'success' ? '✅' : testResult.type === 'info' ? 'ℹ️' : '❌'}
+              </span>
+              <div>
+                <p>{testResult.message}</p>
+                {testResult.detail && <p className="text-xs mt-1 opacity-70">{testResult.detail}</p>}
+              </div>
+              <button onClick={() => setTestResult(null)} className="ml-auto text-xs opacity-50 hover:opacity-100 cursor-pointer shrink-0">✕</button>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {/* Button 1 — Generate this month's dues (force) */}
+            <div className="bg-white rounded-xl p-4 border border-amber-200 space-y-2">
+              <p className="text-xs font-black text-slate-700">📋 Generate This Month's Dues</p>
+              <p className="text-[11px] text-slate-500 leading-relaxed">
+                Inserts ₱150 unpaid dues for every active resident with today's month as due date.
+                Use this to simulate what happens on the 1st of the month.
+              </p>
+              <button
+                disabled={testLoading === 'dues'}
+                onClick={async () => {
+                  setTestLoading('dues');
+                  setTestResult(null);
+                  try {
+                    const res = await runGenerateDues(true); // force=true skips duplicate check
+                    if (res.success)
+                      setTestResult({ type: 'success', message: `✓ Generated ₱150 dues for ${res.count} residents.`, detail: `Month: ${res.month} ${res.year}` });
+                    else if (res.skipped)
+                      setTestResult({ type: 'info', message: res.reason });
+                    else
+                      setTestResult({ type: 'error', message: 'Failed: ' + res.error });
+                  } catch (e) {
+                    setTestResult({ type: 'error', message: 'Error: ' + e.message });
+                  } finally { setTestLoading(null); }
+                }}
+                className="w-full py-2.5 bg-[#006837] hover:bg-[#004d29] text-white text-xs font-bold rounded-xl cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2 transition-all">
+                {testLoading === 'dues' ? <><span className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" /> Generating…</> : '▶ Run Now'}
+              </button>
+            </div>
+
+            {/* Button 2 — Force delinquency check (1-day grace) */}
+            <div className="bg-white rounded-xl p-4 border border-amber-200 space-y-2">
+              <p className="text-xs font-black text-slate-700">⚠️ Force Delinquency Check</p>
+              <p className="text-[11px] text-slate-500 leading-relaxed">
+                Marks residents as <strong>Delinquent</strong> if they have any unpaid due older than <strong>1 day</strong>
+                (instead of 3 months). Use this to demonstrate the auto-delinquent feature instantly.
+              </p>
+              <button
+                disabled={testLoading === 'delinquent'}
+                onClick={async () => {
+                  setTestLoading('delinquent');
+                  setTestResult(null);
+                  try {
+                    const res = await runDelinquencyCheck(1); // 1-day grace for demo
+                    if (res.success && res.count > 0)
+                      setTestResult({ type: 'success', message: `✓ Marked ${res.count} resident(s) as Delinquent.`, detail: res.names?.join(', ') });
+                    else if (res.success && res.count === 0)
+                      setTestResult({ type: 'info', message: 'No eligible residents found. Make sure at least one resident has an unpaid due dated before today.' });
+                    else
+                      setTestResult({ type: 'error', message: 'Failed: ' + res.error });
+                  } catch (e) {
+                    setTestResult({ type: 'error', message: 'Error: ' + e.message });
+                  } finally { setTestLoading(null); }
+                }}
+                className="w-full py-2.5 bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold rounded-xl cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2 transition-all">
+                {testLoading === 'delinquent' ? <><span className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" /> Checking…</> : '▶ Run Now'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Standing Ledger view ── */}
       {activeView === 'standing' && (
         <StandingLedger residentsList={residentsList} payments={payments} />
@@ -680,18 +893,6 @@ const Payment = () => {
               </select>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
-              <RequireRole userRole={currentUserRole} allowedRoles={['treasurer']}>
-                <button onClick={() => setIsAddPayableOpen(true)}
-                  className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold cursor-pointer transition-all">
-                  + Add Expense
-                </button>
-              </RequireRole>
-              <RequireRole userRole={currentUserRole} allowedRoles={['president','treasurer','vice_president','auditor']}>
-                <button onClick={() => { setStatementResId(''); setIsStatementModalOpen(true); }}
-                  className="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-50 shadow-sm cursor-pointer transition-all">
-                  <FileText size={14} /> Statement
-                </button>
-              </RequireRole>
 
             </div>
           </div>
@@ -708,7 +909,7 @@ const Payment = () => {
               <tbody className="divide-y divide-slate-50">
                 {filteredPayments.length === 0 ? (
                   <tr><td colSpan={8} className="px-5 py-16 text-center text-slate-300 text-sm">No payments found</td></tr>
-                ) : filteredPayments.map(p => {
+                ) : paginatedPayments.map(p => {
                   const prof  = Array.isArray(p.profiles) ? p.profiles[0] : p.profiles;
                   const name  = prof?.full_name || 'Unknown Resident';
                   const addr  = prof ? `${prof.address || ''} ${prof.street || ''}`.trim() : 'N/A';
@@ -750,9 +951,12 @@ const Payment = () => {
           </div>
 
           {filteredPayments.length > 0 && (
-            <div className="px-5 py-3 border-t border-slate-100">
-              <p className="text-xs text-slate-400">{filteredPayments.length} transaction{filteredPayments.length !== 1 ? 's' : ''}</p>
-            </div>
+            <>
+              <PaginationBar page={transPage} totalPages={transTotalPages} setPage={setTransPage} total={filteredPayments.length} rowsPerPage={10} />
+              <div className="px-5 py-3 border-t border-slate-100">
+                <p className="text-xs text-slate-400">{filteredPayments.length} transaction{filteredPayments.length !== 1 ? 's' : ''}</p>
+              </div>
+            </>
           )}
         </div>
       )}
