@@ -105,11 +105,63 @@ const ResidentManage = () => {
   };
 
   // ── Fetch ─────────────────────────────────────────────────────────────────
+  const DELINQUENT_THRESHOLD = 450; // ₱450 = 3 months × ₱150
+
   const fetchResidents = useCallback(async () => {
     setLoading(true);
     try {
       const { data, error } = await supabase.from('profiles').select('*').order('created_at', { ascending: false });
       if (error) throw error;
+
+      // ── Balance-based delinquency check ──────────────────────────────────
+      // Fetch all unpaid payments and sum per resident.
+      // Any active resident with balance >= ₱450 gets flagged as delinquent.
+      const { data: unpaidPayments } = await supabase
+        .from('payments').select('user_id, amount')
+        .in('status', ['unpaid', 'overdue', 'pending']);
+
+      if (unpaidPayments?.length) {
+        const balanceMap = {};
+        unpaidPayments.forEach(p => {
+          balanceMap[p.user_id] = (balanceMap[p.user_id] || 0) + Number(p.amount || 0);
+        });
+
+        // Residents that should be delinquent (balance >= threshold, currently active)
+        const toDelinquent = (data || []).filter(r =>
+          r.account_status === 'active' &&
+          (balanceMap[r.id] || 0) >= DELINQUENT_THRESHOLD
+        ).map(r => r.id);
+
+        // Residents that should be reactivated (balance < threshold, currently delinquent)
+        const toReactivate = (data || []).filter(r =>
+          r.account_status === 'delinquent' &&
+          (balanceMap[r.id] || 0) < DELINQUENT_THRESHOLD
+        ).map(r => r.id);
+
+        if (toDelinquent.length) {
+          await supabase.from('profiles')
+            .update({ account_status: 'delinquent' }).in('id', toDelinquent);
+          await logAudit('AUTO_DELINQUENT',
+            `Auto-flagged ${toDelinquent.length} resident(s) as delinquent — balance ≥ ₱${DELINQUENT_THRESHOLD}.`);
+          toDelinquent.forEach(id => {
+            const r = data.find(x => x.id === id);
+            if (r) r.account_status = 'delinquent';
+          });
+        }
+
+        if (toReactivate.length) {
+          await supabase.from('profiles')
+            .update({ account_status: 'active' }).in('id', toReactivate);
+          await logAudit('AUTO_REACTIVATE',
+            `Auto-reactivated ${toReactivate.length} resident(s) — balance now below ₱${DELINQUENT_THRESHOLD}.`);
+          toReactivate.forEach(id => {
+            const r = data.find(x => x.id === id);
+            if (r) r.account_status = 'active';
+          });
+        }
+      }
+      // ─────────────────────────────────────────────────────────────────────
+
       setResidents(data || []);
     } catch (e) {
       showToast('Failed to load residents: ' + e.message, 'error');

@@ -1,12 +1,9 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../supabaseAdmin';
-import { logAudit } from '../auditLogger';
 import {
-  Plus, Printer, Search, X, CheckCircle2, AlertCircle,
-  RefreshCw, Calendar, Clock, Users, Eye, ChevronDown,
-  Trash2, User, MapPin,
+  Search, X, CheckCircle2, AlertCircle,
+  RefreshCw, Calendar, Clock, Users, Eye, MapPin,
 } from 'lucide-react';
-import ChateauLogo from '../../assets/ChataueLogo.png';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const fmtDate = (d) => {
@@ -55,185 +52,8 @@ const Toast = ({ toast }) => {
   );
 };
 
-// ─── Printable Permit ─────────────────────────────────────────────────────────
-const PrintPermit = React.forwardRef(({ permit, names }, ref) => {
-  if (!permit) return null;
-  const rows = Array.from({ length: 14 }, (_, i) => names[i] || { name: '', address: '' });
-
-  return (
-    <div ref={ref} className="bg-white p-10 font-serif text-black" style={{ width: '794px', minHeight: '1123px' }}>
-      {/* Header */}
-      <div className="flex items-center gap-4 mb-8">
-        <img src={ChateauLogo} alt="Chateau Real" style={{ height: '70px', width: 'auto' }} />
-        <div className="text-center flex-1">
-          <p className="font-bold text-sm">Chateau Real Executive Village Homeowners Association Inc.</p>
-          <p className="font-bold text-sm">(CREVHAI)</p>
-        </div>
-      </div>
-
-      <h2 className="font-bold text-lg underline mb-8">COURT PERMIT</h2>
-
-      <p className="mb-6 text-sm font-bold">To the guard on duty,</p>
-
-      <p className="text-sm mb-4 leading-relaxed">
-        The following names who appeared below are scheduled to rent the covered court of Chateau
-        Real on <span className="font-bold">{fmtDate(permit.date)}</span> from{' '}
-        <span className="font-bold">{fmtTime(permit.start_time)}</span> to{' '}
-        <span className="font-bold">{fmtTime(permit.end_time)}</span>.
-      </p>
-
-      <p className="text-sm mb-8 leading-relaxed font-bold">
-        We had paid the amount of Php{' '}
-        <span className="font-normal">____________</span>{' '}
-        as rental fee. We will abide by the guidelines of Chateau Real that governs the use of the court.
-        Any incident that may happen CREVHAI has no obligation to the renting party.
-      </p>
-
-      {/* Names table */}
-      <table className="w-full border-collapse border border-black text-sm mb-8">
-        <thead>
-          <tr>
-            <th className="border border-black p-2 w-8"></th>
-            <th className="border border-black p-2 font-bold text-center">NAME</th>
-            <th className="border border-black p-2 font-bold text-center w-28">SIGNATURE</th>
-            <th className="border border-black p-2 font-bold text-center">ADDRESS</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row, i) => (
-            <tr key={i}>
-              <td className="border border-black p-2 text-center">{i + 1}.</td>
-              <td className="border border-black p-2">{row.name}</td>
-              <td className="border border-black p-2"></td>
-              <td className="border border-black p-2">{row.address}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-
-      <p className="text-sm font-bold mb-6">Issued By:</p>
-      <div className="mt-6">
-        <div className="border-t border-black w-40 mb-1" />
-        <p className="text-sm font-bold">Daisy Jimenez</p>
-        <p className="text-sm font-bold">Sports Committee</p>
-      </div>
-    </div>
-  );
-});
-
-// ─── Permit Form Modal ────────────────────────────────────────────────────────
-const PermitFormModal = ({ permit, onClose, onSave, isSaving }) => {
-  const [names, setNames] = useState(
-    Array.from({ length: 14 }, (_, i) =>
-      permit?.permit_names?.[i] || { name: '', address: '' }
-    )
-  );
-
-  const updateRow = (i, field, value) => {
-    setNames(prev => prev.map((row, idx) => idx === i ? { ...row, [field]: value } : row));
-  };
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    // Only save rows that have at least a name
-    const filled = names.filter(r => r.name.trim());
-    onSave(filled);
-  };
-
-  const inputCls = "w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#006837]/20 focus:border-[#006837] transition-all";
-
-  return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-3xl max-h-[92vh] overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
-        {/* Header */}
-        <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between shrink-0">
-          <div>
-            <h2 className="text-lg font-black text-slate-900">Court Permit — Participant Names</h2>
-            <p className="text-xs text-slate-400 mt-0.5">
-              {permit.date ? `${fmtDate(permit.date)} · ${fmtTime(permit.start_time)} – ${fmtTime(permit.end_time)}` : ''}
-            </p>
-          </div>
-          <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-xl cursor-pointer">
-            <X size={18} className="text-slate-400" />
-          </button>
-        </div>
-
-        {/* Form */}
-        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto">
-          <div className="p-6 space-y-3">
-            {/* Column headers */}
-            <div className="grid grid-cols-12 gap-2 mb-1">
-              <div className="col-span-1 text-[10px] font-black text-slate-400 uppercase tracking-wider text-center">#</div>
-              <div className="col-span-6 text-[10px] font-black text-slate-400 uppercase tracking-wider">Name</div>
-              <div className="col-span-5 text-[10px] font-black text-slate-400 uppercase tracking-wider">Address</div>
-            </div>
-
-            {names.map((row, i) => (
-              <div key={i} className="grid grid-cols-12 gap-2 items-center">
-                <div className="col-span-1 text-xs font-bold text-slate-400 text-center">{i + 1}.</div>
-                <div className="col-span-6">
-                  <input
-                    value={row.name}
-                    onChange={e => updateRow(i, 'name', e.target.value)}
-                    placeholder="Full name"
-                    className={inputCls}
-                  />
-                </div>
-                <div className="col-span-5">
-                  <input
-                    value={row.address}
-                    onChange={e => updateRow(i, 'address', e.target.value)}
-                    placeholder="Block / Lot / Street"
-                    className={inputCls}
-                  />
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div className="px-6 pb-6 flex gap-3 shrink-0">
-            <button type="button" onClick={onClose}
-              className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-2xl text-sm cursor-pointer">
-              Cancel
-            </button>
-            <button type="submit" disabled={isSaving}
-              className="flex-1 py-3 bg-[#006837] hover:bg-[#004d29] text-white font-bold rounded-2xl text-sm shadow-lg shadow-[#006837]/20 cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2">
-              {isSaving ? <><RefreshCw size={14} className="animate-spin" /> Saving…</> : <><CheckCircle2 size={14} /> Save Names</>}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-};
-
-// ─── View + Print Modal ───────────────────────────────────────────────────────
-const ViewPermitModal = ({ permit, onClose, onEditNames }) => {
-  const printRef  = useRef();
-  const names     = permit?.permit_names || [];
-  const hasNames  = names.length > 0;
-
-  const handlePrint = () => {
-    const content  = printRef.current.innerHTML;
-    const printWin = window.open('', '_blank', 'width=900,height=700');
-    printWin.document.write(`
-      <html>
-        <head>
-          <title>Court Permit — ${fmtDate(permit.date)}</title>
-          <style>
-            body { margin: 0; font-family: serif; }
-            table { border-collapse: collapse; width: 100%; }
-            th, td { border: 1px solid black; padding: 6px 8px; }
-          </style>
-        </head>
-        <body>${content}</body>
-      </html>
-    `);
-    printWin.document.close();
-    printWin.focus();
-    setTimeout(() => { printWin.print(); printWin.close(); }, 400);
-  };
-
+// ─── Permit Details Modal ─────────────────────────────────────────────────────
+const ViewPermitModal = ({ permit, onClose }) => {
   if (!permit) return null;
 
   return (
@@ -268,46 +88,18 @@ const ViewPermitModal = ({ permit, onClose, onEditNames }) => {
             ))}
           </div>
 
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <StatusBadge status={permit.status} />
+          <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+            <div className="flex items-center gap-2 mb-1">
+              <MapPin size={13} className="text-[#006837]" />
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Address</p>
             </div>
-            <button onClick={() => onEditNames(permit)}
-              className="flex items-center gap-2 px-4 py-2 bg-[#006837]/10 hover:bg-[#006837]/20 text-[#006837] rounded-xl text-xs font-bold cursor-pointer transition-all">
-              <Users size={13} /> {hasNames ? 'Edit Names' : 'Add Names'}
-            </button>
+            <p className="text-sm font-bold text-slate-800">
+              {[permit.profiles?.block, permit.profiles?.lot, permit.profiles?.street].filter(Boolean).join(', ') || '—'}
+            </p>
           </div>
 
-          {/* Names list */}
-          {hasNames ? (
-            <div className="bg-slate-50 rounded-2xl border border-slate-100 overflow-hidden">
-              <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-2">
-                <Users size={14} className="text-[#006837]" />
-                <h4 className="text-xs font-black text-slate-700 uppercase tracking-wider">Participants ({names.length})</h4>
-              </div>
-              <div className="divide-y divide-slate-100">
-                {names.map((n, i) => (
-                  <div key={i} className="px-4 py-3 flex items-center gap-3">
-                    <span className="text-[10px] font-black text-slate-400 w-5 text-right">{i + 1}.</span>
-                    <User size={12} className="text-slate-400 shrink-0" />
-                    <span className="text-sm font-semibold text-slate-700 flex-1">{n.name}</span>
-                    <MapPin size={12} className="text-slate-400 shrink-0" />
-                    <span className="text-xs text-slate-500">{n.address || '—'}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : (
-            <div className="flex flex-col items-center justify-center py-8 bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200">
-              <Users size={28} className="text-slate-300 mb-2" />
-              <p className="text-sm font-semibold text-slate-400">No participants added yet</p>
-              <p className="text-xs text-slate-300 mt-0.5">Click "Add Names" to fill in participants</p>
-            </div>
-          )}
-
-          {/* Hidden printable area */}
-          <div className="hidden">
-            <PrintPermit ref={printRef} permit={permit} names={names} />
+          <div className="flex items-center gap-2">
+            <StatusBadge status={permit.status} />
           </div>
         </div>
 
@@ -317,12 +109,6 @@ const ViewPermitModal = ({ permit, onClose, onEditNames }) => {
             className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-2xl text-sm cursor-pointer">
             Close
           </button>
-          {hasNames && (
-            <button onClick={handlePrint}
-              className="flex-1 py-3 bg-[#006837] hover:bg-[#004d29] text-white font-bold rounded-2xl text-sm shadow-lg shadow-[#006837]/20 cursor-pointer flex items-center justify-center gap-2">
-              <Printer size={15} /> Print Permit
-            </button>
-          )}
         </div>
       </div>
     </div>
@@ -336,8 +122,6 @@ const CourtPermit = () => {
   const [search,        setSearch]        = useState('');
   const [statusFilter,  setStatusFilter]  = useState('all');
   const [viewPermit,    setViewPermit]    = useState(null);
-  const [editTarget,    setEditTarget]    = useState(null);  // permit being edited for names
-  const [isSaving,      setIsSaving]      = useState(false);
   const [toast,         setToast]         = useState({ show: false, message: '', type: 'success' });
 
   const showToast = (message, type = 'success') => {
@@ -383,27 +167,6 @@ const CourtPermit = () => {
 
   useEffect(() => { fetchReservations(); }, [fetchReservations]);
 
-  // ── Save participant names ─────────────────────────────────────────────────
-  const handleSaveNames = async (names) => {
-    if (!editTarget) return;
-    setIsSaving(true);
-    try {
-      const { error } = await supabase
-        .from('reservations')
-        .update({ permit_names: names })
-        .eq('id', editTarget.id);
-      if (error) throw error;
-      await logAudit('UPDATE_COURT_PERMIT', `Updated participant names for reservation ID: ${editTarget.id}`);
-      showToast('Participant names saved successfully.');
-      setEditTarget(null);
-      fetchReservations();
-    } catch (e) {
-      showToast('Failed to save: ' + e.message, 'error');
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
   // ── Filter ────────────────────────────────────────────────────────────────
   const filtered = reservations.filter(r => {
     const name  = (r.profiles?.full_name || '').toLowerCase();
@@ -420,29 +183,15 @@ const CourtPermit = () => {
     return acc;
   }, {});
 
-  const withNames    = reservations.filter(r => (r.permit_names || []).length > 0).length;
-  const withoutNames = reservations.filter(r => (r.permit_names || []).length === 0).length;
-
   return (
     <div className="min-h-screen bg-slate-50 p-6 lg:p-8 space-y-6">
       <Toast toast={toast} />
 
-      {/* Name edit modal */}
-      {editTarget && (
-        <PermitFormModal
-          permit={editTarget}
-          onClose={() => setEditTarget(null)}
-          onSave={handleSaveNames}
-          isSaving={isSaving}
-        />
-      )}
-
-      {/* View + print modal */}
-      {viewPermit && !editTarget && (
+      {/* View modal */}
+      {viewPermit && (
         <ViewPermitModal
           permit={viewPermit}
           onClose={() => setViewPermit(null)}
-          onEditNames={(p) => { setViewPermit(null); setEditTarget(p); }}
         />
       )}
 
@@ -468,8 +217,8 @@ const CourtPermit = () => {
         {[
           { title: 'Total Permits',   value: reservations.length, icon: Calendar, bg: 'bg-slate-100',    color: 'text-slate-600'    },
           { title: 'Approved',        value: counts.approved || 0,icon: CheckCircle2, bg: 'bg-emerald-50', color: 'text-emerald-600' },
-          { title: 'Names Filled',    value: withNames,           icon: Users,    bg: 'bg-[#006837]/10', color: 'text-[#006837]'   },
-          { title: 'Needs Names',     value: withoutNames,        icon: AlertCircle, bg: 'bg-amber-50',  color: 'text-amber-600'   },
+          { title: 'Pending',         value: counts.pending || 0, icon: AlertCircle, bg: 'bg-amber-50',  color: 'text-amber-600'   },
+          { title: 'Completed',       value: counts.completed || 0, icon: Users,    bg: 'bg-[#006837]/10', color: 'text-[#006837]'   },
         ].map(k => (
           <div key={k.title} className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm hover:shadow-md transition-shadow">
             <div className="flex items-start justify-between">
@@ -521,26 +270,26 @@ const CourtPermit = () => {
             <table className="w-full text-left">
               <thead className="bg-slate-50 border-b border-slate-100">
                 <tr>
-                  {['Resident','Facility','Date','Time Slot','Status','Participants','Actions'].map(h => (
+                  {['Resident','Facility','Blk','Lot','Street','Date','Time Slot','Status','Actions'].map(h => (
                     <th key={h} className="px-5 py-3.5 text-[10px] font-black text-slate-400 uppercase tracking-wider whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {filtered.map(r => {
-                  const names    = r.permit_names || [];
-                  const hasNames = names.length > 0;
-                  return (
+                {filtered.map(r => (
                     <tr key={r.id} className="hover:bg-slate-50/80 transition-colors">
                       {/* Resident */}
                       <td className="px-5 py-4">
                         <p className="text-sm font-bold text-slate-800">{r.profiles?.full_name || '—'}</p>
-                        <p className="text-xs text-slate-400">
-                          {[r.profiles?.block && `Blk ${r.profiles.block}`, r.profiles?.lot && `Lot ${r.profiles.lot}`].filter(Boolean).join(' ')}
-                        </p>
                       </td>
                       {/* Facility */}
                       <td className="px-5 py-4 text-sm text-slate-600">{r.facilities?.name || '—'}</td>
+                      {/* Blk */}
+                      <td className="px-5 py-4 text-sm text-slate-600">{r.profiles?.block || '—'}</td>
+                      {/* Lot */}
+                      <td className="px-5 py-4 text-sm text-slate-600">{r.profiles?.lot || '—'}</td>
+                      {/* Street */}
+                      <td className="px-5 py-4 text-sm text-slate-600">{r.profiles?.street || '—'}</td>
                       {/* Date */}
                       <td className="px-5 py-4 text-sm text-slate-600 whitespace-nowrap">{fmtDate(r.date)}</td>
                       {/* Time */}
@@ -549,46 +298,17 @@ const CourtPermit = () => {
                       </td>
                       {/* Status */}
                       <td className="px-5 py-4"><StatusBadge status={r.status} /></td>
-                      {/* Participants */}
-                      <td className="px-5 py-4">
-                        {hasNames
-                          ? <span className="inline-flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-full bg-[#006837]/10 text-[#006837] border border-[#006837]/20">
-                              <Users size={11} /> {names.length} added
-                            </span>
-                          : <span className="inline-flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-100">
-                              <AlertCircle size={11} /> Needs names
-                            </span>}
-                      </td>
                       {/* Actions */}
                       <td className="px-5 py-4">
-                        <div className="flex items-center gap-1.5">
-                          <button onClick={() => setViewPermit(r)} title="View & Print"
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <button onClick={() => setViewPermit(r)} title="View Details"
                             className="p-2 hover:bg-blue-50 text-slate-400 hover:text-blue-600 rounded-lg cursor-pointer transition-colors">
                             <Eye size={15} />
                           </button>
-                          <button onClick={() => setEditTarget(r)} title="Add/Edit Names"
-                            className="p-2 hover:bg-[#006837]/10 text-slate-400 hover:text-[#006837] rounded-lg cursor-pointer transition-colors">
-                            <Users size={15} />
-                          </button>
-                          {hasNames && (
-                            <button
-                              title="Print Permit"
-                              onClick={() => {
-                                setViewPermit(r);
-                                // slight delay so modal opens first
-                                setTimeout(() => {
-                                  document.querySelector('[data-print]')?.click();
-                                }, 300);
-                              }}
-                              className="p-2 hover:bg-emerald-50 text-slate-400 hover:text-emerald-600 rounded-lg cursor-pointer transition-colors">
-                              <Printer size={15} />
-                            </button>
-                          )}
                         </div>
                       </td>
                     </tr>
-                  );
-                })}
+                ))}
               </tbody>
             </table>
           )}
