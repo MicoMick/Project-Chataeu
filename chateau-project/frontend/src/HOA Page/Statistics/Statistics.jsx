@@ -367,7 +367,7 @@ const MaintenanceWidget = ({ filter }) => {
         <KpiStrip items={[
           { label: 'Total',    value: data.kpi.total,          color: 'text-slate-900'   },
           { label: 'Pending',  value: data.kpi.pending,        color: 'text-amber-500'   },
-          { label: 'Resolved', value: data.kpi.resolved,       color: 'text-emerald-600' },
+          { label: 'Resolved', value: data.kpi.resolved,       color: 'text-emerald-600' }, 
           { label: 'Rate',     value: `${data.kpi.resolutionRate}%`, color: 'text-[#006837]' },
         ]} />
       )}
@@ -632,8 +632,8 @@ const Statistics = () => {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <KpiCard title="Total Revenue"    value={payLoading ? '…' : fmtCurrency(payData?.kpi?.totalRevenue)}  icon={DollarSign}   iconBg="bg-green-50"   iconColor="text-[#006837]" delta={payData?.kpi?.revDelta} />
         <KpiCard title="Active Users"     value={payLoading ? '…' : fmt(payData?.kpi?.activeUsers)}           icon={Users}        iconBg="bg-blue-50"    iconColor="text-blue-600"  subtitle="With transactions" />
-        <KpiCard title="Total Dues"     value={payLoading ? '…' : fmtCurrency(payData?.kpi?.totalDues)}           icon={ShoppingCart} iconBg="bg-amber-50"   iconColor="text-amber-600" subtitle="Payment records" />
-        <KpiCard title="Avg. Order Value" value={payLoading ? '…' : fmtCurrency(payData?.kpi?.avgOrderValue)} icon={Activity}     iconBg="bg-purple-50"  iconColor="text-purple-600" />
+        <KpiCard title="Total Dues"     value={payLoading ? '…' : fmt(payData?.kpi?.totalOrders)}           icon={ShoppingCart} iconBg="bg-amber-50"   iconColor="text-amber-600" subtitle="Due Records" />
+        <KpiCard title="Avg. Due Value" value={payLoading ? '…' : fmtCurrency(payData?.kpi?.avgOrderValue)} icon={Activity}     iconBg="bg-purple-50"  iconColor="text-purple-600" />
       </div>
 
       {/* KPI Row 2 — Maintenance / Reservation */}

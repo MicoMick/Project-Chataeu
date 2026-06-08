@@ -42,19 +42,74 @@ const Toast = ({ toast }) => {
   );
 };
 
+// ── Extract the storage path from a full Supabase Storage URL ────────────────
+// e.g. "https://….supabase.co/storage/v1/object/public/move-in-docs/proof-of-ownership/file.jpg"
+//   → "proof-of-ownership/file.jpg"
+const extractStoragePath = (value) => {
+  if (!value) return null;
+  // Already a bare path (no protocol)
+  if (!value.startsWith('http')) return value;
+  // Pull everything after the bucket name in the URL
+  const marker = '/move-in-docs/';
+  const idx = value.indexOf(marker);
+  if (idx !== -1) return value.slice(idx + marker.length);
+  return null;
+};
+
+// ── DocLink — opens a signed URL for a private bucket file ───────────────────
+// The bucket "move-in-docs" is PRIVATE, so public URLs return 404.
+// createSignedUrl generates a short-lived (60 min) authenticated link.
+const DocLink = ({ value }) => {
+  const [loading, setLoading] = React.useState(false);
+  const [err,     setErr]     = React.useState(false);
+
+  const handleOpen = async () => {
+    setLoading(true);
+    setErr(false);
+    try {
+      const path = extractStoragePath(value);
+      if (!path) throw new Error('Cannot resolve path');
+      const { data, error } = await supabase.storage
+        .from('move-in-docs')
+        .createSignedUrl(path, 3600); // 1-hour signed URL
+      if (error || !data?.signedUrl) throw error || new Error('No URL');
+      window.open(data.signedUrl, '_blank', 'noreferrer');
+    } catch {
+      setErr(true);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (err) return <span className="text-sm text-red-400 italic">Failed to open — check storage permissions</span>;
+
+  return (
+    <button
+      onClick={handleOpen}
+      disabled={loading}
+      className="flex items-center gap-1.5 text-sm font-semibold text-[#006837] hover:underline cursor-pointer disabled:opacity-60">
+      {loading
+        ? <><span className="w-3 h-3 border-2 border-[#006837]/30 border-t-[#006837] rounded-full animate-spin" /> Opening…</>
+        : <><ExternalLink size={12} /> View Document</>}
+    </button>
+  );
+};
+
 const DetailRow = ({ label, value, url }) => {
-  if (!value && !url) return null;
+  if (!value) return (
+    <div className="flex items-start justify-between py-2.5 border-b border-slate-50 last:border-0">
+      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider shrink-0 w-40">{label}</span>
+      <span className="text-sm text-slate-300 italic">Not provided</span>
+    </div>
+  );
+
   return (
     <div className="flex items-start justify-between py-2.5 border-b border-slate-50 last:border-0">
       <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider shrink-0 w-40">{label}</span>
-      {url ? (
-        <a href={value} target="_blank" rel="noreferrer"
-          className="flex items-center gap-1.5 text-sm font-semibold text-[#006837] hover:underline truncate max-w-[260px]">
-          <ExternalLink size={12} /> View Document
-        </a>
-      ) : (
-        <span className="text-sm font-semibold text-slate-700 text-right max-w-[260px] break-words">{value}</span>
-      )}
+      {url
+        ? <DocLink value={value} />
+        : <span className="text-sm font-semibold text-slate-700 text-right max-w-[260px] break-words">{value}</span>
+      }
     </div>
   );
 };
@@ -201,17 +256,22 @@ const ClearanceRow = ({ item, onApprove, onReject, actionLoadingId }) => {
               ? new Date(item.move_in_date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
               : null} />
 
-            {/* Owner-specific — proof of ownership */}
-            {isOwner && item.proof_of_ownership_url && (
-              <DetailRow label="Proof of Ownership" value={item.proof_of_ownership_url} url={true} />
+            {/* Documents — using the real DB column names */}
+            {item.proof_of_ownership_url && (
+              <DetailRow label="Proof of Ownership"
+                value={item.proof_of_ownership_url} url={true} />
             )}
-
-            {/* Renter-specific */}
-            {!isOwner && (
-              <>
-                <DetailRow label="Barangay Clearance" value={item.barangay_clearance_url} url={!!item.barangay_clearance_url} />
-                <DetailRow label="Contract Copy"      value={item.contract_copy_url}      url={!!item.contract_copy_url}      />
-              </>
+            {item.barangay_clearance_url && (
+              <DetailRow label="Barangay Clearance"
+                value={item.barangay_clearance_url} url={true} />
+            )}
+            {item.contract_copy_url && (
+              <DetailRow label="Contract Copy"
+                value={item.contract_copy_url} url={true} />
+            )}
+            {/* Show message if no documents submitted */}
+            {!item.proof_of_ownership_url && !item.barangay_clearance_url && !item.contract_copy_url && (
+              <div className="py-3 text-xs text-slate-400 italic">No documents submitted yet.</div>
             )}
 
             {/* Requirements checklist from the physical form */}
@@ -332,17 +392,26 @@ const MoveInClearance = () => {
   const fetchClearances = async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase
+      // Try with explicit FK hint first, fallback to simple join if it fails
+      let { data, error } = await supabase
         .from('move_in_clearances')
         .select(`
-          id, user_id, move_in_date, resident_type,
-          proof_of_ownership_url, barangay_clearance_url, contract_copy_url,
-          status, admin_notes, created_at, reviewed_at, reviewed_by,
+          *,
           profiles!move_in_clearances_user_id_fkey (
             id, full_name, first_name, last_name, block, lot, street, email
           )
         `)
         .order('created_at', { ascending: false });
+
+      // If FK hint fails, retry with simple join
+      if (error || !data) {
+        const retry = await supabase
+          .from('move_in_clearances')
+          .select(`*, profiles ( id, full_name, first_name, last_name, block, lot, street, email )`)
+          .order('created_at', { ascending: false });
+        data  = retry.data;
+        error = retry.error;
+      }
 
       if (error) throw error;
       setClearances(data || []);
@@ -355,17 +424,42 @@ const MoveInClearance = () => {
 
   useEffect(() => { fetchClearances(); }, []);
 
+  // ── Auto-approve a resident's still-pending account when their Move In ───
+  // clearance gets approved (mirrors the manual action in Account Approval /
+  // Resident Management — saves the HOA an extra step).
+  const autoApprovePendingAccount = async (profileId, residentName) => {
+    if (!profileId) return;
+    const { data: profile } = await supabase
+      .from('profiles').select('account_status').eq('id', profileId).maybeSingle();
+    if (profile?.account_status !== 'pending') return;
+
+    const { error } = await supabase
+      .from('profiles').update({ account_status: 'active' }).eq('id', profileId);
+    if (error) return;
+
+    await logAudit('APPROVE_ACCOUNT', `${residentName} — account auto-approved via Move In clearance approval`);
+  };
+
   // ── Approve ──────────────────────────────────────────────────────────────
   const handleApprove = async (item) => {
     setActionLoadingId(item.id);
     try {
       const { data: { user } } = await supabase.auth.getUser();
+
+      // Only set reviewed_by if the user's id exists in profiles (avoids FK 409)
+      let reviewedBy = null;
+      if (user?.id) {
+        const { data: prof } = await supabase
+          .from('profiles').select('id').eq('id', user.id).maybeSingle();
+        if (prof) reviewedBy = user.id;
+      }
+
       const { error } = await supabase
         .from('move_in_clearances')
         .update({
           status:      'approved',
           reviewed_at: new Date().toISOString(),
-          reviewed_by: user?.id || null,
+          reviewed_by: reviewedBy,
           admin_notes: null,
         })
         .eq('id', item.id);
@@ -376,6 +470,11 @@ const MoveInClearance = () => {
         'APPROVE_CLEARANCE',
         `Approved ${item.move_in_date ? 'Move In' : 'Move Out'} clearance for: ${item.profiles?.full_name} (ID: ${item.id})`
       );
+
+      // Move In approvals also auto-approve the resident's pending account
+      if (item.move_in_date) {
+        await autoApprovePendingAccount(item.profiles?.id, item.profiles?.full_name || 'Resident');
+      }
 
       showToast(`Clearance approved for ${item.profiles?.full_name || 'resident'}.`);
       fetchClearances();
@@ -392,12 +491,21 @@ const MoveInClearance = () => {
     setActionLoadingId(rejectTarget.id);
     try {
       const { data: { user } } = await supabase.auth.getUser();
+
+      // Only set reviewed_by if the user's id exists in profiles (avoids FK 409)
+      let reviewedBy = null;
+      if (user?.id) {
+        const { data: prof } = await supabase
+          .from('profiles').select('id').eq('id', user.id).maybeSingle();
+        if (prof) reviewedBy = user.id;
+      }
+
       const { error } = await supabase
         .from('move_in_clearances')
         .update({
           status:      'rejected',
           reviewed_at: new Date().toISOString(),
-          reviewed_by: user?.id || null,
+          reviewed_by: reviewedBy,
           admin_notes: notes || null,
         })
         .eq('id', rejectTarget.id);
