@@ -444,7 +444,7 @@ const StandingLedger = ({ residentsList, payments }) => {
     r.block.toLowerCase().includes(search.toLowerCase()) ||
     r.lot.toLowerCase().includes(search.toLowerCase()))
   );
-  const { paginated: paginatedPayment, page: payPage, setPage: setPayPage, totalPages: payTotalPages, total: filteredTotal } = usePagination(filtered, 10);
+  const { paginated: paginatedPayment, page: payPage, setPage: setPayPage, totalPages: payTotalPages, total: filteredTotal } = usePagination(filtered, 5);
 
   const printLedger = () => {
     const today = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
@@ -866,25 +866,12 @@ const Payment = () => {
     return { success: true, count: idsToFlag.length, names: activeResidents.map(r => r.full_name) };
   };
 
-  // ── Auto-generate monthly dues on the 1st of each month ─────────────────
-  // Also runs the 3-month grace period delinquency check on every mount.
-  useEffect(() => {
-    const runMonthlyTasks = async () => {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-
-      // ── Task 1: Auto-generate ₱150 dues on the 1st of the month ────────────
-      if (today.getDate() === 1) {
-        await runGenerateDues(false); // false = don't force if already generated
-      }
-      // ── Task 2: 3-month grace period delinquency check ──────────────────────
-      await runDelinquencyCheck(); // null = use real 3-month window
-    };
-
-    runMonthlyTasks();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
+  // NOTE: Monthly dues generation + delinquency checks used to auto-run here
+  // on every Payments page load. That's now handled server-side by the
+  // `generate-monthly-dues` Edge Function, scheduled via Supabase Cron to run
+  // every midnight (PHT) — independent of whether anyone opens this page.
+  // runGenerateDues() and runDelinquencyCheck() below are kept for the manual
+  // "force generate" test button and other UI actions that still call them directly.
 
   const fetchResidentsList = async () => {
     try {
@@ -1164,7 +1151,7 @@ const Payment = () => {
     return nameMatch && residentMatch && statusMatch;
   });
 
-  const { paginated: paginatedPayments, page: transPage, setPage: setTransPage, totalPages: transTotalPages } = usePagination(consolidatedPayments, 10);
+  const { paginated: paginatedPayments, page: transPage, setPage: setTransPage, totalPages: transTotalPages } = usePagination(consolidatedPayments, 5);
 
   // ── Paid tab rows — one row per resident with at least one paid due ──────────
   const paidRows = residentsList.map(r => {
@@ -1195,7 +1182,7 @@ const Payment = () => {
   });
 
   const { paginated: paginatedPaid, page: paidPage, setPage: setPaidPage, totalPages: paidTotalPages } =
-    usePagination(filteredPaid, 10);
+    usePagination(filteredPaid, 5);
 
   const getStatusStyle = (s) => {
     switch ((s || '').toLowerCase()) {
