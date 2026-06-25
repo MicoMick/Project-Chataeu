@@ -291,7 +291,7 @@ const Reports = () => {
                             report.description.toLowerCase().includes(searchQuery.toLowerCase());
     return matchesFilter && matchesSearch && matchesResident;
   });
-  const { paginated: paginatedReports, page: repPage, setPage: setRepPage, totalPages: repTotalPages, total: filteredReportsTotal } = usePagination(filteredReports, 10);
+  const { paginated: paginatedReports, page: repPage, setPage: setRepPage, totalPages: repTotalPages, total: filteredReportsTotal } = usePagination(filteredReports, 5);
 
   return (
     <div className="min-h-screen bg-slate-50 p-6 lg:p-8 space-y-6">
@@ -399,7 +399,7 @@ const Reports = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {filteredReports.map(report => (
+                {paginatedReports.map(report => (
                   <tr key={report.id} className="hover:bg-slate-50/60 transition-colors">
                     <td className="px-5 py-4">
                       <div className="flex items-center gap-2.5">
@@ -436,7 +436,7 @@ const Reports = () => {
 
         {!loading && filteredReports.length > 0 && (
           <>
-            <PaginationBar page={repPage} totalPages={repTotalPages} setPage={setRepPage} total={filteredReports.length} rowsPerPage={10} />
+            <PaginationBar page={repPage} totalPages={repTotalPages} setPage={setRepPage} total={filteredReports.length} rowsPerPage={5} />
             <div className="px-5 py-3 border-t border-slate-100">
               <p className="text-xs text-slate-400">
                 {filteredReports.length} report{filteredReports.length !== 1 ? 's' : ''}

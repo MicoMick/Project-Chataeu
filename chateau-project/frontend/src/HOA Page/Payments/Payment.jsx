@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   Search, Plus, CreditCard, AlertCircle, CheckCircle2, DollarSign,
   Edit2, Trash2, X, Filter, Loader2, Download,
-  Calendar, Users, ChevronDown, LayoutList, TableProperties, Printer,
+  Calendar, Users, ChevronDown, LayoutList, TableProperties, Printer, Mail,
 } from 'lucide-react';
 import { supabase } from '../supabaseAdmin';
 import { logAudit } from '../auditLogger';
@@ -57,12 +57,34 @@ const PaginationBar = ({ page, totalPages, setPage, total, rowsPerPage }) => {
 
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-const MONTHLY_DUE_AMOUNT = 150; // ₱150 standard monthly HOA due
+const MONTHLY_DUE_AMOUNT = 150; // ₱150 standard monthly HOA due (total of line items below)
 
-// ── DEV/DEMO MODE ─────────────────────────────────────────────────────────────
-// Set to true during demo/capstone defense so test buttons are visible.
-// Set back to false before submitting or going live.
-const DEV_MODE = true;
+// ─── Standard monthly bill breakdown ──────────────────────────────────────────
+// The ₱150 monthly due is not one flat charge — it's the sum of these
+// operating costs, split per resident (~280 residents in Chateau).
+// Electricity has no fixed cost (it's an actual utility bill that varies),
+// so its per-resident share is computed at generation time from the total.
+const BILL_LINE_ITEMS_BASE = [
+  { label: 'Security Guard',  category: 'Salaries',    fixedTotal: 22000 },
+  { label: 'Electricity',     category: 'Utilities',   fixedTotal: 14000 }, // variable bill — see note above
+  { label: 'Street Sweepers', category: 'Maintenance', fixedTotal: 1200  },
+  { label: 'Water',           category: 'Utilities',   fixedTotal: 400   },
+];
+const ESTIMATED_RESIDENT_COUNT = 280;
+
+// Builds the per-resident breakdown for one month's bill.
+// Each resident's ₱150 is divided proportionally across the 4 categories,
+// so the SOA can show exactly what portion of their due funds what.
+const buildLineItemBreakdown = () => {
+  const totalBase = BILL_LINE_ITEMS_BASE.reduce((s, i) => s + i.fixedTotal, 0); // ₱37,600
+  return BILL_LINE_ITEMS_BASE.map(item => ({
+    label:    item.label,
+    category: item.category,
+    // Proportional share of ₱150 based on this item's % of total monthly cost
+    amount: Math.round((item.fixedTotal / totalBase) * MONTHLY_DUE_AMOUNT * 100) / 100,
+  }));
+};
+
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const RequireRole = ({ userRole, allowedRoles, children }) => {
@@ -98,6 +120,196 @@ const localToday = () => {
   const mm   = String(d.getMonth() + 1).padStart(2, '0');
   const dd   = String(d.getDate()).padStart(2, '0');
   return `${yyyy}-${mm}-${dd}`;
+};
+
+// ─── Address label helper ──────────────────────────────────────────────────────
+// Block/Lot values in the DB sometimes already include the word "Blk"/"Lot"
+// (e.g. "Blk 55") and sometimes don't (e.g. "55"). This strips any existing
+// label before re-prefixing, so we never get "Blk Blk 55".
+const stripLabel = (val, label) => {
+  if (!val) return '';
+  const re = new RegExp(`^${label}\\.?\\s*`, 'i');
+  return String(val).replace(re, '').trim();
+};
+
+const buildFullAddress = (block, lot, street) => {
+  const parts = [];
+  const b = stripLabel(block, 'blk|block');
+  const l = stripLabel(lot, 'lot');
+  if (b) parts.push(`Blk ${b}`);
+  if (l) parts.push(`Lot ${l}`);
+  if (street) parts.push(street);
+  return parts.join(', ') || 'N/A';
+};
+
+// ─── Statement of Account (SOA) printer ───────────────────────────────────────
+// Generates a printable per-resident billing statement, similar in spirit to
+// AuditorDashboard's printFinancialReport — opens a new window, builds HTML,
+// then triggers the browser print dialog.
+const printSOA = (resident, paidHistory = []) => {
+  const fmtCurrency = (n) => `₱${Number(n || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}`;
+  const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
+  const fmtMonth = (d) => d ? new Date(d).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : '—';
+
+  const unpaidList = (resident.unpaidList || []).slice().sort((a, b) => new Date(a.due_date||0) - new Date(b.due_date||0));
+  const totalDue   = unpaidList.reduce((s, p) => s + Number(p.amount || 0), 0);
+  const today      = localToday();
+  const isSettled  = unpaidList.length === 0;
+  // Statement date: most recent bill issue date among unpaid items (when this SOA reflects billing from)
+  // Due date: the earliest unpaid due date — the most urgent deadline
+  // If the account has no outstanding balance, there's no real bill/deadline to show —
+  // so we display "N/A" instead of silently falling back to today's date for both.
+  const latestStatementDate = isSettled
+    ? null
+    : unpaidList.reduce((latest, p) => (p.statement_date && p.statement_date > latest ? p.statement_date : latest), unpaidList[0]?.statement_date || today);
+  const earliestDueDate = isSettled ? null : unpaidList[0]?.due_date;
+
+  const unpaidRows = unpaidList.map((p, i) => `
+    <tr style="background:${i % 2 === 0 ? '#fef2f2' : '#fff'}">
+      <td>${fmtMonth(p.due_date)}</td>
+      <td>Monthly HOA Dues</td>
+      <td>${fmtDate(p.statement_date)}</td>
+      <td>${fmtDate(p.due_date)}</td>
+      <td>${p.reference_no || '—'}</td>
+      <td style="text-align:center;font-weight:bold;color:${p.status === 'overdue' ? '#dc2626' : '#d97706'};text-transform:capitalize;">${p.status || 'unpaid'}</td>
+      <td style="text-align:right;font-weight:bold;">${fmtCurrency(p.amount)}</td>
+    </tr>`).join('');
+
+  // ── Itemized breakdown of what the ₱150 monthly due actually covers ──────
+  // Uses line_items stored on the most recent unpaid bill (or falls back to
+  // a fresh breakdown if older bills don't have it stored).
+  // Only shown when the resident actually has an outstanding balance —
+  // showing a "× 1 Month" breakdown for a ₱0.00 settled account is misleading.
+  const sampleLineItems = unpaidList.find(p => Array.isArray(p.line_items) && p.line_items.length)?.line_items
+    || buildLineItemBreakdown();
+  const monthsUnpaidCount = unpaidList.length;
+  const breakdownRows = isSettled ? '' : sampleLineItems.map((item, i) => `
+    <tr style="background:${i % 2 === 0 ? '#f8fafc' : '#fff'}">
+      <td>${item.label}</td>
+      <td>${item.category}</td>
+      <td style="text-align:right;">${fmtCurrency(item.amount)}</td>
+      <td style="text-align:right;font-weight:bold;">${fmtCurrency(item.amount * monthsUnpaidCount)}</td>
+    </tr>`).join('');
+
+  const paidRows = paidHistory.slice(0, 12).map((p, i) => `
+    <tr style="background:${i % 2 === 0 ? '#f0fdf4' : '#fff'}">
+      <td>${fmtMonth(p.due_date)}</td>
+      <td>${fmtDate(p.paid_at)}</td>
+      <td>${p.payer_reference_no || '—'}</td>
+      <td>${p.reference_no || '—'}</td>
+      <td style="text-align:right;font-weight:bold;color:#166534;">${fmtCurrency(p.amount)}</td>
+    </tr>`).join('');
+
+  const html = `
+  <html><head><title>Statement of Account — ${resident.full_name}</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: 'Segoe UI', Arial, sans-serif; padding: 32px; color: #1e293b; }
+    .header { display: flex; align-items: center; gap: 14px; border-bottom: 3px solid #006837; padding-bottom: 14px; margin-bottom: 20px; }
+    .header h1 { font-size: 18px; margin: 0; color: #006837; }
+    .header p { font-size: 11px; color: #64748b; margin: 2px 0 0; }
+    .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+    .meta-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px 16px; }
+    .meta-label { font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: .05em; }
+    .meta-val { font-size: 13px; font-weight: 700; color: #1e293b; margin-top: 2px; }
+    .date-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
+    .date-box { border-radius: 10px; padding: 12px 16px; border: 1px solid; }
+    .date-box.statement { background: #eff6ff; border-color: #bfdbfe; }
+    .date-box.due { background: #fef2f2; border-color: #fecaca; }
+    .date-box .lbl { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }
+    .date-box.statement .lbl { color: #1d4ed8; }
+    .date-box.due .lbl { color: #b91c1c; }
+    .date-box .val { font-size: 15px; font-weight: 900; margin-top: 2px; }
+    .date-box.statement .val { color: #1e3a8a; }
+    .date-box.due .val { color: #991b1b; }
+    .balance-banner { background: linear-gradient(135deg, #fef2f2, #fff); border: 2px solid #fecaca; border-radius: 14px; padding: 18px 22px; margin-bottom: 24px; display: flex; justify-content: space-between; align-items: center; }
+    .balance-banner .amt { font-size: 28px; font-weight: 900; color: #dc2626; }
+    .balance-banner .lbl { font-size: 11px; font-weight: 700; color: #b91c1c; text-transform: uppercase; letter-spacing: .05em; }
+    h2 { font-size: 13px; color: #006837; margin: 22px 0 8px; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px; }
+    table { width: 100%; border-collapse: collapse; font-size: 11px; }
+    th { background: #006837; color: #fff; text-align: left; padding: 8px; font-size: 10px; text-transform: uppercase; letter-spacing: .03em; }
+    td { padding: 7px 8px; border-bottom: 1px solid #f1f5f9; }
+    .footer-note { margin-top: 28px; font-size: 10px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 10px; }
+    @media print { body { padding: 16px; } }
+  </style></head>
+  <body>
+    <div class="header">
+      <div>
+        <h1>HOA Statement of Account</h1>
+        <p>Chateau Real Executive Village Homeowners Association Inc. (CREVHAI) · Generated ${fmtDate(today)}</p>
+      </div>
+    </div>
+
+    <div class="meta-grid">
+      <div class="meta-box">
+        <div class="meta-label">Resident</div>
+        <div class="meta-val">${resident.full_name}</div>
+      </div>
+      <div class="meta-box">
+        <div class="meta-label">Address</div>
+        <div class="meta-val">${resident.fullAddress || resident.street || 'N/A'}</div>
+      </div>
+    </div>
+
+    <div class="date-grid">
+      <div class="date-box statement" style="${isSettled ? 'background:#f0fdf4;border-color:#bbf7d0;' : ''}">
+        <div class="lbl" style="${isSettled ? 'color:#15803d;' : ''}">Statement Date — Bill Issued</div>
+        <div class="val" style="${isSettled ? 'color:#166534;font-size:13px;' : ''}">${isSettled ? 'N/A — Fully Settled' : fmtDate(latestStatementDate)}</div>
+      </div>
+      <div class="date-box due" style="${isSettled ? 'background:#f0fdf4;border-color:#bbf7d0;' : ''}">
+        <div class="lbl" style="${isSettled ? 'color:#15803d;' : ''}">Due Date — Payment Deadline</div>
+        <div class="val" style="${isSettled ? 'color:#166534;font-size:13px;' : ''}">${isSettled ? 'No Pending Dues' : fmtDate(earliestDueDate)}</div>
+      </div>
+    </div>
+
+    <div class="balance-banner">
+      <div>
+        <div class="lbl">Total Outstanding Balance</div>
+        <div class="amt">${fmtCurrency(totalDue)}</div>
+      </div>
+      <div style="text-align:right">
+        <div class="lbl">Months Unpaid</div>
+        <div style="font-size:22px;font-weight:900;color:#b91c1c;">${unpaidList.length}</div>
+      </div>
+    </div>
+
+    <h2>Monthly Due Breakdown — What Your ₱${MONTHLY_DUE_AMOUNT}/month Covers</h2>
+    ${isSettled ? `
+    <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:14px 18px;font-size:12px;color:#166534;">
+      No outstanding months to bill right now. Next month's ₱${MONTHLY_DUE_AMOUNT} due will be itemized here once issued.
+    </div>` : `
+    <table>
+      <thead><tr><th>Item</th><th>Category</th><th style="text-align:right;">Per Month</th><th style="text-align:right;">× ${monthsUnpaidCount} Month${monthsUnpaidCount !== 1 ? 's' : ''}</th></tr></thead>
+      <tbody>${breakdownRows}</tbody>
+      <tfoot><tr><td colspan="3" style="text-align:right;font-weight:bold;background:#f8fafc;">Total:</td><td style="text-align:right;font-weight:900;background:#f8fafc;color:#006837;">${fmtCurrency(totalDue)}</td></tr></tfoot>
+    </table>`}
+
+    <h2>Outstanding Charges</h2>
+    <table>
+      <thead><tr><th>Period</th><th>Description</th><th>Statement Date</th><th>Due Date</th><th>Reference #</th><th style="text-align:center;">Status</th><th style="text-align:right;">Amount</th></tr></thead>
+      <tbody>${unpaidRows || `<tr><td colspan="7" style="text-align:center;color:#16a34a;font-weight:bold;padding:14px;">No outstanding balance — account is fully settled.</td></tr>`}</tbody>
+      ${unpaidRows ? `<tfoot><tr><td colspan="6" style="text-align:right;font-weight:bold;background:#fef2f2;">Total Amount Due:</td><td style="text-align:right;font-weight:900;background:#fef2f2;color:#dc2626;">${fmtCurrency(totalDue)}</td></tr></tfoot>` : ''}
+    </table>
+
+    ${paidHistory.length ? `
+    <h2>Recent Payment History</h2>
+    <table>
+      <thead><tr><th>Period</th><th>Date Paid</th><th>Your Payment Ref #</th><th>HOA Ref #</th><th style="text-align:right;">Amount</th></tr></thead>
+      <tbody>${paidRows}</tbody>
+    </table>` : ''}
+
+    <p class="footer-note">
+      This statement reflects account balance as of ${fmtDate(today)}. The statement date shows when this bill was issued;
+      the due date is your payment deadline. Please settle outstanding dues at the HOA office or through your designated treasurer
+      on or before the due date to avoid late status. For questions regarding this statement, please contact the HOA Treasurer's office.
+    </p>
+  </body></html>`;
+
+  const win = window.open('', '_blank', 'width=900,height=1000');
+  if (!win) { alert('Please allow popups to print the Statement of Account.'); return; }
+  win.document.write(html);
+  win.document.close();
+  win.onload = () => { win.print(); };
 };
 
 
@@ -178,6 +390,7 @@ const ModalOverlay = ({ title, subtitle, isOpen, onClose, children, actionLabel,
 const StandingLedger = ({ residentsList, payments }) => {
   const [search,          setSearch]          = useState('');
   const [streetFilter,    setStreetFilter]    = useState('All');
+  const [standingFilter,  setStandingFilter]  = useState('All');
 
   // Build one row per resident
   const rows = residentsList.map(r => {
@@ -226,6 +439,7 @@ const StandingLedger = ({ residentsList, payments }) => {
 
   const filtered = rows.filter(r =>
     (streetFilter === 'All' || r.street === streetFilter) &&
+    (standingFilter === 'All' || r.standing === standingFilter) &&
     (!search || r.full_name.toLowerCase().includes(search.toLowerCase()) ||
     r.block.toLowerCase().includes(search.toLowerCase()) ||
     r.lot.toLowerCase().includes(search.toLowerCase()))
@@ -316,7 +530,11 @@ const StandingLedger = ({ residentsList, payments }) => {
     w.document.write(html);
     w.document.close();
     w.focus();
-    setTimeout(() => { w.print(); w.close(); }, 500);
+    // Trigger the print dialog but DON'T auto-close the tab afterward —
+    // closing unconditionally also closes the tab if the person clicks
+    // "Cancel" in the print dialog, losing the ledger. The person can close
+    // the tab themselves once they're done (same behavior as the SOA printer).
+    w.onload = () => { w.print(); };
   };
 
   const goodCount    = rows.filter(r => r.standing === 'Good').length;
@@ -426,6 +644,17 @@ const StandingLedger = ({ residentsList, payments }) => {
               <option key={s} value={s}>{s === 'All' ? 'All Streets' : s}</option>
             ))}
           </select>
+          <select
+            value={standingFilter}
+            onChange={e => setStandingFilter(e.target.value)}
+            className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-600 focus:outline-none focus:ring-2 focus:ring-[#006837]/20 cursor-pointer shrink-0"
+          >
+            <option value="All">All Standings</option>
+            <option value="Good">Good</option>
+            <option value="Overdue">Overdue</option>
+            <option value="Pending">Pending</option>
+            <option value="No Record">No Record</option>
+          </select>
         </div>
       </div>
 
@@ -512,27 +741,53 @@ const Payment = () => {
   const [residentsList,     setResidentsList]     = useState([]);
 
   const [transaction,          setTransaction]          = useState({ status: null, message: '' });
-  const [editFormData,         setEditFormData]         = useState({ amount: '', status: '', due_date: '', reference_no: '', paid_at: '' });
+  const [editFormData,         setEditFormData]         = useState({ amount: '', status: '', due_date: '', reference_no: '', paid_at: '', payer_reference_no: '' });
   const [payments,             setPayments]             = useState([]);
   const [loading,              setLoading]              = useState(true);
 
   const currentUserRole = localStorage.getItem('userRole') || 'resident';
-  const [testLoading,    setTestLoading]    = useState(null);
-  const [testResult,     setTestResult]     = useState(null);
-  const [demoResidentId, setDemoResidentId] = useState('');
+
+  // ── Bulk-send SOA emails to every resident with an outstanding balance ──
+  // Calls the 'send-soa-emails' Supabase Edge Function (see
+  // supabase/functions/send-soa-emails/index.ts). Requires RESEND_API_KEY
+  // to be set as an Edge Function secret before this will actually deliver mail.
+  const [sendingSOA,        setSendingSOA]        = useState(false);
+  const [showSendConfirm,   setShowSendConfirm]   = useState(false);
+  const [sendSOAResult,     setSendSOAResult]     = useState(null);
+
+  const handleSendAllSOA = async () => {
+    setSendingSOA(true);
+    setSendSOAResult(null);
+    try {
+      const { data, error } = await supabase.functions.invoke('send-soa-emails');
+      if (error) throw error;
+      setSendSOAResult({ type: 'success', ...data });
+      await logAudit('BULK_SEND_SOA', `Sent ${data.sent || 0} SOA email(s), ${data.failed || 0} failed.`);
+    } catch (e) {
+      setSendSOAResult({ type: 'error', error: e.message });
+    } finally {
+      setSendingSOA(false);
+      setShowSendConfirm(false);
+    }
+  };
 
   useEffect(() => { fetchPayments(); fetchResidentsList(); }, []);
 
   // ── Extracted: generate dues for current month ──────────────────────────────
   // Called automatically on the 1st, OR manually via the demo test button.
   // force=true skips the "already generated this month" check.
+  //
+  // statement_date = the day the bill is issued (today, when this runs)
+  // due_date       = the deadline to pay — last day of the SAME month
+  // This keeps "when was I billed" clearly separate from "when must I pay".
   const runGenerateDues = async (force = false) => {
-    const today      = new Date();
+    const today          = new Date();
     today.setHours(0, 0, 0, 0);
-    const month      = today.getMonth();
-    const year       = today.getFullYear();
-    const monthEnd   = new Date(year, month + 1, 0).toISOString().split('T')[0];
-    const monthStart = new Date(year, month,     1).toISOString().split('T')[0];
+    const month          = today.getMonth();
+    const year           = today.getFullYear();
+    const statementDate  = localToday();                                   // today — when the bill is issued
+    const monthEnd        = new Date(year, month + 1, 0).toISOString().split('T')[0]; // due date — end of month
+    const monthStart      = new Date(year, month,     1).toISOString().split('T')[0];
 
     if (!force) {
       const { data: existing } = await supabase
@@ -546,19 +801,23 @@ const Payment = () => {
       .eq('account_status', 'active').order('full_name');
     if (!residents?.length) return { skipped: true, reason: 'No active residents found.' };
 
+    const lineItems = buildLineItemBreakdown();
+
     const rows = residents.map(r => ({
-      user_id:      r.id,
-      amount:       MONTHLY_DUE_AMOUNT,
-      due_date:     monthEnd,
-      status:       'unpaid',
-      reference_no: generateRefNo(month, year),
+      user_id:        r.id,
+      amount:         MONTHLY_DUE_AMOUNT,
+      statement_date: statementDate,
+      due_date:       monthEnd,
+      status:         'unpaid',
+      reference_no:   generateRefNo(month, year),
+      line_items:     lineItems,
     }));
 
     const { error } = await supabase.from('payments').insert(rows);
     if (error) return { success: false, error: error.message };
 
     await logAudit('AUTO_MONTHLY_DUE',
-      `Generated ₱${MONTHLY_DUE_AMOUNT} monthly dues for ${rows.length} residents — ${MONTHS[month]} ${year}. Due: ${monthEnd}.`);
+      `Generated ₱${MONTHLY_DUE_AMOUNT} monthly dues for ${rows.length} residents — ${MONTHS[month]} ${year}. Statement: ${statementDate}, Due: ${monthEnd}.`);
     fetchPayments();
     return { success: true, count: rows.length, month: MONTHS[month], year };
   };
@@ -683,12 +942,17 @@ const Payment = () => {
 
   const submitEditTransaction = async () => {
     if (!selectedPayment) return;
+    if (editFormData.status === 'paid' && !editFormData.payer_reference_no?.trim()) {
+      setTransaction({ status: 'error', message: 'Please enter the resident\'s payment reference number (GCash/bank transfer #) before marking as paid.' });
+      return;
+    }
     setTransaction({ status: 'loading', message: 'Updating transaction…' });
     try {
       const payload = {
         amount: editFormData.amount ? Number(editFormData.amount) : null,
         status: editFormData.status, due_date: editFormData.due_date || null, reference_no: editFormData.reference_no || null,
         paid_at: editFormData.status === 'paid' ? (editFormData.paid_at ? new Date(editFormData.paid_at).toISOString() : new Date().toISOString()) : null,
+        payer_reference_no: editFormData.status === 'paid' ? (editFormData.payer_reference_no?.trim() || null) : null,
       };
 
       const { error } = await supabase.from('payments').update(payload).eq('id', selectedPayment.id);
@@ -776,9 +1040,14 @@ const Payment = () => {
 
   // ── Mark ALL unpaid dues for a resident as paid in one click ────────────────
   const [markAllPaidDate, setMarkAllPaidDate] = useState(localToday());
+  const [payerReferenceNo, setPayerReferenceNo] = useState('');
 
   const submitMarkAllPaid = async () => {
     if (!breakdownPayments.length) return;
+    if (!payerReferenceNo.trim()) {
+      setTransaction({ status: 'error', message: 'Please enter the resident\'s payment reference number (GCash/bank transfer #) before marking as paid.' });
+      return;
+    }
     const paidAt = markAllPaidDate
       ? new Date(markAllPaidDate).toISOString()
       : new Date().toISOString();
@@ -790,7 +1059,7 @@ const Payment = () => {
       const ids = breakdownPayments.map(p => p.id);
       const { error } = await supabase
         .from('payments')
-        .update({ status: 'paid', paid_at: paidAt })
+        .update({ status: 'paid', paid_at: paidAt, payer_reference_no: payerReferenceNo.trim() })
         .in('id', ids);
       if (error) throw error;
 
@@ -870,7 +1139,8 @@ const Payment = () => {
       _residentRow: true,
       user_id:      r.id,
       full_name:    r.full_name || '—',
-      address:      `${r.address || ''} ${r.street || ''}`.trim() || 'N/A',
+      street:       r.street || 'N/A',
+      fullAddress:  buildFullAddress(r.block, r.lot, r.street),
       block:        r.block || '',
       lot:          r.lot   || '',
       balance,
@@ -909,7 +1179,8 @@ const Payment = () => {
     return {
       user_id:    r.id,
       full_name:  r.full_name || '—',
-      address:    `${r.address || ''} ${r.street || ''}`.trim() || 'N/A',
+      street:     r.street || 'N/A',
+      fullAddress: buildFullAddress(r.block, r.lot, r.street),
       totalPaid,
       paidMonths: paidList.length,
       lastPaid,
@@ -1003,16 +1274,22 @@ const Payment = () => {
                   <div key={p.id} className="flex items-center justify-between px-3.5 py-2.5 bg-slate-50 border border-slate-100 rounded-xl">
                     <div className="flex items-center gap-2.5">
                       <span className="w-5 h-5 rounded-full bg-red-100 text-red-500 text-[10px] font-black flex items-center justify-center shrink-0">{i + 1}</span>
-                      <span className="text-sm font-semibold text-slate-700">
-                        {p.due_date ? new Date(p.due_date).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : '—'}
-                      </span>
+                      <div>
+                        <span className="text-sm font-semibold text-slate-700">
+                          {p.due_date ? new Date(p.due_date).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : '—'}
+                        </span>
+                        <p className="text-[10px] text-slate-400">
+                          Billed {p.statement_date ? new Date(p.statement_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'}
+                          {' · '}Due {p.due_date ? new Date(p.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'}
+                        </p>
+                      </div>
                     </div>
                     <div className="flex items-center gap-3">
                       <span className="text-sm font-bold text-slate-800">₱{Number(p.amount).toLocaleString()}</span>
                       <button
                         onClick={() => {
                           setSelectedPayment(p);
-                          setEditFormData({ amount: p.amount || '', status: p.status || 'unpaid', due_date: p.due_date?.split('T')[0] || '', reference_no: p.reference_no || '', paid_at: p.paid_at?.split('T')[0] || '' });
+                          setEditFormData({ amount: p.amount || '', status: p.status || 'unpaid', due_date: p.due_date?.split('T')[0] || '', reference_no: p.reference_no || '', paid_at: p.paid_at?.split('T')[0] || '', payer_reference_no: p.payer_reference_no || '' });
                           setIsUnpaidBreakdownOpen(false);
                           setIsEditTransactionOpen(true);
                         }}
@@ -1033,6 +1310,21 @@ const Payment = () => {
                 ))}
               </div>
 
+              {/* Payer's payment reference number — mandatory proof of payment */}
+              <div className="mb-4">
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                  Resident's Payment Ref # <span className="text-red-500">*required</span>
+                </label>
+                <input
+                  type="text"
+                  value={payerReferenceNo}
+                  onChange={e => setPayerReferenceNo(e.target.value)}
+                  placeholder="e.g. GCash ref # or bank transfer #"
+                  className="w-full px-4 py-2.5 bg-blue-50 border border-blue-200 text-blue-800 placeholder-blue-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-400/30 text-sm"
+                />
+                <p className="text-[10px] text-slate-400 mt-1">This is the resident's own GCash/bank transaction number — proof that they actually paid.</p>
+              </div>
+
               {/* Date paid picker */}
               <div className="mb-5">
                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Date Paid (defaults to today)</label>
@@ -1051,7 +1343,8 @@ const Payment = () => {
                   Cancel
                 </button>
                 <button onClick={submitMarkAllPaid}
-                  className="flex-1 px-5 py-3 bg-[#006837] hover:bg-[#004d29] text-white rounded-2xl font-bold shadow-lg shadow-[#006837]/20 cursor-pointer transition-all flex items-center justify-center gap-2">
+                  disabled={!payerReferenceNo.trim()}
+                  className="flex-1 px-5 py-3 bg-[#006837] hover:bg-[#004d29] text-white rounded-2xl font-bold shadow-lg shadow-[#006837]/20 cursor-pointer transition-all flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed">
                   <CheckCircle2 size={16} />
                   Mark All {breakdownPayments.length} as Paid
                 </button>
@@ -1117,11 +1410,21 @@ const Payment = () => {
             </div>
           </div>
           {editFormData.status === 'paid' && (
-            <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Date Paid</label>
-              <input type="date" name="paid_at" value={editFormData.paid_at} onChange={handleEditChange}
-                className="w-full px-4 py-2.5 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 cursor-pointer" />
-            </div>
+            <>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                  Resident's Payment Ref # <span className="text-red-500">*required</span>
+                </label>
+                <input type="text" name="payer_reference_no" value={editFormData.payer_reference_no || ''} onChange={handleEditChange}
+                  placeholder="GCash ref # or bank transfer #"
+                  className="w-full px-4 py-2.5 bg-blue-50 border border-blue-200 text-blue-800 placeholder-blue-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-400/30 text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Date Paid</label>
+                <input type="date" name="paid_at" value={editFormData.paid_at} onChange={handleEditChange}
+                  className="w-full px-4 py-2.5 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 cursor-pointer" />
+              </div>
+            </>
           )}
         </div>
       </ModalOverlay>
@@ -1132,25 +1435,71 @@ const Payment = () => {
           <h1 className="text-2xl font-black text-slate-900">Payment Management</h1>
           <p className="text-sm text-slate-400 mt-0.5">Manage dues, issue bills, and track resident standing</p>
         </div>
-        {/* View toggle */}
-        <div className="flex bg-slate-100 p-1 rounded-xl gap-0.5">
-          <button onClick={() => setActiveView('transactions')}
-            className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer
-              ${activeView === 'transactions' ? 'bg-white text-[#006837] shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
-            <LayoutList size={13} /> Transactions
-          </button>
-          <button onClick={() => setActiveView('paid')}
-            className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer
-              ${activeView === 'paid' ? 'bg-white text-[#006837] shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
-            <CheckCircle2 size={13} /> Paid
-          </button>
-          <button onClick={() => setActiveView('standing')}
-            className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer
-              ${activeView === 'standing' ? 'bg-white text-[#006837] shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
-            <TableProperties size={13} /> Standing Ledger
-          </button>
+        <div className="flex items-center gap-2.5 flex-wrap">
+          <RequireRole userRole={currentUserRole} allowedRoles={['treasurer']}>
+            <button onClick={() => setShowSendConfirm(true)}
+              className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-50 border border-blue-200 hover:bg-blue-100 text-blue-700 text-xs font-bold rounded-xl transition-all cursor-pointer">
+              <Mail size={13} /> Send SOA to All
+            </button>
+          </RequireRole>
+          {/* View toggle */}
+          <div className="flex bg-slate-100 p-1 rounded-xl gap-0.5">
+            <button onClick={() => setActiveView('transactions')}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer
+                ${activeView === 'transactions' ? 'bg-white text-[#006837] shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+              <LayoutList size={13} /> Transactions
+            </button>
+            <button onClick={() => setActiveView('paid')}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer
+                ${activeView === 'paid' ? 'bg-white text-[#006837] shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+              <CheckCircle2 size={13} /> Paid
+            </button>
+            <button onClick={() => setActiveView('standing')}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer
+                ${activeView === 'standing' ? 'bg-white text-[#006837] shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+              <TableProperties size={13} /> Standing Ledger
+            </button>
+          </div>
         </div>
       </div>
+
+      {/* ── Send SOA confirmation modal ── */}
+      {showSendConfirm && (
+        <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/50 backdrop-blur-sm px-4">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-6">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center shrink-0">
+                <Mail size={18} className="text-blue-600" />
+              </div>
+              <h2 className="text-lg font-black text-slate-900">Send SOA to All Residents?</h2>
+            </div>
+            <p className="text-sm text-slate-500 leading-relaxed mb-5">
+              This will email a Statement of Account to every resident who currently has an outstanding balance.
+              Residents who are fully settled will not receive an email. This action is logged in the audit trail.
+            </p>
+
+            {sendSOAResult && (
+              <div className={`mb-4 p-3 rounded-xl text-sm font-semibold ${
+                sendSOAResult.type === 'success' ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-red-50 text-red-700 border border-red-100'}`}>
+                {sendSOAResult.type === 'success'
+                  ? `✓ Sent ${sendSOAResult.sent} email(s)${sendSOAResult.failed ? `, ${sendSOAResult.failed} failed` : ''}.`
+                  : `Failed: ${sendSOAResult.error}`}
+              </div>
+            )}
+
+            <div className="flex gap-3">
+              <button onClick={() => { setShowSendConfirm(false); setSendSOAResult(null); }}
+                className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl font-bold cursor-pointer transition-all">
+                Cancel
+              </button>
+              <button onClick={handleSendAllSOA} disabled={sendingSOA}
+                className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-bold shadow-lg shadow-blue-600/20 cursor-pointer transition-all flex items-center justify-center gap-2 disabled:opacity-50">
+                {sendingSOA ? <><span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" /> Sending…</> : <><Mail size={15} /> Send Now</>}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── KPI cards ── */}
       <div className="flex flex-wrap gap-4">
@@ -1159,104 +1508,6 @@ const Payment = () => {
         <StatCard title="Overdue"          value={overdueCount}                           icon={AlertCircle} iconColor="text-red-600"   bgColor="bg-red-50"        />
         <StatCard title="Paid This Month"  value={paidCount}                              icon={CheckCircle2}iconColor="text-emerald-600"bgColor="bg-emerald-50"    />
       </div>
-
-      {/* ── DEV/DEMO Test Panel — treasurer only ── */}
-      {DEV_MODE && currentUserRole === 'treasurer' && (
-        <div className="border-2 border-dashed border-amber-300 bg-amber-50 rounded-2xl p-5 space-y-4">
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 bg-amber-400 rounded-full animate-pulse" />
-            <p className="text-xs font-black text-amber-700 uppercase tracking-widest">Demo / Test Mode</p>
-          </div>
-
-          {/* Test result feedback */}
-          {testResult && (
-            <div className={`flex items-start gap-3 p-3 rounded-xl text-sm font-semibold border
-              ${testResult.type === 'success' ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-              : testResult.type === 'info'    ? 'bg-blue-50 text-blue-800 border-blue-200'
-              :                                 'bg-red-50 text-red-800 border-red-200'}`}>
-              <span className="shrink-0 mt-0.5">
-                {testResult.type === 'success' ? '✅' : testResult.type === 'info' ? 'ℹ️' : '❌'}
-              </span>
-              <div>
-                <p>{testResult.message}</p>
-                {testResult.detail && <p className="text-xs mt-1 opacity-70">{testResult.detail}</p>}
-              </div>
-              <button onClick={() => setTestResult(null)} className="ml-auto text-xs opacity-50 hover:opacity-100 cursor-pointer shrink-0">✕</button>
-            </div>
-          )}
-
-          <div className="grid grid-cols-1 gap-3">
-            {/* Button 1 — Generate Jan–Jun 2026 demo dues for ONE selected resident */}
-            <div className="bg-white rounded-xl p-3 border border-amber-200 space-y-2">
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Select resident for demo</p>
-              <select
-                value={demoResidentId}
-                onChange={e => setDemoResidentId(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#006837]/20 cursor-pointer">
-                <option value="">— Pick a resident —</option>
-                {residentsList.map(r => (
-                  <option key={r.id} value={r.id}>{r.full_name}</option>
-                ))}
-              </select>
-              <button
-                disabled={testLoading === 'dues' || !demoResidentId}
-                onClick={async () => {
-                  setTestLoading('dues');
-                  setTestResult(null);
-                  try {
-                    // Only the selected resident
-                    const selected = residentsList.find(r => r.id === demoResidentId);
-                    if (!selected) {
-                      setTestResult({ type: 'info', message: 'Please select a resident first.' });
-                      return;
-                    }
-
-                    // Jan (0) through Jun (5) of 2026
-                    const demoMonths = [0, 1, 2, 3, 4, 5];
-                    const year = 2026;
-                    let totalInserted = 0;
-
-                    for (const month of demoMonths) {
-                      const monthEnd = new Date(year, month + 1, 0).toISOString().split('T')[0];
-                      const { error } = await supabase.from('payments').insert([{
-                        user_id:      selected.id,
-                        amount:       MONTHLY_DUE_AMOUNT,
-                        due_date:     monthEnd,
-                        status:       'unpaid',
-                        reference_no: generateRefNo(month, year),
-                      }]);
-                      if (error) throw new Error(`${MONTHS[month]}: ${error.message}`);
-                      totalInserted++;
-                    }
-
-                    await logAudit('DEMO_BULK_DUES',
-                      `Demo: Generated ₱${MONTHLY_DUE_AMOUNT} dues for Jan–Jun 2026 — ${selected.full_name} × 6 months.`);
-
-                    // ── Auto-run delinquency check for this resident only ──────
-                    const delinqRes = await runDelinquencyCheck(1);
-
-                    fetchPayments();
-                    fetchResidentsList();
-
-                    const delinqDetail = delinqRes.count > 0
-                      ? `${selected.full_name} auto-marked Delinquent.`
-                      : `${selected.full_name} not flagged (may already be delinquent).`;
-                    setTestResult({
-                      type: 'success',
-                      message: `✓ Generated ${totalInserted} due records for ${selected.full_name}.`,
-                      detail: `Jan – Jun 2026 · ${delinqDetail}`,
-                    });
-                  } catch (e) {
-                    setTestResult({ type: 'error', message: 'Error: ' + e.message });
-                  } finally { setTestLoading(null); }
-                }}
-                className="w-full py-2.5 bg-[#006837] hover:bg-[#004d29] text-white text-xs font-bold rounded-xl cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2 transition-all">
-                {testLoading === 'dues' ? <><span className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" /> Generating…</> : '▶ Run Now'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* ── Standing Ledger view ── */}
       {activeView === 'standing' && (
@@ -1288,7 +1539,7 @@ const Payment = () => {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-100">
-                  {['Name','Address','Total Paid','Months Paid','Last Payment','Standing'].map(h => (
+                  {['Name','Street','Total Paid','Months Paid','Last Payment','Standing'].map(h => (
                     <th key={h} className="px-5 py-3.5 text-[10px] font-black text-slate-400 uppercase tracking-wider whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -1304,7 +1555,7 @@ const Payment = () => {
                         <span className="text-sm font-bold text-slate-800">{r.full_name}</span>
                       </div>
                     </td>
-                    <td className="px-5 py-4 text-sm text-slate-500 max-w-[180px] truncate">{r.address}</td>
+                    <td className="px-5 py-4 text-sm text-slate-500 max-w-[180px] truncate">{r.street}</td>
                     <td className="px-5 py-4">
                       <span className="text-sm font-black text-emerald-600">
                         ₱{r.totalPaid.toLocaleString('en-PH', { minimumFractionDigits: 2 })}
@@ -1377,7 +1628,7 @@ const Payment = () => {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-100">
-                  {['Name','Address','Unpaid Balance','Due Period','Status',''].map(h => (
+                  {['Name','Street','Unpaid Balance','Due Period','Status',''].map(h => (
                     <th key={h} className="px-5 py-3.5 text-[10px] font-black text-slate-400 uppercase tracking-wider whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -1399,8 +1650,8 @@ const Payment = () => {
                         </div>
                       </td>
 
-                      {/* Address */}
-                      <td className="px-5 py-4 text-sm text-slate-500 max-w-[180px] truncate">{r.address}</td>
+                      {/* Street */}
+                      <td className="px-5 py-4 text-sm text-slate-500 max-w-[180px] truncate">{r.street}</td>
 
                       {/* Unpaid Balance — ₱0.00 when settled */}
                       <td className="px-5 py-4">
@@ -1449,27 +1700,39 @@ const Payment = () => {
                         )}
                       </td>
 
-                      {/* Actions — Pay/Edit only when there's a balance */}
+                      {/* Actions — Pay/Edit when balance exists, Statement always available */}
                       <td className="px-5 py-4 text-right">
-                        {hasBalance ? (
-                          <RequireRole userRole={currentUserRole} allowedRoles={['treasurer']}>
-                            <button
-                              onClick={() => {
-                                setBreakdownPayments(r.unpaidList.map(p => ({
-                                  ...p,
-                                  profiles: payments.find(x => x.id === p.id)?.profiles
-                                    ?? residentsList.find(res => res.id === r.user_id) ?? null,
-                                })));
-                                setMarkAllPaidDate(localToday());
-                                setIsUnpaidBreakdownOpen(true);
-                              }}
-                              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#006837] hover:bg-[#004d29] text-white text-xs font-bold rounded-xl transition-all cursor-pointer whitespace-nowrap">
-                              <Edit2 size={12} /> Pay / Edit
-                            </button>
-                          </RequireRole>
-                        ) : (
-                          <span className="text-xs text-slate-300 font-semibold">—</span>
-                        )}
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={() => {
+                              const paidHistory = payments
+                                .filter(p => p.user_id === r.user_id && (p.status || '').toLowerCase() === 'paid')
+                                .sort((a, b) => new Date(b.paid_at || 0) - new Date(a.paid_at || 0));
+                              printSOA(r, paidHistory);
+                            }}
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 hover:border-[#006837] hover:text-[#006837] text-slate-500 text-xs font-bold rounded-xl transition-all cursor-pointer whitespace-nowrap"
+                            title="Print Statement of Account">
+                            <Printer size={12} /> SOA
+                          </button>
+                          {hasBalance && (
+                            <RequireRole userRole={currentUserRole} allowedRoles={['treasurer']}>
+                              <button
+                                onClick={() => {
+                                  setBreakdownPayments(r.unpaidList.map(p => ({
+                                    ...p,
+                                    profiles: payments.find(x => x.id === p.id)?.profiles
+                                      ?? residentsList.find(res => res.id === r.user_id) ?? null,
+                                  })));
+                                  setMarkAllPaidDate(localToday());
+                                  setPayerReferenceNo('');
+                                  setIsUnpaidBreakdownOpen(true);
+                                }}
+                                className="flex items-center gap-1.5 px-3 py-1.5 bg-[#006837] hover:bg-[#004d29] text-white text-xs font-bold rounded-xl transition-all cursor-pointer whitespace-nowrap">
+                                <Edit2 size={12} /> Pay / Edit
+                              </button>
+                            </RequireRole>
+                          )}
+                        </div>
                       </td>
 
                     </tr>

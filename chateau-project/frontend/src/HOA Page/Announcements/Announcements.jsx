@@ -7,6 +7,78 @@ import {
 import { supabase } from '../supabaseAdmin';
 import { logAudit } from '../auditLogger';
 
+// ─── Formatted content renderer ──────────────────────────────────────────────
+// Plain text announcements often come in as one dense block with no real line
+// breaks (e.g. pasted from a template). This splits on sentence boundaries
+// when no paragraph breaks exist, and turns lines starting with -, *, or a
+// number into proper bullet/numbered lists — so long announcements are
+// readable instead of one wall of text.
+const FormattedContent = ({ text }) => {
+  if (!text) return null;
+
+  // Normalize: if the admin already used real line breaks, respect them.
+  // If not (single huge line), split on ". " followed by a capital letter
+  // or a period that starts a new sentence-like thought, so we get paragraphs.
+  let raw = text.trim();
+  const hasLineBreaks = raw.includes('\n');
+
+  let blocks;
+  if (hasLineBreaks) {
+    blocks = raw.split(/\n+/).map(b => b.trim()).filter(Boolean);
+  } else {
+    // No line breaks at all — break into readable chunks at sentence ends
+    // that are followed by a capital letter (heuristic paragraphing).
+    blocks = raw
+      .split(/(?<=[.!?])\s+(?=[A-Z])/)
+      .reduce((acc, sentence, i) => {
+        // Group ~2 sentences per paragraph so it's not too choppy
+        if (i % 2 === 0) acc.push(sentence);
+        else acc[acc.length - 1] += ' ' + sentence;
+        return acc;
+      }, []);
+  }
+
+  const bulletRe = /^[-*•]\s+/;
+  const numberRe = /^\d+[.)]\s+/;
+
+  // Group consecutive bullet/number lines into a single <ul>/<ol>
+  const elements = [];
+  let i = 0;
+  while (i < blocks.length) {
+    const block = blocks[i];
+    if (bulletRe.test(block)) {
+      const items = [];
+      while (i < blocks.length && bulletRe.test(blocks[i])) {
+        items.push(blocks[i].replace(bulletRe, ''));
+        i++;
+      }
+      elements.push(
+        <ul key={`ul-${i}`} className="list-disc pl-5 space-y-1.5 mb-4">
+          {items.map((it, idx) => <li key={idx} className="text-sm text-slate-600 leading-relaxed">{it}</li>)}
+        </ul>
+      );
+    } else if (numberRe.test(block)) {
+      const items = [];
+      while (i < blocks.length && numberRe.test(blocks[i])) {
+        items.push(blocks[i].replace(numberRe, ''));
+        i++;
+      }
+      elements.push(
+        <ol key={`ol-${i}`} className="list-decimal pl-5 space-y-1.5 mb-4">
+          {items.map((it, idx) => <li key={idx} className="text-sm text-slate-600 leading-relaxed">{it}</li>)}
+        </ol>
+      );
+    } else {
+      elements.push(
+        <p key={`p-${i}`} className="text-sm text-slate-600 leading-relaxed mb-3 last:mb-0">{block}</p>
+      );
+      i++;
+    }
+  }
+
+  return <div>{elements}</div>;
+};
+
 // ─── Pagination hook ─────────────────────────────────────────────────────────
 const usePagination = (items, rowsPerPage = 10) => {
   const [page, setPage] = React.useState(1);
@@ -214,8 +286,9 @@ const ModalForm = ({
         <div>
           <label className={labelCls}>Content <span className="text-red-400">*</span></label>
           <textarea value={newContent} onChange={e => setNewContent(e.target.value)}
-            rows={5} placeholder="Write your announcement…"
+            rows={7} placeholder="Write your announcement… Press Enter for a new paragraph, or start a line with - for a bullet point."
             className={inputCls + ' resize-none'} />
+          <p className="text-[10px] text-slate-400 mt-1.5">Tip: press Enter between paragraphs, and start a line with "-" to create a bullet list.</p>
         </div>
         <div className="flex items-center justify-between p-4 bg-red-50 border border-red-100 rounded-2xl">
           <div>
@@ -491,7 +564,7 @@ const Announcements = () => {
       return matchSearch && matchCategory && matchStatus;
     })
     .sort((a, b) => (a.is_pinned === b.is_pinned ? 0 : a.is_pinned ? -1 : 1));
-  const { paginated: paginatedAnn, page: annPage, setPage: setAnnPage, totalPages: annTotalPages, total: filteredTotal } = usePagination(filtered, 10);
+  const { paginated: paginatedAnn, page: annPage, setPage: setAnnPage, totalPages: annTotalPages, total: filteredTotal } = usePagination(filtered, 5);
 
   const formProps = {
     newTitle, setNewTitle, newContent, setNewContent,
@@ -565,13 +638,15 @@ const Announcements = () => {
               </button>
             </div>
             <div className="p-6 overflow-y-auto">
-              <p className="text-sm text-slate-600 leading-relaxed mb-4">{selectedAnn.content}</p>
-              {selectedAnn.attachment_url && (
-                <a href={selectedAnn.attachment_url} target="_blank" rel="noreferrer"
-                  className="flex items-center gap-2 text-sm font-semibold text-[#006837] hover:underline">
-                  <Paperclip size={14} /> View Attachment
-                </a>
-              )}
+              <div className="p-5 bg-slate-50 border border-slate-200 rounded-2xl">
+                <FormattedContent text={selectedAnn.content} />
+                {selectedAnn.attachment_url && (
+                  <a href={selectedAnn.attachment_url} target="_blank" rel="noreferrer"
+                    className="flex items-center gap-2 text-sm font-semibold text-[#006837] hover:underline mt-3 pt-3 border-t border-slate-200">
+                    <Paperclip size={14} /> View Attachment
+                  </a>
+                )}
+              </div>
               <p className="text-xs text-slate-400 mt-4">
                 {new Date(selectedAnn.created_at).toLocaleDateString('en-US', {
                   month: 'long', day: 'numeric', year: 'numeric',
@@ -654,22 +729,24 @@ const Announcements = () => {
             </div>
           ) : paginatedAnn.map(ann => (
             <div key={ann.id}
-              className={`px-5 py-4 flex items-start gap-4 hover:bg-slate-50/60 transition-colors
-                ${ann.is_emergency ? 'border-l-2 border-red-400' : ''}`}>
-              <div className={`p-2.5 rounded-xl shrink-0 mt-0.5 ${ann.is_emergency ? 'bg-red-50' : 'bg-[#006837]/10'}`}>
-                <Megaphone size={16} className={ann.is_emergency ? 'text-red-500' : 'text-[#006837]'} />
+              className={`px-5 py-4 flex items-start gap-4 transition-colors relative
+                ${ann.is_emergency
+                  ? 'bg-red-50/50 hover:bg-red-50/80 border-l-4 border-red-500'
+                  : 'hover:bg-slate-50/60'}`}>
+              <div className={`p-2.5 rounded-xl shrink-0 mt-0.5 ${ann.is_emergency ? 'bg-red-100' : 'bg-[#006837]/10'}`}>
+                <Megaphone size={16} className={ann.is_emergency ? 'text-red-600' : 'text-[#006837]'} />
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <p className={`text-sm font-bold truncate ${ann.is_emergency ? 'text-red-800' : 'text-slate-800'}`}>
+                      <p className={`text-sm font-bold truncate ${ann.is_emergency ? 'text-red-700' : 'text-slate-800'}`}>
                         {ann.is_pinned && <Pin size={12} className="inline text-amber-500 mr-1" />}
                         {ann.title}
                       </p>
                       {ann.is_emergency && (
-                        <span className="text-[9px] font-black px-1.5 py-0.5 bg-red-100 text-red-600 rounded-full uppercase shrink-0">
-                          URGENT
+                        <span className="text-[9px] font-black px-2 py-0.5 bg-red-600 text-white rounded-full uppercase shrink-0 tracking-wide">
+                          Urgent
                         </span>
                       )}
                     </div>
@@ -710,7 +787,7 @@ const Announcements = () => {
 
         {!loading && filtered.length > 0 && (
           <>
-            <PaginationBar page={annPage} totalPages={annTotalPages} setPage={setAnnPage} total={filtered.length} rowsPerPage={10} />
+            <PaginationBar page={annPage} totalPages={annTotalPages} setPage={setAnnPage} total={filtered.length} rowsPerPage={5} />
             <div className="px-5 py-3 border-t border-slate-100">
               <p className="text-xs text-slate-400">
                 {filtered.length} announcement{filtered.length !== 1 ? 's' : ''}
