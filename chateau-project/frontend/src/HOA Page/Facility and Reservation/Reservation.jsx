@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import {
   Calendar, Clock, CheckCircle2, XCircle, Search, Users, Trash2,
-  Eye, X, Mail, User, AlertTriangle, Loader2, Filter,
+  Eye, X, Mail, User, AlertTriangle, Loader2, Filter, Package,
   DollarSign, CalendarDays, MapPin, ChevronRight, RefreshCw,
 } from 'lucide-react';
 import Facility from './Facility';
+import Borrowers from './Borrowers';
 import { supabase } from '../supabaseAdmin';
 import { logAudit } from '../auditLogger';
 import CalendarReserve from './CalendarReserve';
@@ -129,13 +130,14 @@ const Reservation = () => {
   const [selectedRes,       setSelectedRes]        = useState(null);
   const [isCalendarOpen,    setIsCalendarOpen]     = useState(false);
   const [deleteTarget,      setDeleteTarget]       = useState(null);
+  const [isBorrowersOpen,   setIsBorrowersOpen]    = useState(false);
 
   const currentUserRole = localStorage.getItem('userRole') || 'resident';
 
   const fetchAll = async () => {
     setLoading(true);
     const [{ data: res }, { data: profiles }] = await Promise.all([
-      supabase.from('reservations').select('*, facilities(name), profiles!user_id(full_name, email, username)').order('created_at', { ascending: false }),
+      supabase.from('reservations').select('*, facilities(name, category, amount), profiles!user_id(full_name, email, username)').order('created_at', { ascending: false }),
       supabase.from('profiles').select('id, full_name').order('full_name'),
     ]);
     setReservations(res || []);
@@ -147,19 +149,77 @@ const Reservation = () => {
 
   const updateStatus = async (id, newStatus) => {
     try {
+      const res = reservations.find(r => r.id === id);
+      const isItemReservation = res?.facilities?.category === 'Amenity Item';
+      const requestedQty = res?.quantity || 1;
+      const currentAmount = res?.facilities?.amount ?? 0;
+
+      // ── Validate stock BEFORE approving — the resident already chose the
+      // quantity when they submitted the request, so the admin just approves
+      // or rejects. No manual quantity entry needed.
+      if (isItemReservation && newStatus === 'Approved' && requestedQty > currentAmount) {
+        alert(`Cannot approve: resident requested ${requestedQty} unit(s) but only ${currentAmount} are in stock.`);
+        return false;
+      }
+
       const { error } = await supabase.from('reservations').update({ status: newStatus }).eq('id', id);
       if (error) throw error;
-      setReservations(prev => prev.map(r => r.id === id ? { ...r, status: newStatus } : r));
+
+      // ── Stock management for Amenity Items ──────────────────────────────
+      if (isItemReservation) {
+        const wasApprovedLike = ['Approved', 'Approved and Paid', 'Completed'].includes(res.status);
+        const isApprovedLike  = ['Approved', 'Approved and Paid', 'Completed'].includes(newStatus);
+        const facilityId = res.facility_id;
+
+        // Newly approved (wasn't approved before) → decrement stock by what was requested
+        if (!wasApprovedLike && isApprovedLike) {
+          const newAmount = Math.max(0, currentAmount - requestedQty);
+          await supabase.from('facilities').update({
+            amount: newAmount,
+            status: newAmount <= 0 ? 'Not Available' : 'Available',
+          }).eq('id', facilityId);
+        }
+        // Was approved, now rejected/cancelled → restore stock
+        else if (wasApprovedLike && !isApprovedLike && ['Rejected', 'Cancelled'].includes(newStatus)) {
+          const newAmount = currentAmount + requestedQty;
+          await supabase.from('facilities').update({
+            amount: newAmount,
+            status: newAmount > 0 ? 'Available' : 'Not Available',
+          }).eq('id', facilityId);
+        }
+      }
+      // ──────────────────────────────────────────────────────────────────────
+
+      await fetchAll();
       if (selectedRes?.id === id) setSelectedRes(prev => ({ ...prev, status: newStatus }));
       logAudit('Reservation ' + id + ' → ' + newStatus);
-    } catch (e) { alert('Error: ' + e.message); }
+      return true;
+    } catch (e) {
+      alert('Error: ' + e.message);
+      return false;
+    }
   };
+
 
   const confirmDelete = async () => {
     if (!deleteTarget) return;
     try {
+      const res = reservations.find(r => r.id === deleteTarget);
       const { error } = await supabase.from('reservations').delete().eq('id', deleteTarget);
       if (error) throw error;
+
+      // Restore stock if an approved item reservation is being deleted
+      const isItemReservation = res?.facilities?.category === 'Amenity Item';
+      const wasApprovedLike = ['Approved', 'Approved and Paid', 'Completed'].includes(res?.status);
+      if (isItemReservation && wasApprovedLike) {
+        const currentAmount = res.facilities?.amount ?? 0;
+        const newAmount = currentAmount + (res.quantity || 1);
+        await supabase.from('facilities').update({
+          amount: newAmount,
+          status: newAmount > 0 ? 'Available' : 'Not Available',
+        }).eq('id', res.facility_id);
+      }
+
       setReservations(prev => prev.filter(r => r.id !== deleteTarget));
       setDeleteTarget(null);
       logAudit('Deleted reservation ' + deleteTarget);
@@ -186,7 +246,7 @@ const Reservation = () => {
     const matchResident = residentFilter === 'All' || r.user_id === residentFilter;
     return matchSearch && matchStatus && matchResident;
   });
-  const { paginated: paginatedRes, page: resPage, setPage: setResPage, totalPages: resTotalPages, total: filteredTotal } = usePagination(filtered, 10);
+  const { paginated: paginatedRes, page: resPage, setPage: setResPage, totalPages: resTotalPages, total: filteredTotal } = usePagination(filtered, 5);
 
   const kpiCards = [
     { key: 'all',              label: 'Total',           icon: Calendar,    color: 'text-slate-600',    bg: 'bg-slate-100'    },
@@ -213,6 +273,10 @@ const Reservation = () => {
           <button onClick={fetchAll}
             className="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-semibold text-slate-600 hover:bg-slate-50 shadow-sm cursor-pointer transition-all">
             <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Refresh
+          </button>
+          <button onClick={() => setIsBorrowersOpen(true)}
+            className="flex items-center gap-2 px-4 py-2.5 bg-blue-50 border border-blue-200 hover:bg-blue-100 text-blue-700 text-sm font-bold rounded-xl shadow-sm cursor-pointer transition-all">
+            <Package size={14} /> Borrowers
           </button>
           <button onClick={() => setIsCalendarOpen(true)}
             className="flex items-center gap-2 px-4 py-2.5 bg-[#006837] hover:bg-[#004d29] text-white text-sm font-bold rounded-xl shadow-lg shadow-[#006837]/20 cursor-pointer transition-all">
@@ -318,12 +382,19 @@ const Reservation = () => {
                     </td>
                     {/* Date */}
                     <td className="px-5 py-4 text-sm text-slate-600 whitespace-nowrap">{fmtDate(res.date)}</td>
-                    {/* Time Slot */}
+                    {/* Time Slot / Quantity */}
                     <td className="px-5 py-4 whitespace-nowrap">
-                      <div className="flex items-center gap-1.5">
-                        <Clock size={12} className="text-slate-400 shrink-0" />
-                        <span className="text-sm text-slate-600">{fmt12(res.start_time)} – {fmt12(res.end_time)}</span>
-                      </div>
+                      {res.facilities?.category === 'Amenity Item' ? (
+                        <div className="flex items-center gap-1.5">
+                          <Package size={12} className="text-slate-400 shrink-0" />
+                          <span className="text-sm text-slate-600">{res.quantity ? `${res.quantity} unit(s)` : '—'}</span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1.5">
+                          <Clock size={12} className="text-slate-400 shrink-0" />
+                          <span className="text-sm text-slate-600">{fmt12(res.start_time)} – {fmt12(res.end_time)}</span>
+                        </div>
+                      )}
                     </td>
                     {/* Status */}
                     <td className="px-5 py-4" onClick={e => e.stopPropagation()}>
@@ -341,8 +412,14 @@ const Reservation = () => {
                         <RequireRole userRole={currentUserRole} allowedRoles={['president','vice_president','secretary']}>
                           {res.status === 'Pending' && (
                             <>
-                              <button onClick={() => updateStatus(res.id, 'Approved')} title="Approve"
-                                className="p-2 hover:bg-emerald-50 text-slate-400 hover:text-[#006837] rounded-lg transition-all cursor-pointer">
+                              <button
+                                onClick={() => updateStatus(res.id, 'Approved')}
+                                disabled={res.facilities?.category === 'Amenity Item' &&
+                                  (res.facilities?.amount ?? 0) < (res.quantity || 1)}
+                                title={res.facilities?.category === 'Amenity Item' &&
+                                  (res.facilities?.amount ?? 0) < (res.quantity || 1)
+                                  ? 'Not enough stock to approve' : 'Approve'}
+                                className="p-2 hover:bg-emerald-50 text-slate-400 hover:text-[#006837] rounded-lg transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent">
                                 <CheckCircle2 size={15} />
                               </button>
                               <button onClick={() => updateStatus(res.id, 'Rejected')} title="Reject"
@@ -381,7 +458,7 @@ const Reservation = () => {
 
         {/* Footer count */}
         {!loading && filtered.length > 0 && (
-          <PaginationBar page={resPage} totalPages={resTotalPages} setPage={setResPage} total={filtered.length} rowsPerPage={10} />
+          <PaginationBar page={resPage} totalPages={resTotalPages} setPage={setResPage} total={filtered.length} rowsPerPage={5} />
         )}
       </div>
 
@@ -419,8 +496,12 @@ const Reservation = () => {
             <div className="p-6 space-y-3">
               {[
                 { icon: MapPin,      label: 'Facility',       value: selectedRes.facilities?.name || '—' },
-                { icon: CalendarDays,label: 'Scheduled Date', value: fmtDate(selectedRes.date)           },
-                { icon: Clock,       label: 'Time Slot',      value: `${fmt12(selectedRes.start_time)} – ${fmt12(selectedRes.end_time)}` },
+                ...(selectedRes.facilities?.category === 'Amenity Item'
+                  ? [{ icon: Package, label: 'Quantity Requested', value: selectedRes.quantity ? `${selectedRes.quantity} unit(s)` : 'Not specified yet' }]
+                  : [
+                      { icon: CalendarDays,label: 'Scheduled Date', value: fmtDate(selectedRes.date) },
+                      { icon: Clock,       label: 'Time Slot',      value: `${fmt12(selectedRes.start_time)} – ${fmt12(selectedRes.end_time)}` },
+                    ]),
                 { icon: Calendar,    label: 'Requested On',   value: fmtDate(selectedRes.created_at)     },
               ].map(f => (
                 <div key={f.label} className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl border border-slate-100">
@@ -433,6 +514,23 @@ const Reservation = () => {
                   </div>
                 </div>
               ))}
+
+              {/* Stock check info — only shown while still Pending, purely informational */}
+              {selectedRes.facilities?.category === 'Amenity Item' && selectedRes.status === 'Pending' && (
+                <div className={`p-3 rounded-xl border flex items-start gap-2.5 ${
+                  (selectedRes.facilities?.amount ?? 0) >= (selectedRes.quantity || 1)
+                    ? 'bg-emerald-50 border-emerald-100' : 'bg-red-50 border-red-100'}`}>
+                  {(selectedRes.facilities?.amount ?? 0) >= (selectedRes.quantity || 1)
+                    ? <CheckCircle2 size={14} className="text-emerald-500 shrink-0 mt-0.5" />
+                    : <AlertTriangle size={14} className="text-red-500 shrink-0 mt-0.5" />}
+                  <p className={`text-xs font-semibold ${
+                    (selectedRes.facilities?.amount ?? 0) >= (selectedRes.quantity || 1) ? 'text-emerald-700' : 'text-red-700'}`}>
+                    {(selectedRes.facilities?.amount ?? 0) >= (selectedRes.quantity || 1)
+                      ? `${selectedRes.facilities?.amount ?? 0} unit(s) in stock — enough to approve this request.`
+                      : `Only ${selectedRes.facilities?.amount ?? 0} unit(s) left in stock — not enough to approve ${selectedRes.quantity || 1} requested.`}
+                  </p>
+                </div>
+              )}
             </div>
 
             {/* Action buttons */}
@@ -440,8 +538,11 @@ const Reservation = () => {
               <RequireRole userRole={currentUserRole} allowedRoles={['president','vice_president','secretary']}>
                 {selectedRes.status === 'Pending' && (
                   <div className="flex gap-2.5">
-                    <button onClick={() => updateStatus(selectedRes.id, 'Approved')}
-                      className="flex-1 py-3 bg-[#006837] hover:bg-[#004d29] text-white font-bold rounded-2xl flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-[#006837]/20 transition-all">
+                    <button
+                      onClick={() => updateStatus(selectedRes.id, 'Approved')}
+                      disabled={selectedRes.facilities?.category === 'Amenity Item' &&
+                        (selectedRes.facilities?.amount ?? 0) < (selectedRes.quantity || 1)}
+                      className="flex-1 py-3 bg-[#006837] hover:bg-[#004d29] text-white font-bold rounded-2xl flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-[#006837]/20 transition-all disabled:opacity-40 disabled:cursor-not-allowed">
                       <CheckCircle2 size={15} /> Approve
                     </button>
                     <button onClick={() => updateStatus(selectedRes.id, 'Rejected')}
@@ -477,6 +578,9 @@ const Reservation = () => {
       {/* ── Calendar ─────────────────────────────────────────────────────────── */}
       <CalendarReserve isOpen={isCalendarOpen} onClose={() => setIsCalendarOpen(false)}
         reservations={reservations} setSelectedReservation={setSelectedRes} />
+
+      {/* ── Borrowers ────────────────────────────────────────────────────────── */}
+      <Borrowers isOpen={isBorrowersOpen} onClose={() => setIsBorrowersOpen(false)} reservations={reservations} />
 
       {/* ── Delete confirm ────────────────────────────────────────────────────── */}
       {deleteTarget && (

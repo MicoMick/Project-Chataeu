@@ -197,7 +197,7 @@ const Sidebar = () => {
     // ── Reports/Issues ────────────────────────────────────────────────────────
     {
       icon:  <BarChart3 size={22} />,
-      label: 'Reports',
+      label: 'Residents Reports',
       path:  '/hoa/reports',
       allowedRoles: COMM_OPS,
     },

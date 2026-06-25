@@ -41,6 +41,29 @@ const STATUS_CFG = {
 };
 const getStatus = (s) => STATUS_CFG[s] || STATUS_CFG['Available'];
 
+// ─── Liability agreement for borrowed Amenity Items ──────────────────────────
+// Builds a condensed but on-point set of terms based on the item's name.
+// Shown to homeowners whenever they view an Amenity Item, so the borrowing
+// terms are always visible and consistent across every item of that type.
+// Returns an array of {label, text} so it can render as clean bullet points.
+const getItemAgreement = (itemName = '') => {
+  const name = itemName.toLowerCase();
+  const noun = name.includes('chair') ? 'chair(s)'
+             : name.includes('tent')  ? 'tent(s)'
+             : 'item(s)';
+
+  return [
+    { label: 'Care & Use',  text: 'Received in good, working condition. For personal use only within the agreed event area — no lending to third parties.' },
+    { label: 'Damage',      text: `Borrower is responsible for the ${noun} from pickup until returned. If damaged or broken, borrower must pay full replacement cost or provide an identical brand-new replacement.` },
+    { label: 'Loss/Theft',  text: `Borrower is liable for any missing ${noun}. If lost or not returned, borrower must pay full retail cost or replace with a brand-new identical unit.` },
+    { label: 'Return',      text: 'Must be returned clean and in good condition by the agreed deadline, properly stored/packed as issued.' },
+  ];
+};
+
+// Flat single-line version — used only for storing in the DB `description` column
+const getItemAgreementText = (itemName = '') =>
+  getItemAgreement(itemName).map(t => `${t.label}: ${t.text}`).join(' ');
+
 // ─── Input ────────────────────────────────────────────────────────────────────
 const inputCls = "w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#006837]/20 focus:border-[#006837] transition-all placeholder-slate-400";
 const labelCls = "block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5";
@@ -152,7 +175,21 @@ const FacilityCard = ({ fac, onView, onEdit, onDelete, currentUserRole }) => {
       <div className="p-4 flex-1 flex flex-col gap-3">
         <div>
           <h4 className="font-black text-slate-900 text-sm leading-tight">{fac.name}</h4>
-          <p className="text-xs text-slate-400 mt-1 leading-relaxed line-clamp-2">{fac.description || 'No description provided.'}</p>
+          {!isItem && (
+            <p className="text-xs text-slate-400 mt-1 leading-relaxed line-clamp-2">
+              {fac.description || 'No description provided.'}
+            </p>
+          )}
+          {isItem && (
+            <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+              <span className="inline-flex items-center gap-1 text-[9px] font-black text-blue-600 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full">
+                <Package size={9} /> {fac.amount ?? 0} in stock
+              </span>
+              <span className="inline-flex items-center gap-1 text-[9px] font-bold text-amber-600 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
+                <AlertTriangle size={9} /> Liability agreement applies
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Metadata chips */}
@@ -236,7 +273,7 @@ const Facility = () => {
   const [is360,               setIs360]               = useState(false);
 
   const [newFacility, setNewFacility] = useState({ name: '', description: '', capacity: '', rate: '', opening_time: '', closing_time: '', status: 'Available' });
-  const [newItem,     setNewItem]     = useState({ name: '', description: '', status: 'Available' });
+  const [newItem,     setNewItem]     = useState({ name: '', status: 'Available', amount: '' });
 
   const currentUserRole = localStorage.getItem('userRole') || 'resident';
 
@@ -291,9 +328,14 @@ const Facility = () => {
     const { data: { user } } = await supabase.auth.getUser();
     try {
       const url = await uploadImage();
+      // Description is now fully auto-generated from the liability terms —
+      // there's no separate free-text description field anymore.
+      const fullDescription = getItemAgreementText(newItem.name);
+      const amountVal = parseInt(newItem.amount, 10) || 0;
       const { data, error } = await supabase.from('facilities').insert([{
-        name: newItem.name, description: newItem.description,
-        status: newItem.status, category: 'Amenity Item',
+        name: newItem.name, description: fullDescription,
+        status: amountVal > 0 ? newItem.status : 'Not Available',
+        category: 'Amenity Item', amount: amountVal,
         image_360_url: url, is_360: is360,
       }]).select();
       if (error) throw error;
@@ -301,7 +343,7 @@ const Facility = () => {
       setFacilities(p => [data[0], ...p]);
       setIsAddItemOpen(false);
       setFile(null); setIs360(false);
-      setNewItem({ name: '', description: '', status: 'Available' });
+      setNewItem({ name: '', status: 'Available', amount: '' });
       setTransaction({ status: 'success', message: 'Item added successfully!' });
     } catch (e) {
       await logActivity(supabase, user?.email, 'Add Amenity Item Failed', 'error', e.message);
@@ -315,7 +357,22 @@ const Facility = () => {
     const { data: { user } } = await supabase.auth.getUser();
     try {
       const url = file ? await uploadImage() : editingFacility.image_360_url;
-      const updated = { ...editingFacility, image_360_url: url, is_360: is360 };
+      // Amenity Items: description is fully auto-generated from liability terms.
+      // Amenity Facilities: keep whatever free text the admin wrote.
+      const finalDescription = editingFacility.category === 'Amenity Item'
+        ? getItemAgreementText(editingFacility.name)
+        : editingFacility.description;
+
+      // Auto-sync status with stock for Amenity Items: 0 left → Not Available.
+      // If admin restocks above 0 while it was auto-flipped, bring it back to Available.
+      let finalStatus = editingFacility.status;
+      if (editingFacility.category === 'Amenity Item') {
+        const amt = parseInt(editingFacility.amount, 10) || 0;
+        if (amt <= 0) finalStatus = 'Not Available';
+        else if (editingFacility.status === 'Not Available' && amt > 0) finalStatus = 'Available';
+      }
+
+      const updated = { ...editingFacility, description: finalDescription, status: finalStatus, image_360_url: url, is_360: is360 };
       const { error } = await supabase.from('facilities').update(updated).eq('id', editingFacility.id);
       if (error) throw error;
       await logActivity(supabase, user?.email, 'Update Facility', 'info', `Updated: ${editingFacility.name}`);
@@ -462,7 +519,7 @@ const Facility = () => {
           <div>
             <label className={labelCls}>Status</label>
             <div className="relative">
-              <select className={inputCls} value={newFacility.status} onChange={e => setNewFacility(p => ({...p, status: e.target.value}))}>
+              <select className={`${inputCls} appearance-none`} value={newFacility.status} onChange={e => setNewFacility(p => ({...p, status: e.target.value}))}>
                 <option>Available</option><option>Not Available</option><option>Under Maintenance</option>
               </select>
               <ChevronDown size={14} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
@@ -477,11 +534,30 @@ const Facility = () => {
         <FacilityFormModal title="Add Amenity Item" onClose={() => setIsAddItemOpen(false)}
           onSubmit={handleAddItem} submitLabel="Add Item">
           <div><label className={labelCls}>Item Name</label><input className={inputCls} placeholder="e.g. Folding Chairs" value={newItem.name} onChange={e => setNewItem(p => ({...p, name: e.target.value}))} /></div>
-          <div><label className={labelCls}>Description</label><textarea rows={3} className={inputCls} placeholder="Describe the item…" value={newItem.description} onChange={e => setNewItem(p => ({...p, description: e.target.value}))} /></div>
+          <div>
+            <label className={labelCls}>Amount in Stock</label>
+            <input type="number" min="0" className={inputCls} placeholder="e.g. 43" value={newItem.amount}
+              onChange={e => setNewItem(p => ({...p, amount: e.target.value}))} />
+            <p className="text-[10px] text-slate-400 mt-1.5">Total units available for residents to borrow.</p>
+          </div>
+          <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl">
+            <div className="flex items-center gap-2 mb-2.5">
+              <AlertTriangle size={14} className="text-amber-500 shrink-0" />
+              <p className="text-[10px] font-black text-amber-700 uppercase tracking-widest">Auto-Generated Borrower's Agreement</p>
+            </div>
+            <ul className="space-y-1.5">
+              {getItemAgreement(newItem.name || 'item').map(({ label, text }) => (
+                <li key={label} className="text-[11px] text-amber-800 leading-relaxed flex gap-1.5">
+                  <span className="font-black shrink-0">•</span>
+                  <span><span className="font-bold">{label}:</span> {text}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
           <div>
             <label className={labelCls}>Status</label>
             <div className="relative">
-              <select className={inputCls} value={newItem.status} onChange={e => setNewItem(p => ({...p, status: e.target.value}))}>
+              <select className={`${inputCls} appearance-none`} value={newItem.status} onChange={e => setNewItem(p => ({...p, status: e.target.value}))}>
                 <option>Available</option><option>Not Available</option><option>Under Maintenance</option>
               </select>
               <ChevronDown size={14} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
@@ -497,7 +573,38 @@ const Facility = () => {
           onClose={() => { setEditingFacility(null); setFile(null); }}
           onSubmit={handleUpdate} submitLabel="Save Changes">
           <div><label className={labelCls}>Name</label><input className={inputCls} value={editingFacility.name} onChange={e => setEditingFacility(p => ({...p, name: e.target.value}))} /></div>
-          <div><label className={labelCls}>Description</label><textarea rows={3} className={inputCls} value={editingFacility.description} onChange={e => setEditingFacility(p => ({...p, description: e.target.value}))} /></div>
+          {editingFacility.category === 'Amenity Item' && (
+            <div>
+              <label className={labelCls}>Amount in Stock</label>
+              <input type="number" min="0" className={inputCls} value={editingFacility.amount ?? ''}
+                onChange={e => setEditingFacility(p => ({...p, amount: e.target.value}))} />
+              <p className="text-[10px] text-slate-400 mt-1.5">Status auto-switches to "Not Available" when this reaches 0.</p>
+            </div>
+          )}
+          {editingFacility.category === 'Amenity Facility' && (
+            <div>
+              <label className={labelCls}>Description</label>
+              <textarea rows={3} className={inputCls}
+                value={editingFacility.description || ''}
+                onChange={e => setEditingFacility(p => ({...p, description: e.target.value}))} />
+            </div>
+          )}
+          {editingFacility.category === 'Amenity Item' && (
+            <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl">
+              <div className="flex items-center gap-2 mb-2.5">
+                <AlertTriangle size={14} className="text-amber-500 shrink-0" />
+                <p className="text-[10px] font-black text-amber-700 uppercase tracking-widest">Auto-Generated Borrower's Agreement</p>
+              </div>
+              <ul className="space-y-1.5">
+                {getItemAgreement(editingFacility.name).map(({ label, text }) => (
+                  <li key={label} className="text-[11px] text-amber-800 leading-relaxed flex gap-1.5">
+                    <span className="font-black shrink-0">•</span>
+                    <span><span className="font-bold">{label}:</span> {text}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           {editingFacility.category === 'Amenity Facility' && (
             <div className="grid grid-cols-2 gap-4">
               <div><label className={labelCls}>Capacity</label><input className={inputCls} value={editingFacility.capacity} onChange={e => setEditingFacility(p => ({...p, capacity: e.target.value}))} /></div>
@@ -507,7 +614,7 @@ const Facility = () => {
           <div>
             <label className={labelCls}>Status</label>
             <div className="relative">
-              <select className={inputCls} value={editingFacility.status} onChange={e => setEditingFacility(p => ({...p, status: e.target.value}))}>
+              <select className={`${inputCls} appearance-none`} value={editingFacility.status} onChange={e => setEditingFacility(p => ({...p, status: e.target.value}))}>
                 <option>Available</option><option>Not Available</option><option>Under Maintenance</option><option>Fully Booked</option>
               </select>
               <ChevronDown size={14} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
@@ -569,11 +676,44 @@ const Facility = () => {
                       {viewingFacility.category}
                     </span>
                     <h2 className="text-2xl font-black text-slate-900 mt-3 leading-tight">{viewingFacility.name}</h2>
-                    <p className="text-sm text-slate-400 mt-2 leading-relaxed">{viewingFacility.description || 'No description.'}</p>
+                    {viewingFacility.category === 'Amenity Facility' && (
+                      <p className="text-sm text-slate-400 mt-2 leading-relaxed">
+                        {viewingFacility.description || 'No description.'}
+                      </p>
+                    )}
                   </div>
+
+                  {/* Liability agreement — Amenity Items only */}
+                  {viewingFacility.category === 'Amenity Item' && (
+                    <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl">
+                      <div className="flex items-center gap-2 mb-2.5">
+                        <AlertTriangle size={16} className="text-amber-500 shrink-0" />
+                        <p className="text-[10px] font-black text-amber-700 uppercase tracking-widest">Borrower's Agreement</p>
+                      </div>
+                      <ul className="space-y-2">
+                        {getItemAgreement(viewingFacility.name).map(({ label, text }) => (
+                          <li key={label} className="text-xs text-amber-800 leading-relaxed flex gap-2">
+                            <span className="font-black shrink-0">•</span>
+                            <span><span className="font-bold">{label}:</span> {text}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
 
                   {/* Metadata */}
                   <div className="space-y-2.5">
+                    {viewingFacility.category === 'Amenity Item' && (
+                      <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl border border-slate-100">
+                        <div className="w-8 h-8 bg-[#006837]/10 rounded-lg flex items-center justify-center shrink-0">
+                          <Package size={14} className="text-[#006837]" />
+                        </div>
+                        <div>
+                          <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Available Stock</p>
+                          <p className="text-sm font-bold text-slate-800">{viewingFacility.amount ?? 0} unit{(viewingFacility.amount ?? 0) !== 1 ? 's' : ''}</p>
+                        </div>
+                      </div>
+                    )}
                     {viewingFacility.capacity && (
                       <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl border border-slate-100">
                         <div className="w-8 h-8 bg-[#006837]/10 rounded-lg flex items-center justify-center shrink-0">

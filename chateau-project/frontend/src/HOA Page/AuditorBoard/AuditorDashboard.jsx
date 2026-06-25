@@ -159,18 +159,43 @@ const AddExpenseModal = ({ onClose, onSave }) => {
 };
 
 // ─── Print Summary ────────────────────────────────────────────────────────────
-const printFinancialReport = ({ duesIncome, courtIncome, expenses, unpaid, period }) => {
+// Mirrors the physical "FINANCIAL STATEMENT" ledger sheet used by the HOA:
+// Income (Monthly Dues, Court Rental) → Total Income
+// Expenses (Salary Wages, Maintenance, Utility/Bills) → Total Expenses
+// Summary (Net Income, Beginning Balance, Ending Balance)
+const printFinancialReport = ({ duesIncome, courtIncome, expenses, unpaid, period, beginningBalance = 0 }) => {
   const today   = new Date().toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' });
+
+  // ── Income — only Monthly Dues and Court Rental, per the physical form ───
   const totalIncome  = duesIncome.total + courtIncome.total;
-  const totalExpense = expenses.total;
-  const netBalance   = totalIncome - totalExpense;
+
+  // ── Expenses — bucketed into Salary Wages / Maintenance Repair / Utility ──
+  // matching the physical form's expense line items. Anything not matching
+  // one of these three keywords falls under "Utility" as a catch-all bill,
+  // since the form only tracks these three categories.
+  const matchKeyword = (desc, keyword) => (desc || '').toLowerCase().includes(keyword);
+  const salaryWages = (expenses.records || [])
+    .filter(e => matchKeyword(e.description, 'security') || matchKeyword(e.description, 'salary') || matchKeyword(e.description, 'wage') || e.category === 'Salaries')
+    .reduce((s, e) => s + Number(e.amount || 0), 0);
+  const maintenanceRepair = (expenses.records || [])
+    .filter(e => matchKeyword(e.description, 'sweep') || matchKeyword(e.description, 'maintenance') || matchKeyword(e.description, 'repair') || e.category === 'Maintenance')
+    .reduce((s, e) => s + Number(e.amount || 0), 0);
+  const utilityBills = (expenses.records || [])
+    .filter(e => matchKeyword(e.description, 'electric') || matchKeyword(e.description, 'water') || e.category === 'Utilities')
+    .reduce((s, e) => s + Number(e.amount || 0), 0);
+  const totalExpense = salaryWages + maintenanceRepair + utilityBills;
+
+  // ── Summary ────────────────────────────────────────────────────────────
+  const netIncome    = totalIncome - totalExpense;
+  const beginBal     = Number(beginningBalance) || 0;
+  const endingBal    = beginBal + netIncome;
 
   // ── Consolidate dues: one row per resident ──────────────────────────────
   const duesMap = {};
   (duesIncome.records || []).forEach(p => {
     const name = p.profiles?.full_name || '—';
     if (!duesMap[p.user_id]) {
-      duesMap[p.user_id] = { full_name: name, total: 0, count: 0, last_paid: p.paid_at, audited: true };
+      duesMap[p.user_id] = { full_name: name, total: 0, count: 0, last_paid: p.paid_at, audited: true, isDelinquent: p.profiles?.account_status === 'delinquent' };
     }
     duesMap[p.user_id].total += Number(p.amount || 0);
     duesMap[p.user_id].count += 1;
@@ -180,14 +205,18 @@ const printFinancialReport = ({ duesIncome, courtIncome, expenses, unpaid, perio
   });
   const consolidatedDuesPrint = Object.values(duesMap).sort((a, b) => a.full_name.localeCompare(b.full_name));
 
-  const duesRows = consolidatedDuesPrint.map((r, i) => `
+  const duesRows = consolidatedDuesPrint.map((r, i) => {
+    const statusLabel = r.audited ? '✓ Verified' : r.isDelinquent ? '⚠ Needs Review' : 'Pending';
+    const statusColor  = r.audited ? '#166534' : r.isDelinquent ? '#c2410c' : '#64748b';
+    return `
     <tr style="background:${i%2===0?'#f0fdf4':'#fff'}">
       <td>${r.full_name}</td>
       <td style="text-align:center;">${r.count} month${r.count !== 1 ? 's' : ''}</td>
       <td>${fmtDate(r.last_paid)}</td>
-      <td style="text-align:center;font-weight:bold;color:${r.audited ? '#166534' : '#64748b'};">${r.audited ? '✓ Verified' : 'Pending'}</td>
+      <td style="text-align:center;font-weight:bold;color:${statusColor};">${statusLabel}</td>
       <td style="text-align:right;font-weight:bold;">${fmtCurrency(r.total)}</td>
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
 
   const courtRows = courtIncome.records.map((r, i) => `
     <tr style="background:${i%2===0?'#f0fdf4':'#fff'}">
@@ -205,61 +234,61 @@ const printFinancialReport = ({ duesIncome, courtIncome, expenses, unpaid, perio
       <td style="text-align:right;font-weight:bold;color:#dc2626;">${fmtCurrency(e.amount)}</td>
     </tr>`).join('');
 
-  // ── Consolidate unpaid for print: one row per resident ──────────────────
-  const unpaidMap = {};
-  (unpaid.records || []).forEach(p => {
-    const name = p.profiles?.full_name || '—';
-    if (!unpaidMap[p.user_id]) {
-      unpaidMap[p.user_id] = { full_name: name, balance: 0, months: 0, oldest: p.due_date, newest: p.due_date, hasOverdue: false };
-    }
-    unpaidMap[p.user_id].balance += Number(p.amount || 0);
-    unpaidMap[p.user_id].months  += 1;
-    if (p.due_date < unpaidMap[p.user_id].oldest) unpaidMap[p.user_id].oldest = p.due_date;
-    if (p.due_date > unpaidMap[p.user_id].newest) unpaidMap[p.user_id].newest = p.due_date;
-    if (p.status === 'overdue') unpaidMap[p.user_id].hasOverdue = true;
-  });
-  const consolidatedUnpaidPrint = Object.values(unpaidMap).sort((a, b) => b.balance - a.balance);
-
-  const unpaidRows = consolidatedUnpaidPrint.map((r, i) => `
-    <tr style="background:${i%2===0?'#fffbeb':'#fff'}">
-      <td>${r.full_name}</td>
-      <td style="text-align:center;">${r.months} month${r.months !== 1 ? 's' : ''}</td>
-      <td>${r.oldest === r.newest ? fmtMonth(r.oldest) : `${fmtMonth(r.oldest)} – ${fmtMonth(r.newest)}`}</td>
-      <td style="text-align:center;font-weight:bold;color:${r.hasOverdue ? '#dc2626' : '#d97706'};">${r.hasOverdue ? 'Overdue' : 'Unpaid'}</td>
-      <td style="text-align:right;font-weight:bold;color:#d97706;">${fmtCurrency(r.balance)}</td>
-    </tr>`).join('');
-
-  const sectionHeader = (title, color='#006837') => `
-    <tr><td colspan="4" style="background:${color};color:#FFF200;font-weight:bold;font-size:13px;padding:8px 10px;letter-spacing:0.5px;">${title}</td></tr>
-    `;
-
   const colHeaders = (cols) => `<tr>${cols.map(c=>`<th>${c}</th>`).join('')}</tr>`;
 
-  const html = `<!DOCTYPE html><html><head><title>HOA Financial Report — ${today}</title>
+  const html = `<!DOCTYPE html><html><head><title>HOA Financial Statement — ${today}</title>
   <style>
     body{font-family:Arial,sans-serif;margin:20px;color:#1a1a1a;}
-    h1{text-align:center;font-size:15px;margin-bottom:3px;}
-    h2{font-size:12px;color:#006837;margin:18px 0 6px;border-bottom:2px solid #006837;padding-bottom:4px;}
+    h1{text-align:center;font-size:16px;margin-bottom:3px;text-transform:uppercase;letter-spacing:0.5px;}
+    h2{font-size:12px;color:#006837;margin:18px 0 6px;border-bottom:2px solid #006837;padding-bottom:4px;text-transform:uppercase;}
     p.sub{text-align:center;font-size:11px;color:#666;margin-bottom:18px;}
-    table{width:100%;border-collapse:collapse;margin-bottom:12px;font-size:11px;}
+    table{width:100%;border-collapse:collapse;margin-bottom:6px;font-size:11px;}
     th{background:#006837;color:#FFF200;padding:6px 8px;text-align:left;font-weight:bold;}
     td{padding:5px 8px;border-bottom:1px solid #e2e8f0;}
+    .statement-table td{padding:7px 10px;font-size:12px;border-bottom:1px solid #e2e8f0;}
+    .statement-table .label{color:#334155;}
+    .statement-table .amt{text-align:right;font-weight:bold;font-family:monospace,Arial;}
+    .statement-table .total-row td{border-top:2px solid #006837;border-bottom:2px solid #006837;font-weight:900;background:#f0fdf4;}
+    .statement-table .section-title{background:#006837;color:#FFF200;font-weight:bold;padding:7px 10px;text-transform:uppercase;letter-spacing:0.5px;}
     .summary-box{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin:16px 0;}
     .box{border:2px solid;border-radius:8px;padding:12px;text-align:center;}
     .box .amt{font-size:18px;font-weight:900;}
     .box .lbl{font-size:10px;font-weight:bold;text-transform:uppercase;margin-top:3px;}
     .income{border-color:#006837;background:#f0fdf4;color:#006837;}
     .expense{border-color:#dc2626;background:#fef2f2;color:#dc2626;}
-    .net{border-color:${netBalance>=0?'#0369a1':'#dc2626'};background:${netBalance>=0?'#eff6ff':'#fef2f2'};color:${netBalance>=0?'#0369a1':'#dc2626'};}
-    @media print{body{margin:8px;}@page{size:landscape;margin:10mm;}}
+    .net{border-color:${netIncome>=0?'#0369a1':'#dc2626'};background:${netIncome>=0?'#eff6ff':'#fef2f2'};color:${netIncome>=0?'#0369a1':'#dc2626'};}
+    .summary-final{border:2px solid #006837;border-radius:10px;padding:14px 18px;margin:18px 0;background:#fafafa;}
+    .summary-final .row{display:flex;justify-content:space-between;padding:5px 0;font-size:12px;}
+    .summary-final .row.endbal{border-top:2px solid #006837;margin-top:6px;padding-top:10px;font-size:15px;font-weight:900;color:#006837;}
+    @media print{body{margin:8px;}@page{margin:10mm;}}
   </style></head><body>
-  <h1>HOA Financial Report</h1>
+  <h1>Financial Statement</h1>
   <p class="sub">Chateau Real Executive Village Homeowners Association Inc. (CREVHAI)<br>Generated: ${today}${period ? ' · Period: ' + period : ''}</p>
+
+  <!-- ── Statement layout matching the physical ledger sheet ── -->
+  <table class="statement-table">
+    <tr><td colspan="2" class="section-title">Income</td></tr>
+    <tr><td class="label">Monthly Dues</td><td class="amt">${fmtCurrency(duesIncome.total)}</td></tr>
+    <tr><td class="label">Court Rental</td><td class="amt">${fmtCurrency(courtIncome.total)}</td></tr>
+    <tr class="total-row"><td>Total Income</td><td class="amt">${fmtCurrency(totalIncome)}</td></tr>
+
+    <tr><td colspan="2" class="section-title" style="background:#dc2626;">Expenses</td></tr>
+    <tr><td class="label">Salary Wages</td><td class="amt">${fmtCurrency(salaryWages)}</td></tr>
+    <tr><td class="label">Maintenance Repair</td><td class="amt">${fmtCurrency(maintenanceRepair)}</td></tr>
+    <tr><td class="label">Utility (Electricity &amp; Water Bills)</td><td class="amt">${fmtCurrency(utilityBills)}</td></tr>
+    <tr class="total-row" style="background:#fef2f2;border-color:#dc2626;"><td>Total Expenses</td><td class="amt" style="color:#dc2626;">${fmtCurrency(totalExpense)}</td></tr>
+  </table>
+
+  <div class="summary-final">
+    <div class="row"><span>Beginning Balance</span><span>${fmtCurrency(beginBal)}</span></div>
+    <div class="row"><span>Net Income (Total Income − Total Expenses)</span><span style="color:${netIncome>=0?'#166534':'#dc2626'};font-weight:bold;">${netIncome >= 0 ? '' : '-'}${fmtCurrency(Math.abs(netIncome))}</span></div>
+    <div class="row endbal"><span>Ending Balance as of ${today}</span><span>${fmtCurrency(endingBal)}</span></div>
+  </div>
 
   <div class="summary-box">
     <div class="box income"><div class="amt">${fmtCurrency(totalIncome)}</div><div class="lbl">Total Income</div></div>
     <div class="box expense"><div class="amt">${fmtCurrency(totalExpense)}</div><div class="lbl">Total Expenses</div></div>
-    <div class="box net"><div class="amt">${fmtCurrency(Math.abs(netBalance))}</div><div class="lbl">${netBalance>=0?'Net Surplus':'Net Deficit'}</div></div>
+    <div class="box net"><div class="amt">${fmtCurrency(Math.abs(netIncome))}</div><div class="lbl">${netIncome>=0?'Net Income':'Net Deficit'}</div></div>
   </div>
 
   <h2>Monthly Dues Collected (${consolidatedDuesPrint.length} resident${consolidatedDuesPrint.length !== 1 ? 's' : ''} · ${duesIncome.records.length} total payments)</h2>
@@ -272,14 +301,9 @@ const printFinancialReport = ({ duesIncome, courtIncome, expenses, unpaid, perio
   <tfoot><tr><td colspan="3" style="font-weight:bold;text-align:right;padding:6px 8px;background:#f8fafc;">Total Court Income:</td><td style="font-weight:900;text-align:right;padding:6px 8px;background:#f8fafc;color:#006837;">${fmtCurrency(courtIncome.total)}</td></tr></tfoot>
   </table>
 
-  <h2>HOA Expenses (${expenses.records.length} entries)</h2>
+  <h2>Itemized Expenses (${expenses.records.length} entries)</h2>
   <table><thead>${colHeaders(['Date','Description','Category','Amount'])}</thead><tbody>${expenseRows || '<tr><td colspan="4" style="text-align:center;color:#999">No records</td></tr>'}</tbody>
   <tfoot><tr><td colspan="3" style="font-weight:bold;text-align:right;padding:6px 8px;background:#f8fafc;">Total Expenses:</td><td style="font-weight:900;text-align:right;padding:6px 8px;background:#fef2f2;color:#dc2626;">${fmtCurrency(expenses.total)}</td></tr></tfoot>
-  </table>
-
-  <h2>Unpaid / Overdue Dues (${consolidatedUnpaidPrint.length} resident${consolidatedUnpaidPrint.length !== 1 ? 's' : ''} · ${unpaid.records.length} total overdue months)</h2>
-  <table><thead>${colHeaders(['Resident','Months Unpaid','Due Period','Status','Amount Owed'])}</thead><tbody>${unpaidRows || '<tr><td colspan="5" style="text-align:center;color:#999">All dues are settled</td></tr>'}</tbody>
-  <tfoot><tr><td colspan="4" style="font-weight:bold;text-align:right;padding:6px 8px;background:#f8fafc;">Total Uncollected:</td><td style="font-weight:900;text-align:right;padding:6px 8px;background:#fffbeb;color:#d97706;">${fmtCurrency(unpaid.total)}</td></tr></tfoot>
   </table>
   </body></html>`;
 
@@ -287,7 +311,11 @@ const printFinancialReport = ({ duesIncome, courtIncome, expenses, unpaid, perio
   w.document.write(html);
   w.document.close();
   w.focus();
-  setTimeout(() => { w.print(); w.close(); }, 500);
+  // Trigger the print dialog but DON'T auto-close the tab afterward —
+  // closing unconditionally also closes the tab if the person clicks
+  // "Cancel" in the print dialog, losing the report. The person can close
+  // the tab themselves once they're done (same behavior as the SOA printer).
+  w.onload = () => { w.print(); };
 };
 
 // ─── Main Component ───────────────────────────────────────────────────────────
@@ -297,6 +325,15 @@ const AuditorDashboard = () => {
   const [showExpModal, setShowExpModal] = useState(false);
   const [search,       setSearch]       = useState('');
   const [toast,        setToast]        = useState({ show: false, message: '', type: 'success' });
+
+  // ── Report filter — applies to the printed report only ──────────────────
+  // Lets the auditor narrow the report by date range and/or resident name
+  // before printing, instead of always printing every record on file.
+  const [reportFrom,    setReportFrom]    = useState('');
+  const [reportTo,      setReportTo]      = useState('');
+  const [reportSearch,  setReportSearch]  = useState('');
+  const [showReportFilter, setShowReportFilter] = useState(false);
+  const [beginningBalance, setBeginningBalance] = useState('');
 
   // ── Data ──────────────────────────────────────────────────────────────────
   const [duesIncome,   setDuesIncome]   = useState({ records: [], total: 0 });
@@ -315,7 +352,7 @@ const AuditorDashboard = () => {
       // 1. Monthly dues — paid
       const { data: paidDues } = await supabase
         .from('payments')
-        .select('*, profiles(full_name)')
+        .select('*, profiles(full_name, account_status)')
         .eq('status', 'paid')
         .order('paid_at', { ascending: false });
 
@@ -419,6 +456,50 @@ const AuditorDashboard = () => {
   };
   const filteredRecords = getFiltered();
 
+  // ── Filter records for the printable report (date range + search) ────────
+  // The report can be narrowed independently of the on-screen tab filters,
+  // so the auditor can e.g. print "June only" or "just Kurt Manipis" without
+  // changing what they're currently viewing on screen.
+  const filterForReport = (records, dateKey, nameFields) => {
+    return (records || []).filter(r => {
+      if (reportFrom && r[dateKey] && r[dateKey] < reportFrom) return false;
+      if (reportTo   && r[dateKey] && r[dateKey] > reportTo)   return false;
+      if (reportSearch) {
+        const term = reportSearch.toLowerCase();
+        const matches = nameFields.some(f => {
+          const val = f.split('.').reduce((o, k) => o?.[k], r);
+          return (val || '').toString().toLowerCase().includes(term);
+        });
+        if (!matches) return false;
+      }
+      return true;
+    });
+  };
+
+  const handlePrintReport = () => {
+    const filteredDues    = filterForReport(duesIncome.records,  'paid_at',      ['profiles.full_name', 'reference_no']);
+    const filteredCourt   = filterForReport(courtIncome.records, 'date',         ['profiles.full_name', 'facilities.name']);
+    const filteredExpense = filterForReport(expenses.records,    'expense_date', ['description', 'category']);
+    const filteredUnpaid  = filterForReport(unpaid.records,      'due_date',     ['profiles.full_name', 'reference_no']);
+
+    const periodLabel = (reportFrom || reportTo || reportSearch)
+      ? [
+          reportFrom && reportTo ? `${fmtDate(reportFrom)} – ${fmtDate(reportTo)}` : reportFrom ? `From ${fmtDate(reportFrom)}` : reportTo ? `Up to ${fmtDate(reportTo)}` : null,
+          reportSearch ? `Filtered: "${reportSearch}"` : null,
+        ].filter(Boolean).join(' · ')
+      : null;
+
+    printFinancialReport({
+      duesIncome:  { records: filteredDues,    total: filteredDues.reduce((s, p) => s + Number(p.amount || 0), 0) },
+      courtIncome: { records: filteredCourt,   total: filteredCourt.reduce((s, r) => s + Number(r.amount || 0), 0) },
+      expenses:    { records: filteredExpense, total: filteredExpense.reduce((s, e) => s + Number(e.amount || 0), 0) },
+      unpaid:      { records: filteredUnpaid,  total: filteredUnpaid.reduce((s, p) => s + Number(p.amount || 0), 0) },
+      period: periodLabel,
+      beginningBalance: Number(beginningBalance) || 0,
+    });
+  };
+
+
   // ── Consolidated dues: one row per resident, total paid ─────────────────
   // Groups all individual paid due receipts → single row per resident
   const consolidatedDues = React.useMemo(() => {
@@ -429,12 +510,13 @@ const AuditorDashboard = () => {
       if (term && !name.toLowerCase().includes(term) && !(p.reference_no || '').toLowerCase().includes(term)) return;
       if (!map[p.user_id]) {
         map[p.user_id] = {
-          user_id:    p.user_id,
-          full_name:  name,
-          total:      0,
-          count:      0,
-          last_paid:  p.paid_at,
-          audited:    true,
+          user_id:      p.user_id,
+          full_name:    name,
+          total:        0,
+          count:        0,
+          last_paid:    p.paid_at,
+          audited:      true,
+          isDelinquent: p.profiles?.account_status === 'delinquent',
         };
       }
       map[p.user_id].total  += Number(p.amount || 0);
@@ -445,6 +527,44 @@ const AuditorDashboard = () => {
     });
     return Object.values(map).sort((a, b) => a.full_name.localeCompare(b.full_name));
   }, [duesIncome.records, search]);
+
+  // ── Auto-verify clean residents ──────────────────────────────────────────
+  // Any resident with NO red flags (not delinquent) gets their pending paid
+  // dues auto-marked audited=true. Delinquent residents are skipped — those
+  // still need a manual "Verify" click since they're a higher-risk case.
+  const [autoVerifying, setAutoVerifying] = useState(false);
+  useEffect(() => {
+    if (!duesIncome.records?.length || autoVerifying) return;
+
+    const idsToAutoVerify = duesIncome.records
+      .filter(p => !p.audited && p.profiles?.account_status !== 'delinquent')
+      .map(p => p.id);
+
+    if (!idsToAutoVerify.length) return;
+
+    (async () => {
+      setAutoVerifying(true);
+      try {
+        const { error } = await supabase
+          .from('payments')
+          .update({ audited: true })
+          .in('id', idsToAutoVerify);
+        if (error) throw error;
+
+        const namesAffected = [...new Set(
+          duesIncome.records.filter(p => idsToAutoVerify.includes(p.id)).map(p => p.profiles?.full_name)
+        )];
+        await logAudit('AUTO_VERIFY_PAYMENTS',
+          `System auto-verified ${idsToAutoVerify.length} payment(s) for ${namesAffected.length} resident(s) with no red flags: ${namesAffected.join(', ')}.`);
+        fetchAll();
+      } catch (e) {
+        // Silent fail — manual Verify button on delinquent rows still works as fallback
+      } finally {
+        setAutoVerifying(false);
+      }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [duesIncome.records]);
 
   // ── Consolidated unpaid: one row per resident, total balance ────────────
   const consolidatedUnpaid = React.useMemo(() => {
@@ -505,16 +625,72 @@ const AuditorDashboard = () => {
           </h1>
           <p className="text-sm text-slate-400 mt-0.5">Financial monitoring — dues, court income, expenses, and uncollected accounts</p>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-2 shrink-0 relative">
           <button onClick={fetchAll} disabled={loading}
             className="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-semibold text-slate-600 hover:bg-slate-50 shadow-sm cursor-pointer disabled:opacity-50">
             <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Refresh
           </button>
           <button
-            onClick={() => printFinancialReport({ duesIncome, courtIncome, expenses, unpaid })}
+            onClick={() => setShowReportFilter(p => !p)}
             className="flex items-center gap-2 px-4 py-2.5 bg-slate-700 hover:bg-slate-800 text-white text-sm font-bold rounded-xl shadow-sm cursor-pointer transition-all">
             <Printer size={14} /> Print Report
           </button>
+
+          {/* ── Report filter popover ── */}
+          {showReportFilter && (
+            <div className="absolute top-full right-0 mt-2 w-80 bg-white rounded-2xl shadow-2xl border border-slate-200 p-5 z-50">
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-sm font-black text-slate-800">Filter Report Before Printing</p>
+                <button onClick={() => setShowReportFilter(false)} className="p-1 hover:bg-slate-100 rounded-lg cursor-pointer">
+                  <X size={14} className="text-slate-400" />
+                </button>
+              </div>
+              <div className="space-y-3">
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Resident / Description</label>
+                  <div className="relative">
+                    <Search size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input type="text" value={reportSearch} onChange={e => setReportSearch(e.target.value)}
+                      placeholder="Search by name or description…"
+                      className="w-full pl-8 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#006837]/20" />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">From</label>
+                    <input type="date" value={reportFrom} onChange={e => setReportFrom(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-[#006837]/20" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">To</label>
+                    <input type="date" value={reportTo} onChange={e => setReportTo(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-[#006837]/20" />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Beginning Balance (₱)</label>
+                  <input type="number" value={beginningBalance} onChange={e => setBeginningBalance(e.target.value)}
+                    placeholder="0.00"
+                    className="w-full px-3 py-2 bg-blue-50 border border-blue-200 text-blue-800 placeholder-blue-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-400/30" />
+                  <p className="text-[10px] text-slate-400 mt-1">Carried-over balance from last month's report — used to compute Ending Balance.</p>
+                </div>
+                {(reportFrom || reportTo || reportSearch) && (
+                  <button onClick={() => { setReportFrom(''); setReportTo(''); setReportSearch(''); }}
+                    className="text-xs font-bold text-slate-400 hover:text-slate-600 cursor-pointer">Clear filters</button>
+                )}
+              </div>
+              <div className="flex gap-2 mt-4">
+                <button onClick={() => setShowReportFilter(false)}
+                  className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl cursor-pointer">
+                  Cancel
+                </button>
+                <button onClick={() => { handlePrintReport(); setShowReportFilter(false); }}
+                  className="flex-1 py-2.5 bg-[#006837] hover:bg-[#004d29] text-white text-xs font-bold rounded-xl cursor-pointer flex items-center justify-center gap-1.5">
+                  <Printer size={12} /> Print
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -554,13 +730,16 @@ const AuditorDashboard = () => {
       {activeTab === 'expenses' && !loading && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           {[
-            { label: 'Security Guards',  cat: 'Salaries',    icon: '👮', color: 'bg-blue-50 border-blue-100',    text: 'text-blue-700'   },
-            { label: 'Electricity',      cat: 'Utilities',   icon: '⚡', color: 'bg-yellow-50 border-yellow-100', text: 'text-yellow-700' },
-            { label: 'Street Sweepers',  cat: 'Maintenance', icon: '🧹', color: 'bg-slate-50 border-slate-200',  text: 'text-slate-600'  },
-            { label: 'Water Bill',       cat: 'Utilities',   icon: '💧', color: 'bg-cyan-50 border-cyan-100',    text: 'text-cyan-700'   },
+            { label: 'Security Guards',  keyword: 'security',   icon: '👮', color: 'bg-blue-50 border-blue-100',    text: 'text-blue-700'   },
+            { label: 'Electricity',      keyword: 'electric',   icon: '⚡', color: 'bg-yellow-50 border-yellow-100', text: 'text-yellow-700' },
+            { label: 'Street Sweepers',  keyword: 'sweep',      icon: '🧹', color: 'bg-slate-50 border-slate-200',  text: 'text-slate-600'  },
+            { label: 'Water Bill',       keyword: 'water',      icon: '💧', color: 'bg-cyan-50 border-cyan-100',    text: 'text-cyan-700'   },
           ].map(item => {
+            // Match by keyword in the description, NOT category — Electricity and
+            // Water both share category "Utilities", so filtering by category alone
+            // double-counts both as the same total. Description text distinguishes them.
             const catTotal = expenses.records
-              .filter(e => e.category === item.cat)
+              .filter(e => (e.description || '').toLowerCase().includes(item.keyword))
               .reduce((s, e) => s + Number(e.amount || 0), 0);
             const pct = expenses.total > 0 ? ((catTotal / expenses.total) * 100).toFixed(1) : 0;
             return (
@@ -631,6 +810,12 @@ const AuditorDashboard = () => {
               {/* ── Tab: Dues Collected — one row per resident ── */}
               {activeTab === 'dues' && (
                 <>
+                  <div className="px-5 py-2.5 bg-blue-50/60 border-b border-blue-100 flex items-center gap-2">
+                    <CheckCircle2 size={13} className="text-blue-500 shrink-0" />
+                    <p className="text-[11px] text-blue-700 font-medium">
+                      Payments are auto-verified for residents in good standing. Only delinquent residents require manual review.
+                    </p>
+                  </div>
                   <table className="w-full text-left">
                     <thead className="bg-slate-50 border-b border-slate-100">
                       <tr>{['Resident','Months Paid','Total Paid','Last Payment','Status','Action'].map(h => (
@@ -647,20 +832,24 @@ const AuditorDashboard = () => {
                           <td className="px-5 py-4">
                             {r.audited
                               ? <span className="inline-flex items-center gap-1.5 text-[10px] font-black px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100"><CheckCircle2 size={10} /> Verified</span>
-                              : <span className="inline-flex items-center gap-1.5 text-[10px] font-black px-2.5 py-1 rounded-full bg-slate-100 text-slate-400 border border-slate-200"><Clock size={10} /> Pending</span>}
+                              : r.isDelinquent
+                                ? <span className="inline-flex items-center gap-1.5 text-[10px] font-black px-2.5 py-1 rounded-full bg-orange-50 text-orange-700 border border-orange-100"><AlertTriangle size={10} /> Needs Review</span>
+                                : <span className="inline-flex items-center gap-1.5 text-[10px] font-black px-2.5 py-1 rounded-full bg-slate-100 text-slate-400 border border-slate-200"><Clock size={10} /> Pending</span>}
                           </td>
                           <td className="px-5 py-4">
                             {r.audited ? (
                               <span className="text-xs text-slate-300 font-semibold">—</span>
-                            ) : (
+                            ) : r.isDelinquent ? (
                               <button
                                 onClick={() => handleVerifyResident(r.user_id, r.full_name)}
                                 disabled={verifyingId === r.user_id}
-                                className="flex items-center gap-1.5 px-3 py-1.5 bg-[#006837] hover:bg-[#004d29] text-white text-xs font-bold rounded-xl transition-all cursor-pointer disabled:opacity-50 whitespace-nowrap">
+                                className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-600 hover:bg-orange-700 text-white text-xs font-bold rounded-xl transition-all cursor-pointer disabled:opacity-50 whitespace-nowrap">
                                 {verifyingId === r.user_id
                                   ? <><RefreshCw size={11} className="animate-spin" /> Verifying…</>
                                   : <><CheckCircle2 size={11} /> Verify</>}
                               </button>
+                            ) : (
+                              <span className="text-xs text-slate-300 font-semibold italic">Auto-verifying…</span>
                             )}
                           </td>
                         </tr>

@@ -1,9 +1,45 @@
 import React, { useState, useEffect } from 'react';
 import {
   ArrowLeft, Mail, Phone, Home, MapPin, Users, ShieldCheck, Clock,
-  CreditCard, CheckCircle2, AlertCircle, AlertTriangle, Loader2,
+  CreditCard, CheckCircle2, AlertCircle, AlertTriangle, Loader2, Package,
+  User, Settings, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import { supabase } from '../supabaseAdmin';
+
+// ─── Pagination ───────────────────────────────────────────────────────────────
+const PAGE_SIZE = 5;
+
+const usePagination = (items, perPage = PAGE_SIZE) => {
+  const [page, setPage] = useState(1);
+  useEffect(() => { setPage(1); }, [items.length]);
+  const totalPages = Math.max(1, Math.ceil(items.length / perPage));
+  const paginated  = items.slice((page - 1) * perPage, page * perPage);
+  return { paginated, page, setPage, totalPages, total: items.length };
+};
+
+const PaginationBar = ({ page, totalPages, setPage, total, perPage = PAGE_SIZE, accent = 'text-[#006837]' }) => {
+  if (totalPages <= 1) return null;
+  const from = (page - 1) * perPage + 1;
+  const to   = Math.min(page * perPage, total);
+  return (
+    <div className="flex items-center justify-between pt-3 mt-1 border-t border-slate-100">
+      <p className="text-[10px] text-slate-400 font-medium">
+        <span className="font-bold text-slate-600">{from}–{to}</span> of <span className="font-bold text-slate-600">{total}</span>
+      </p>
+      <div className="flex items-center gap-1">
+        <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
+          className="w-6 h-6 flex items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-all">
+          <ChevronLeft size={13} />
+        </button>
+        <span className={`text-[10px] font-black px-2 ${accent}`}>{page} / {totalPages}</span>
+        <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
+          className="w-6 h-6 flex items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-all">
+          <ChevronRight size={13} />
+        </button>
+      </div>
+    </div>
+  );
+};
 
 // ─── Status config ────────────────────────────────────────────────────────────
 export const STATUS_CFG = {
@@ -29,6 +65,24 @@ const fmtDate = (d) =>
 
 const fmtMonth = (d) =>
   d ? new Date(d).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : '—';
+
+// Block/Lot values sometimes already include the word "Block"/"Lot" (e.g. "Blk 55")
+// and sometimes don't (e.g. "55"). Strip any existing label before re-prefixing,
+// so we never get "Block Blk 55, Lot Lot 7".
+const stripLabel = (val, label) => {
+  if (!val) return '';
+  const re = new RegExp(`^${label}\\.?\\s*`, 'i');
+  return String(val).replace(re, '').trim();
+};
+
+const buildBlockLot = (block, lot) => {
+  const b = stripLabel(block, 'blk|block');
+  const l = stripLabel(lot, 'lot');
+  const parts = [];
+  if (b) parts.push(`Block ${b}`);
+  if (l) parts.push(`Lot ${l}`);
+  return parts.join(', ') || null;
+};
 
 const fullName = (p) =>
   [p.first_name, p.middle_initial ? p.middle_initial + '.' : '', p.last_name]
@@ -88,7 +142,7 @@ const DuesStanding = ({ userId }) => {
         .select('id, amount, status, due_date, paid_at, reference_no')
         .eq('user_id', userId)
         .order('due_date', { ascending: false })
-        .limit(6); // show last 6 months
+        .limit(12); // cap at 12 months — 2 pages of 6
       setDues(data || []);
       setLoading(false);
     };
@@ -101,6 +155,8 @@ const DuesStanding = ({ userId }) => {
   const totalOwed   = dues.filter(d => ['unpaid','overdue','pending'].includes((d.status||'').toLowerCase()))
                           .reduce((s, d) => s + Number(d.amount || 0), 0);
 
+  const { paginated, page, setPage, totalPages, total } = usePagination(dues, 6);
+
   const statusStyle = (s) => {
     switch ((s || '').toLowerCase()) {
       case 'paid':    return { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200', icon: <CheckCircle2 size={12} className="text-emerald-500" /> };
@@ -111,7 +167,7 @@ const DuesStanding = ({ userId }) => {
   };
 
   return (
-    <div className="px-5 pb-5 pt-4">
+    <div>
       {/* Section header */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
@@ -120,7 +176,7 @@ const DuesStanding = ({ userId }) => {
           </div>
           <div>
             <p className="text-xs font-black text-slate-700 uppercase tracking-widest">Monthly Dues Standing</p>
-            <p className="text-[10px] text-slate-400">Last 6 months</p>
+            <p className="text-[10px] text-slate-400">Last 12 months</p>
           </div>
         </div>
         {/* Quick summary badges */}
@@ -140,7 +196,7 @@ const DuesStanding = ({ userId }) => {
 
       {/* Loading */}
       {loading && (
-        <div className="flex items-center justify-center py-6 gap-2">
+        <div className="flex items-center justify-center py-10 gap-2">
           <Loader2 size={16} className="animate-spin text-[#006837]" />
           <p className="text-xs text-slate-400">Loading dues…</p>
         </div>
@@ -148,7 +204,7 @@ const DuesStanding = ({ userId }) => {
 
       {/* No record */}
       {!loading && dues.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-6 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+        <div className="flex flex-col items-center justify-center py-10 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
           <CreditCard size={24} className="text-slate-300 mb-1.5" />
           <p className="text-xs font-semibold text-slate-400">No payment records found</p>
         </div>
@@ -168,7 +224,7 @@ const DuesStanding = ({ userId }) => {
       {/* Dues list */}
       {!loading && dues.length > 0 && (
         <div className="space-y-2">
-          {dues.map(d => {
+          {paginated.map(d => {
             const s   = statusStyle(d.status);
             const isPaid = d.status?.toLowerCase() === 'paid';
             return (
@@ -194,23 +250,140 @@ const DuesStanding = ({ userId }) => {
               </div>
             );
           })}
+          <PaginationBar page={page} totalPages={totalPages} setPage={setPage} total={total} perPage={6} accent="text-[#006837]" />
         </div>
       )}
     </div>
   );
 };
 
+// ─── Borrowed Items Section ───────────────────────────────────────────────────
+const BorrowedItems = ({ userId }) => {
+  const [items,   setItems]   = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!userId) return;
+    const fetch = async () => {
+      setLoading(true);
+      const { data } = await supabase
+        .from('reservations')
+        .select('id, quantity, status, created_at, facilities(name, category)')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false });
+      // Only keep rows tied to an Amenity Item
+      setItems((data || []).filter(r => r.facilities?.category === 'Amenity Item'));
+      setLoading(false);
+    };
+    fetch();
+  }, [userId]);
+
+  const currentlyBorrowed = items.filter(r => ['Approved', 'Approved and Paid'].includes(r.status));
+  const returnedCount     = items.filter(r => r.status === 'Completed').length;
+
+  const { paginated, page, setPage, totalPages, total } = usePagination(items);
+
+  const statusStyle = (s) => {
+    switch (s) {
+      case 'Approved':
+      case 'Approved and Paid':
+        return { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200', label: 'Borrowed', icon: <Clock size={12} className="text-blue-500" /> };
+      case 'Completed':
+        return { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200', label: 'Returned', icon: <CheckCircle2 size={12} className="text-emerald-500" /> };
+      default:
+        return { bg: 'bg-slate-50', text: 'text-slate-500', border: 'border-slate-200', label: s || '—', icon: <AlertTriangle size={12} className="text-slate-400" /> };
+    }
+  };
+
+  return (
+    <div>
+      {/* Section header */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center">
+            <Package size={15} className="text-blue-600" />
+          </div>
+          <div>
+            <p className="text-xs font-black text-slate-700 uppercase tracking-widest">Borrowed Items</p>
+            <p className="text-[10px] text-slate-400">Amenity item history</p>
+          </div>
+        </div>
+        {!loading && items.length > 0 && (
+          <div className="flex items-center gap-1.5">
+            {currentlyBorrowed.length > 0 && (
+              <span className="text-[10px] font-black px-2 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-100">
+                {currentlyBorrowed.length} Active
+              </span>
+            )}
+            <span className="text-[10px] font-black px-2 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100">
+              {returnedCount} Returned
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* Loading */}
+      {loading && (
+        <div className="flex items-center justify-center py-10 gap-2">
+          <Loader2 size={16} className="animate-spin text-blue-500" />
+          <p className="text-xs text-slate-400">Loading borrowed items…</p>
+        </div>
+      )}
+
+      {/* No record */}
+      {!loading && items.length === 0 && (
+        <div className="flex flex-col items-center justify-center py-10 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+          <Package size={24} className="text-slate-300 mb-1.5" />
+          <p className="text-xs font-semibold text-slate-400">No amenity items borrowed</p>
+        </div>
+      )}
+
+      {/* List */}
+      {!loading && items.length > 0 && (
+        <div className="space-y-2">
+          {paginated.map(r => {
+            const s = statusStyle(r.status);
+            return (
+              <div key={r.id} className={`flex items-center justify-between px-4 py-3 rounded-xl border ${s.bg} ${s.border}`}>
+                <div className="flex items-center gap-2.5 min-w-0">
+                  {s.icon}
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold text-slate-700 truncate">{r.facilities?.name || '—'}</p>
+                    <p className="text-[10px] text-slate-400">
+                      {r.quantity ? `${r.quantity} unit(s)` : 'Qty n/a'} · {fmtDate(r.created_at)}
+                    </p>
+                  </div>
+                </div>
+                <span className={`text-[9px] font-black px-2 py-0.5 rounded-full border uppercase shrink-0 ${s.bg} ${s.text} ${s.border}`}>
+                  {s.label}
+                </span>
+              </div>
+            );
+          })}
+          <PaginationBar page={page} totalPages={totalPages} setPage={setPage} total={total} accent="text-blue-600" />
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ─── Tab config ───────────────────────────────────────────────────────────────
+const TABS = [
+  { key: 'profile', label: 'Profile Details', icon: User        },
+  { key: 'dues',    label: 'Monthly Dues',    icon: CreditCard   },
+  { key: 'items',   label: 'Borrowed Items',  icon: Package      },
+];
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 const ResidentDetailModal = ({ profile, onClose }) => {
+  const [activeTab, setActiveTab] = useState('profile');
+
   if (!profile) return null;
 
   const st  = profile.account_status;
   const cfg = STATUS_CFG[st] || STATUS_CFG.active;
 
-  const blockLot = [
-    profile.block && `Block ${profile.block}`,
-    profile.lot   && `Lot ${profile.lot}`,
-  ].filter(Boolean).join(' / ') || null;
+  const blockLot = buildBlockLot(profile.block, profile.lot);
 
   const details = [
     { icon: Users,       label: 'Resident Type', value: profile.resident_type },
@@ -228,49 +401,100 @@ const ResidentDetailModal = ({ profile, onClose }) => {
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto animate-in zoom-in-95 duration-200"
+        className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col animate-in zoom-in-95 duration-200"
         onClick={e => e.stopPropagation()}
       >
-        {/* ── Coloured header ── */}
-        <div className={`bg-gradient-to-br ${cfg.header} px-6 pt-5 pb-6`}>
+        {/* ── Coloured banner ── */}
+        <div className={`bg-gradient-to-br ${cfg.header} shrink-0 relative`} style={{ height: '72px' }}>
           <button
             onClick={onClose}
-            className="flex items-center gap-1.5 text-white/80 hover:text-white text-sm font-bold cursor-pointer transition-colors group mb-5"
+            className="absolute top-4 left-5 flex items-center gap-1.5 text-white/80 hover:text-white text-sm font-bold cursor-pointer transition-colors group"
           >
             <ArrowLeft size={16} className="group-hover:-translate-x-0.5 transition-transform" />
             Back
           </button>
-          <div className="flex items-center gap-4">
-            <div className="w-16 h-16 rounded-2xl bg-white/20 border-2 border-white/30 overflow-hidden shrink-0 flex items-center justify-center text-white text-2xl font-black uppercase">
-              {profile.avatar_url
-                ? <img src={profile.avatar_url} alt="" className="w-full h-full object-cover" />
-                : (profile.first_name?.charAt(0) || profile.username?.charAt(0) || '?')}
-            </div>
-            <div className="flex-1 min-w-0">
-              <h2 className="text-xl font-black text-white leading-tight">{fullName(profile)}</h2>
-              <p className="text-white/60 text-sm mt-0.5">@{profile.username || '—'}</p>
-              <div className="mt-2 inline-flex items-center gap-1.5 px-3 py-1 bg-white/20 rounded-full text-xs font-black uppercase tracking-wide border border-white/20 text-white">
-                <span className={`w-2 h-2 rounded-full ${cfg.dot}`} />
-                {cfg.label}
-              </div>
-            </div>
-          </div>
         </div>
 
-        {/* ── Two-column body: profile details (left) + dues standing (right) ── */}
-        <div className="flex divide-x divide-slate-100">
-          {/* Left — profile fields */}
-          <div className="flex-1 px-6 pb-4 pt-2 min-w-0">
-            {details.map(d =>
-              d.label === 'Resident Type'
-                ? <ResidentTypeRow key={d.label} value={d.value} />
-                : <DetailRow key={d.label} {...d} />
+        {/* ── Scroll wrapper for everything below the banner ── */}
+        <div className="flex-1 overflow-y-auto bg-white">
+
+          {/* ── Profile summary card — sits fully below the banner, NO overlap ── */}
+          <div className="px-6 pt-5">
+            <div className="flex items-start gap-4">
+              <div className="w-16 h-16 rounded-2xl bg-slate-100 overflow-hidden shrink-0 flex items-center justify-center text-slate-400 text-xl font-black uppercase border border-slate-200">
+                {profile.avatar_url
+                  ? <img src={profile.avatar_url} alt="" className="w-full h-full object-cover" />
+                  : (profile.first_name?.charAt(0) || profile.username?.charAt(0) || '?')}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-start justify-between gap-3 flex-wrap">
+                  <h2 className="text-xl font-black text-slate-900 leading-tight flex items-center gap-1.5">
+                    {fullName(profile)}
+                    <ShieldCheck size={16} className="text-blue-500 shrink-0" />
+                  </h2>
+                  <StatusBadge status={st} />
+                </div>
+                <div className="flex items-center gap-2 mt-1 flex-wrap">
+                  <span className="flex items-center gap-1 text-xs text-slate-400">
+                    <Mail size={11} /> {profile.email || '—'}
+                  </span>
+                  {profile.street && (
+                    <span className="flex items-center gap-1 text-xs text-slate-400">
+                      <MapPin size={11} /> {profile.street}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Contact / quick-info chips, like the "Business / Product / AI" tags in the reference */}
+            <div className="flex items-center gap-2 mt-3 flex-wrap">
+              {profile.resident_type && (
+                <span className="text-[10px] font-bold px-3 py-1 rounded-full bg-slate-100 text-slate-600 border border-slate-200 capitalize">
+                  {profile.resident_type}
+                </span>
+              )}
+              {blockLot && (
+                <span className="text-[10px] font-bold px-3 py-1 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
+                  {blockLot}
+                </span>
+              )}
+              {profile.phone && (
+                <span className="text-[10px] font-bold px-3 py-1 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
+                  {profile.phone}
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* ── Tab bar (sticky while the content below scrolls) ── */}
+          <div className="px-6 mt-4 border-b border-slate-100 flex items-center gap-1 sticky top-0 bg-white z-10">
+            {TABS.map(t => (
+              <button key={t.key} onClick={() => setActiveTab(t.key)}
+                className={`flex items-center gap-1.5 px-4 py-2.5 text-xs font-bold border-b-2 -mb-px transition-all cursor-pointer
+                  ${activeTab === t.key
+                    ? 'border-[#006837] text-[#006837]'
+                    : 'border-transparent text-slate-400 hover:text-slate-600'}`}>
+                <t.icon size={13} /> {t.label}
+              </button>
+            ))}
+          </div>
+
+          {/* ── Tab content ── */}
+          <div className="px-6 py-5">
+            {activeTab === 'profile' && (
+              <div>
+                {details.map(d =>
+                  d.label === 'Resident Type'
+                    ? <ResidentTypeRow key={d.label} value={d.value} />
+                    : <DetailRow key={d.label} {...d} />
+                )}
+              </div>
             )}
+            {activeTab === 'dues'  && <DuesStanding userId={profile.id} />}
+            {activeTab === 'items' && <BorrowedItems userId={profile.id} />}
           </div>
-          {/* Right — dues standing */}
-          <div className="w-72 shrink-0">
-            <DuesStanding userId={profile.id} />
-          </div>
+
         </div>
       </div>
     </div>

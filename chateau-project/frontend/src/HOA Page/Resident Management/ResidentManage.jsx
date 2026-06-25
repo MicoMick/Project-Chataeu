@@ -11,6 +11,25 @@ import {
 import ResidentDetailModal, { STATUS_CFG, StatusBadge } from './ResidentDetailModal';
 import AccountApproval from '../Account Approval/AccountApproval';
 
+// ─── Block/Lot label helper ───────────────────────────────────────────────────
+// DB values sometimes already include the word "Block"/"Lot" (e.g. "Blk 55")
+// and sometimes don't (e.g. "55"). This strips any existing label before
+// re-prefixing, so we never get "Block Blk 55, Lot Lot 7".
+const stripLabel = (val, label) => {
+  if (!val) return '';
+  const re = new RegExp(`^${label}\\.?\\s*`, 'i');
+  return String(val).replace(re, '').trim();
+};
+
+const buildBlockLot = (block, lot) => {
+  const b = stripLabel(block, 'blk|block');
+  const l = stripLabel(lot, 'lot');
+  const parts = [];
+  if (b) parts.push(`Block ${b}`);
+  if (l) parts.push(`Lot ${l}`);
+  return parts.join(', ') || null;
+};
+
 // ─── Pagination hook ─────────────────────────────────────────────────────────
 const usePagination = (items, rowsPerPage = 10) => {
   const [page, setPage] = React.useState(1);
@@ -208,7 +227,7 @@ const ResidentManage = () => {
     const matchResident = residentFilter === 'all' || r.id === residentFilter;
     return matchSearch && matchStatus && matchResident;
   });
-  const { paginated: paginatedResidents, page: resPage, setPage: setResPage, totalPages: resTotalPages, total: filteredTotal } = usePagination(filtered, 10);
+  const { paginated: paginatedResidents, page: resPage, setPage: setResPage, totalPages: resTotalPages, total: filteredTotal } = usePagination(filtered, 5);
 
   const now          = new Date();
   const newThisMonth = residents.filter(r => {
@@ -369,7 +388,7 @@ const ResidentManage = () => {
                         </td>
                         {/* Block/Lot */}
                         <td className="px-5 py-4">
-                          <p className="text-sm font-semibold text-slate-700">{[r.block && `Block ${r.block}`, r.lot && `Lot ${r.lot}`].filter(Boolean).join(', ') || '—'}</p>
+                          <p className="text-sm font-semibold text-slate-700">{buildBlockLot(r.block, r.lot) || '—'}</p>
                           <p className="text-xs text-slate-400 truncate max-w-[100px]">{r.street || ''}</p>
                         </td>
                         {/* Type */}
@@ -394,7 +413,7 @@ const ResidentManage = () => {
           </div>
 
           {!loading && filtered.length > 0 && (
-            <PaginationBar page={resPage} totalPages={resTotalPages} setPage={setResPage} total={filtered.length} rowsPerPage={10} />
+            <PaginationBar page={resPage} totalPages={resTotalPages} setPage={setResPage} total={filtered.length} rowsPerPage={5} />
           )}
       </div>
 
