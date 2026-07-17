@@ -7,7 +7,7 @@
 //
 // Secrets required:
 //   RESEND_API_KEY=re_...
-//   TEST_OVERRIDE_EMAIL=your@email.com  ← remove once domain is verified
+//   Domain is verified — TEST_OVERRIDE_EMAIL has been removed
 
 import { createClient } from 'npm:@supabase/supabase-js@2'
 
@@ -293,9 +293,13 @@ Deno.serve(async (req: Request) => {
       const paidHistory = paidMap[resident.id]   || []
       if (!unpaidList.length) continue
 
+      // block/lot may already include "Blk"/"Lot" prefix in the DB
+      // so we check before adding to avoid "Blk Blk 52, Lot Lot 9"
+      const fmtBlock = (b: string) => b.trim().toLowerCase().startsWith('blk') ? b.trim() : `Blk ${b.trim()}`
+      const fmtLot   = (l: string) => l.trim().toLowerCase().startsWith('lot') ? l.trim() : `Lot ${l.trim()}`
       const addrParts = [
-        resident.block  ? `Blk ${resident.block}` : null,
-        resident.lot    ? `Lot ${resident.lot}`   : null,
+        resident.block  ? fmtBlock(resident.block)  : null,
+        resident.lot    ? fmtLot(resident.lot)      : null,
         resident.street || null,
       ].filter(Boolean)
       const fullAddress = addrParts.join(', ') || 'N/A'
@@ -316,7 +320,7 @@ Deno.serve(async (req: Request) => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${RESEND_KEY}` },
         body: JSON.stringify({
-          from: 'CREVHAI Billing (TEST) <onboarding@resend.dev>',
+          from: 'CREVHAI Billing <billing@chateaureals.online>',
           to: [recipient],
           subject: `HOA Statement of Account \u2014 ${resident.full_name} (${amtStr} due)`,
           html: htmlBody,
@@ -336,6 +340,10 @@ Deno.serve(async (req: Request) => {
         console.error(`Send failed for ${resident.full_name}:`, body)
         errors.push(`${resident.full_name}: ${body}`)
       }
+
+      // ── Rate limit: Resend free plan allows max 2 emails/second.
+      // Wait 600ms between each send to stay safely under the limit.
+      await new Promise(r => setTimeout(r, 600))
     }
 
     console.log(`Done. Sent: ${sent}, Failed: ${failed}`)

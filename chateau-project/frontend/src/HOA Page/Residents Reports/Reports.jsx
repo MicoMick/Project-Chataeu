@@ -172,6 +172,11 @@ const Reports = () => {
   const [previousFeedback,       setPreviousFeedback]       = useState([]);
   const [selectedStatus,         setSelectedStatus]         = useState('');
 
+  const [showDateFilter,  setShowDateFilter]  = useState(false);
+  const [datePeriod,      setDatePeriod]      = useState('all');
+  const [dateFrom,        setDateFrom]        = useState('');
+  const [dateTo,          setDateTo]          = useState('');
+
   const filters = ['All', 'Pending', 'In Progress', 'Resolved', 'On Hold', 'Denied'];
   const currentUserRole = localStorage.getItem('userRole') || 'resident';
 
@@ -283,13 +288,45 @@ const Reports = () => {
     } catch (e) { showToast('Error deleting report: ' + e.message, 'error'); }
   };
 
+  // ── Date period filter helpers ────────────────────────────────────────────────
+  const getDatePeriodRange = () => {
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    const ymd = (d) => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+    switch (datePeriod) {
+      case 'last7d':     { const f = new Date(now); f.setDate(f.getDate()-7); return { from: ymd(f), to: ymd(now) }; }
+      case 'this_month': return { from: `${now.getFullYear()}-${pad(now.getMonth()+1)}-01`, to: ymd(now) };
+      case 'last_month': { const f = new Date(now.getFullYear(), now.getMonth()-1, 1); const t = new Date(now.getFullYear(), now.getMonth(), 0); return { from: ymd(f), to: ymd(t) }; }
+      case 'this_year':  return { from: `${now.getFullYear()}-01-01`, to: ymd(now) };
+      case 'last_year':  { const ly = now.getFullYear()-1; return { from: `${ly}-01-01`, to: `${ly}-12-31` }; }
+      case 'custom':     return { from: dateFrom, to: dateTo };
+      default:           return { from: '', to: '' };
+    }
+  };
+
+  const getDatePeriodLabel = () => {
+    const now = new Date();
+    switch (datePeriod) {
+      case 'last7d':     return 'Last 7 Days';
+      case 'this_month': return now.toLocaleString('default', { month: 'long', year: 'numeric' });
+      case 'last_month': { const d = new Date(now.getFullYear(), now.getMonth()-1, 1); return d.toLocaleString('default', { month: 'long', year: 'numeric' }); }
+      case 'this_year':  return `Year ${now.getFullYear()}`;
+      case 'last_year':  return `Year ${now.getFullYear()-1}`;
+      case 'custom':     return dateFrom && dateTo ? `${dateFrom} – ${dateTo}` : null;
+      default:           return null;
+    }
+  };
+
   const filteredReports = reports.filter(report => {
     const matchesFilter   = activeFilter === 'All' || report.status.toLowerCase() === activeFilter.toLowerCase();
     const matchesResident = selectedResidentFilter === 'All' || report.resident === selectedResidentFilter;
     const matchesSearch   = report.resident.toLowerCase().includes(searchQuery.toLowerCase()) ||
                             report.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
                             report.description.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesFilter && matchesSearch && matchesResident;
+    const { from, to } = getDatePeriodRange();
+    const d = (report.created_at_iso || '').split('T')[0];
+    const matchesDate = (!from || d >= from) && (!to || d <= to);
+    return matchesFilter && matchesSearch && matchesResident && matchesDate;
   });
   const { paginated: paginatedReports, page: repPage, setPage: setRepPage, totalPages: repTotalPages, total: filteredReportsTotal } = usePagination(filteredReports, 5);
 
@@ -371,6 +408,70 @@ const Reports = () => {
                   {f}
                 </button>
               ))}
+            </div>
+
+            {/* ── Period Filter button ── */}
+            <div className="relative">
+              <button onClick={() => setShowDateFilter(p => !p)}
+                className={`flex items-center gap-1.5 px-3 py-2.5 border rounded-xl text-xs font-bold cursor-pointer transition-all whitespace-nowrap
+                  ${datePeriod !== 'all' ? 'bg-[#006837] border-[#006837] text-white' : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'}`}>
+                <ChevronDown size={12} />
+                {datePeriod !== 'all' ? getDatePeriodLabel() : 'Filter Date'}
+              </button>
+
+              {showDateFilter && (
+                <div className="absolute top-full right-0 mt-2 w-72 bg-white rounded-2xl shadow-2xl border border-slate-200 p-5 z-[200]">
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-sm font-black text-slate-800">Filter by Period</p>
+                    <button onClick={() => setShowDateFilter(false)} className="p-1 hover:bg-slate-100 rounded-lg cursor-pointer">
+                      <X size={14} className="text-slate-400" />
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1.5 mb-3">
+                    {[
+                      { key: 'all',        label: 'All Records'  },
+                      { key: 'last7d',     label: 'Last 7 Days'  },
+                      { key: 'this_month', label: 'This Month'   },
+                      { key: 'last_month', label: 'Last Month'   },
+                      { key: 'this_year',  label: 'This Year'    },
+                      { key: 'last_year',  label: 'Last Year'    },
+                      { key: 'custom',     label: 'Custom Range' },
+                    ].map(p => (
+                      <button key={p.key}
+                        onClick={() => { setDatePeriod(p.key); if (p.key !== 'custom') { setDateFrom(''); setDateTo(''); } }}
+                        className={`py-2 px-3 rounded-xl text-xs font-bold border-2 cursor-pointer transition-all text-left
+                          ${datePeriod === p.key ? 'bg-[#006837] border-[#006837] text-white' : 'bg-slate-50 border-slate-200 text-slate-500 hover:border-[#006837]/40 hover:text-[#006837]'}
+                          ${p.key === 'custom' ? 'col-span-2' : ''}`}>
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
+                  {datePeriod === 'custom' && (
+                    <div className="grid grid-cols-2 gap-2 mb-3">
+                      <div>
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">From</label>
+                        <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
+                          className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-[#006837]/20" />
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">To</label>
+                        <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
+                          className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-[#006837]/20" />
+                      </div>
+                    </div>
+                  )}
+                  <button onClick={() => setShowDateFilter(false)}
+                    className="w-full py-2.5 bg-[#006837] hover:bg-[#004d29] text-white text-xs font-bold rounded-xl cursor-pointer">
+                    Apply Filter
+                  </button>
+                  {datePeriod !== 'all' && (
+                    <button onClick={() => { setDatePeriod('all'); setDateFrom(''); setDateTo(''); setShowDateFilter(false); }}
+                      className="w-full py-2 mt-1.5 text-xs font-bold text-slate-400 hover:text-slate-600 cursor-pointer">
+                      Clear Filter
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </div>

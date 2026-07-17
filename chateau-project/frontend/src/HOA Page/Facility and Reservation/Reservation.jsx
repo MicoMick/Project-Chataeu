@@ -2,10 +2,9 @@ import React, { useState, useEffect } from 'react';
 import {
   Calendar, Clock, CheckCircle2, XCircle, Search, Users, Trash2,
   Eye, X, Mail, User, AlertTriangle, Loader2, Filter, Package,
-  DollarSign, CalendarDays, MapPin, ChevronRight, RefreshCw,
+  DollarSign, CalendarDays, MapPin, ChevronRight, RefreshCw, RotateCcw, FileText,
 } from 'lucide-react';
 import Facility from './Facility';
-import Borrowers from './Borrowers';
 import { supabase } from '../supabaseAdmin';
 import { logAudit } from '../auditLogger';
 import CalendarReserve from './CalendarReserve';
@@ -119,6 +118,125 @@ const KpiCard = ({ label, value, icon: Icon, color, bg, onClick, active }) => (
   </button>
 );
 
+
+// ─── BorrowersTab — inline table (replaces the slide-over panel) ──────────────
+const BorrowersTab = ({ reservations, search, setSearch, tab, setTab, returning, setReturning, currentUserRole, onRefresh }) => {
+  const amenityItems = reservations.filter(r => r.facilities?.category === 'Amenity Item');
+  const currentBorrowed = amenityItems.filter(r => r.status === 'Approved');
+  const history         = amenityItems.filter(r => ['Completed', 'Rejected', 'Cancelled'].includes(r.status));
+
+  const term    = search.toLowerCase();
+  const filterR = (r) =>
+    (r.profiles?.full_name || '').toLowerCase().includes(term) ||
+    (r.facilities?.name    || '').toLowerCase().includes(term);
+
+  const list = (tab === 'current' ? currentBorrowed : history).filter(filterR);
+  const { paginated, page, setPage, totalPages, total } = usePagination(list, 10);
+
+  const handleMarkReturned = async (res) => {
+    setReturning(res.id);
+    try {
+      const { error } = await supabase.from('reservations').update({ status: 'Completed' }).eq('id', res.id);
+      if (error) throw error;
+      const restoreQty = res.quantity || 1;
+      const currentAmount = res.facilities?.amount ?? 0;
+      await supabase.from('facilities').update({
+        amount: currentAmount + restoreQty,
+        status: 'Available',
+      }).eq('id', res.facility_id);
+      logAudit(`Marked ${restoreQty} unit(s) of ${res.facilities?.name} as returned by ${res.profiles?.full_name}`);
+      onRefresh();
+    } catch (e) { alert('Failed: ' + e.message); }
+    finally { setReturning(null); }
+  };
+
+  const allowedToReturn = ['president','vice_president','secretary','treasurer','super_admin'];
+
+  return (
+    <div className="space-y-4">
+      {/* Sub-tab + search */}
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 flex flex-wrap items-center gap-3">
+        <div className="flex bg-slate-100 p-1 rounded-xl gap-0.5">
+          <button onClick={() => setTab('current')}
+            className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer
+              ${tab === 'current' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+            <Clock size={12} /> Currently Borrowed ({currentBorrowed.length})
+          </button>
+          <button onClick={() => setTab('history')}
+            className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer
+              ${tab === 'history' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+            <CheckCircle2 size={12} /> Return History ({history.length})
+          </button>
+        </div>
+        <div className="relative ml-auto">
+          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input type="text" placeholder="Search resident or item…" value={search} onChange={e => setSearch(e.target.value)}
+            className="pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#006837]/20 w-56" />
+        </div>
+      </div>
+
+      {/* Table */}
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+        <table className="w-full text-left">
+          <thead className="bg-slate-50 border-b border-slate-100">
+            <tr>{['Resident', 'Item', 'Qty', 'Requested On', 'Date', 'Status', ...(tab === 'current' ? ['Action'] : ['Completed On'])].map(h => (
+              <th key={h} className="px-5 py-3.5 text-[10px] font-black text-slate-400 uppercase tracking-wider whitespace-nowrap">{h}</th>
+            ))}</tr>
+          </thead>
+          <tbody className="divide-y divide-slate-50">
+            {paginated.length === 0 ? (
+              <tr><td colSpan={tab === 'current' ? 7 : 7} className="py-16 text-center">
+                <Package size={32} className="mx-auto text-slate-200 mb-2" />
+                <p className="text-sm font-bold text-slate-400">
+                  {tab === 'current' ? 'No items currently borrowed' : 'No return history yet'}
+                </p>
+              </td></tr>
+            ) : paginated.map(r => (
+              <tr key={r.id} className="hover:bg-slate-50/80 transition-colors">
+                <td className="px-5 py-4">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600 text-xs font-black uppercase shrink-0">
+                      {r.profiles?.full_name?.charAt(0) || '?'}
+                    </div>
+                    <div>
+                      <p className="text-sm font-bold text-slate-800">{r.profiles?.full_name || '—'}</p>
+                      <p className="text-[10px] text-slate-400">{r.profiles?.email || ''}</p>
+                    </div>
+                  </div>
+                </td>
+                <td className="px-5 py-4 text-sm font-semibold text-slate-700">{r.facilities?.name || '—'}</td>
+                <td className="px-5 py-4 text-sm text-slate-600 text-center">{r.quantity || '—'}</td>
+                <td className="px-5 py-4 text-sm text-slate-400 whitespace-nowrap">{fmtDate(r.created_at)}</td>
+                <td className="px-5 py-4 text-sm text-slate-500 whitespace-nowrap">{fmtDate(r.date)}</td>
+                <td className="px-5 py-4">
+                  <StatusPill status={r.status} />
+                </td>
+                {tab === 'current' ? (
+                  <td className="px-5 py-4">
+                    {allowedToReturn.includes(currentUserRole) && (
+                      <button onClick={() => handleMarkReturned(r)} disabled={returning === r.id}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-xs font-bold rounded-xl cursor-pointer disabled:opacity-50 whitespace-nowrap">
+                        {returning === r.id
+                          ? <><span className="w-3 h-3 border-2 border-emerald-300 border-t-emerald-600 rounded-full animate-spin" /> Saving…</>
+                          : <><RotateCcw size={12} /> Mark Returned</>}
+                      </button>
+                    )}
+                  </td>
+                ) : (
+                  <td className="px-5 py-4 text-sm text-emerald-600 font-semibold whitespace-nowrap">
+                    {r.status === 'Completed' ? <span className="flex items-center gap-1"><CheckCircle2 size={12} /> Returned</span> : '—'}
+                  </td>
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <PaginationBar page={page} totalPages={totalPages} setPage={setPage} total={total} rowsPerPage={10} />
+      </div>
+    </div>
+  );
+};
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 const Reservation = () => {
   const [reservations,      setReservations]      = useState([]);
@@ -130,7 +248,10 @@ const Reservation = () => {
   const [selectedRes,       setSelectedRes]        = useState(null);
   const [isCalendarOpen,    setIsCalendarOpen]     = useState(false);
   const [deleteTarget,      setDeleteTarget]       = useState(null);
-  const [isBorrowersOpen,   setIsBorrowersOpen]    = useState(false);
+  const [pageTab,           setPageTab]            = useState('reservations'); // 'reservations' | 'borrowers'
+  const [borrowerSearch,    setBorrowerSearch]     = useState('');
+  const [borrowerTab,       setBorrowerTab]        = useState('current'); // 'current' | 'history'
+  const [returning,         setReturning]          = useState(null);
 
   const currentUserRole = localStorage.getItem('userRole') || 'resident';
 
@@ -274,10 +395,24 @@ const Reservation = () => {
             className="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-semibold text-slate-600 hover:bg-slate-50 shadow-sm cursor-pointer transition-all">
             <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Refresh
           </button>
-          <button onClick={() => setIsBorrowersOpen(true)}
-            className="flex items-center gap-2 px-4 py-2.5 bg-blue-50 border border-blue-200 hover:bg-blue-100 text-blue-700 text-sm font-bold rounded-xl shadow-sm cursor-pointer transition-all">
-            <Package size={14} /> Borrowers
-          </button>
+          {/* ── Page-level tab switcher ── */}
+          <div className="flex bg-slate-100 p-1 rounded-xl gap-0.5">
+            <button onClick={() => setPageTab('reservations')}
+              className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer
+                ${pageTab === 'reservations' ? 'bg-white text-[#006837] shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+              <CalendarDays size={13} /> Reservations
+            </button>
+            <button onClick={() => setPageTab('borrowers')}
+              className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer
+                ${pageTab === 'borrowers' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+              <Package size={13} /> Borrowers
+              {reservations.filter(r => r.facilities?.category === 'Amenity Item' && r.status === 'Approved').length > 0 && (
+                <span className="bg-blue-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded-full">
+                  {reservations.filter(r => r.facilities?.category === 'Amenity Item' && r.status === 'Approved').length}
+                </span>
+              )}
+            </button>
+          </div>
           <button onClick={() => setIsCalendarOpen(true)}
             className="flex items-center gap-2 px-4 py-2.5 bg-[#006837] hover:bg-[#004d29] text-white text-sm font-bold rounded-xl shadow-lg shadow-[#006837]/20 cursor-pointer transition-all">
             <Calendar size={14} /> Calendar View
@@ -285,6 +420,9 @@ const Reservation = () => {
         </div>
       </div>
 
+      {/* ── Main content — conditional on pageTab ── */}
+      {pageTab === 'reservations' && (
+      <>
       {/* ── KPI Cards ───────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         {kpiCards.map(k => (
@@ -462,6 +600,24 @@ const Reservation = () => {
         )}
       </div>
 
+      </>
+      )}
+
+      {/* ── Borrowers Tab ─────────────────────────────────────────────────────── */}
+      {pageTab === 'borrowers' && (
+        <BorrowersTab
+          reservations={reservations}
+          search={borrowerSearch}
+          setSearch={setBorrowerSearch}
+          tab={borrowerTab}
+          setTab={setBorrowerTab}
+          returning={returning}
+          setReturning={setReturning}
+          currentUserRole={currentUserRole}
+          onRefresh={fetchAll}
+        />
+      )}
+
       {/* ── Detail Modal ─────────────────────────────────────────────────────── */}
       {selectedRes && (
         <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4"
@@ -579,8 +735,7 @@ const Reservation = () => {
       <CalendarReserve isOpen={isCalendarOpen} onClose={() => setIsCalendarOpen(false)}
         reservations={reservations} setSelectedReservation={setSelectedRes} />
 
-      {/* ── Borrowers ────────────────────────────────────────────────────────── */}
-      <Borrowers isOpen={isBorrowersOpen} onClose={() => setIsBorrowersOpen(false)} reservations={reservations} />
+
 
       {/* ── Delete confirm ────────────────────────────────────────────────────── */}
       {deleteTarget && (

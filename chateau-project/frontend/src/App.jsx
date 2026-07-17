@@ -67,8 +67,8 @@ const ACCESS = {
   // Statistics — everyone except treasurer (no operational context)
   STATISTICS:  [ROLES.PRESIDENT, ROLES.VICE_PRESIDENT, ROLES.SECRETARY, ROLES.AUDITOR],
 
-  // Auditor workspace — exclusive to auditor
-  AUDITOR:     [ROLES.AUDITOR],
+  // Auditor workspace — auditor + treasurer (treasurer needs full financial view)
+  AUDITOR:     [ROLES.AUDITOR, ROLES.TREASURER],
 
   // Court Permit — board_member only (Sports Committee)
   COURT_PERMIT: [ROLES.BOARD_MEMBER],

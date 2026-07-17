@@ -234,9 +234,6 @@ const SuperAdminDB = () => {
               <li className="flex items-center gap-2 hover:text-[#006837] cursor-pointer font-medium">
                 <Link to="/super-admin/residents">• Residents</Link>
               </li>
-              <li className="flex items-center gap-2 hover:text-[#006837] cursor-pointer font-medium">
-                <Link to="/super-admin/pending-approvals">• Pending Approvals</Link>
-              </li>
             </ul>
           </div>
 

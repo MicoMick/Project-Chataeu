@@ -543,7 +543,7 @@ const Facility = () => {
           <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl">
             <div className="flex items-center gap-2 mb-2.5">
               <AlertTriangle size={14} className="text-amber-500 shrink-0" />
-              <p className="text-[10px] font-black text-amber-700 uppercase tracking-widest">Auto-Generated Borrower's Agreement</p>
+              <p className="text-[10px] font-black text-amber-700 uppercase tracking-widest">Borrower's Agreement</p>
             </div>
             <ul className="space-y-1.5">
               {getItemAgreement(newItem.name || 'item').map(({ label, text }) => (
