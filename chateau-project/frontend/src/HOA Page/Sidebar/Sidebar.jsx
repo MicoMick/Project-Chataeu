@@ -58,7 +58,7 @@ const COMM_OPS    = [ROLES.PRESIDENT, ROLES.VICE_PRESIDENT, ROLES.SECRETARY, ROL
 const ELECTIONS   = ['elecom']; // Election page — Elecom only
 const PAYMENTS    = [ROLES.PRESIDENT, ROLES.TREASURER];
 const STATISTICS  = [ROLES.PRESIDENT, ROLES.VICE_PRESIDENT, ROLES.SECRETARY, ROLES.AUDITOR];
-const AUDITOR_WS  = [ROLES.AUDITOR];
+const AUDITOR_WS  = [ROLES.AUDITOR, ROLES.TREASURER];
 const APPROVALS      = [ROLES.PRESIDENT]; // President only
 const COURT_PERMIT   = [ROLES.BOARD_MEMBER];  // Board Member — Sports Committee
 const CLEARANCES  = [ROLES.PRESIDENT, ROLES.TREASURER]; // Move In/Out clearances
@@ -133,7 +133,7 @@ const Sidebar = () => {
     // ── Auditor workspace — auditor only ──────────────────────────────────────
     {
       icon:  <ClipboardCheck size={22} />,
-      label: 'Audit Workspace',
+      label: 'Audit Reports',
       path:  '/hoa/auditor-workspace',
       allowedRoles: AUDITOR_WS,
     },
