@@ -1,4 +1,21 @@
 @import "tailwindcss";
 
-
+/* ── Scrollable dropdown menus (resident filters, etc.) ── */
+.dropdown-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+.dropdown-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.dropdown-scroll::-webkit-scrollbar-thumb {
+  background: rgba(0, 104, 55, 0.25);
+  border-radius: 99px;
+}
+.dropdown-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 104, 55, 0.45);
+}
+.dropdown-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 104, 55, 0.25) transparent;
+}
 

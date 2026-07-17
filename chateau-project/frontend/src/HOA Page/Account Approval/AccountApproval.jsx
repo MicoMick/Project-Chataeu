@@ -6,6 +6,7 @@ import {
   AlertCircle, AlertTriangle, XCircle,
 } from 'lucide-react';
 import ResidentDetailModal, { STATUS_CFG } from '../Resident Management/ResidentDetailModal';
+import ResidentFilterSelect from '../Resident Management/ResidentFilterSelect';
 
 // ─── Pagination hook ─────────────────────────────────────────────────────────
 const usePagination = (items, rowsPerPage = 10) => {
@@ -276,13 +277,13 @@ const AccountApproval = ({ embedded = false, onDataChange }) => {
               className="w-full pl-8 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#006837]/30 focus:border-[#006837] transition-all" />
           </div>
           {/* Resident filter */}
-          <select value={residentFilter} onChange={e => setResidentFilter(e.target.value)}
-            className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-600 focus:outline-none focus:ring-2 focus:ring-[#006837]/20 focus:border-[#006837] cursor-pointer sm:w-44 w-full">
-            <option value="all">All Residents</option>
-            {profiles.map(p => (
-              <option key={p.id} value={p.id}>{fullName(p)}</option>
-            ))}
-          </select>
+          <ResidentFilterSelect
+            value={residentFilter}
+            onChange={setResidentFilter}
+            allValue="all"
+            options={profiles.map(p => ({ value: p.id, label: fullName(p) }))}
+            className="sm:w-44 w-full"
+          />
         </div>
 
         <div className="overflow-x-auto">
