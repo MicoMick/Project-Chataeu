@@ -660,7 +660,9 @@ const Announcements = () => {
       {/* ── Page Header ── */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-black text-slate-900">Announcements</h1>
+          <h1 className="text-2xl font-black text-slate-900 flex items-center gap-2">
+            <Megaphone size={22} className="text-[#006837]" /> Announcements
+          </h1>
           <p className="text-sm text-slate-400 mt-0.5">Manage and publish community announcements</p>
         </div>
         <RequireRole userRole={currentUserRole} allowedRoles={['president','vice_president','secretary','board_member']}>

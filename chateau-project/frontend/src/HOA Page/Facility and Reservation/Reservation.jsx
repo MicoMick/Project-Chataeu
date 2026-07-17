@@ -8,6 +8,7 @@ import Facility from './Facility';
 import { supabase } from '../supabaseAdmin';
 import { logAudit } from '../auditLogger';
 import CalendarReserve from './CalendarReserve';
+import ResidentFilterSelect from '../Resident Management/ResidentFilterSelect';
 
 // ─── Pagination hook ─────────────────────────────────────────────────────────
 const usePagination = (items, rowsPerPage = 10) => {
@@ -448,14 +449,13 @@ const Reservation = () => {
           </div>
 
           {/* Resident filter */}
-          <div className="relative">
-            <Filter size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-            <select value={residentFilter} onChange={e => setResidentFilter(e.target.value)}
-              className="pl-8 pr-8 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-600 focus:outline-none focus:ring-2 focus:ring-[#006837]/20 cursor-pointer appearance-none">
-              <option value="All">All Residents</option>
-              {residentsList.map(r => <option key={r.id} value={r.id}>{r.full_name}</option>)}
-            </select>
-          </div>
+          <ResidentFilterSelect
+            value={residentFilter}
+            onChange={setResidentFilter}
+            icon={Filter}
+            options={residentsList.map(r => ({ value: r.id, label: r.full_name }))}
+            className="w-44"
+          />
 
           {/* Status pill filter */}
           <div className="flex gap-1 bg-slate-100 p-1 rounded-xl ml-auto">

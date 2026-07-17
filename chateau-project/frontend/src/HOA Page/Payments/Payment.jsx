@@ -7,6 +7,7 @@ import {
 import { supabase } from '../supabaseAdmin';
 import { logAudit } from '../auditLogger';
 import ChateauLogo from '../../assets/ChataueLogo.png';
+import ResidentFilterSelect from '../Resident Management/ResidentFilterSelect';
 
 // ─── Pagination hook ─────────────────────────────────────────────────────────
 const usePagination = (items, rowsPerPage = 10) => {
@@ -1419,7 +1420,9 @@ const Payment = () => {
       {/* ── Page header ── */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-black text-slate-900">Payment Management</h1>
+          <h1 className="text-2xl font-black text-slate-900 flex items-center gap-2">
+            <CreditCard size={22} className="text-[#006837]" /> Payment Management
+          </h1>
           <p className="text-sm text-slate-400 mt-0.5">Manage dues, issue bills, and track resident standing</p>
         </div>
         <div className="flex items-center gap-2.5 flex-wrap">
@@ -1513,11 +1516,12 @@ const Payment = () => {
                   onChange={e => setPaidSearchTerm(e.target.value)}
                   className="w-full pl-9 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#006837]/20 focus:border-[#006837] transition-all" />
               </div>
-              <select value={paidResidentFilter} onChange={e => setPaidResidentFilter(e.target.value)}
-                className="px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-600 focus:outline-none focus:ring-2 focus:ring-[#006837]/20 cursor-pointer">
-                <option value="All">All Residents</option>
-                {residentsList.map(r => <option key={r.id} value={r.id}>{r.full_name}</option>)}
-              </select>
+              <ResidentFilterSelect
+                value={paidResidentFilter}
+                onChange={setPaidResidentFilter}
+                options={residentsList.map(r => ({ value: r.id, label: r.full_name }))}
+                className="w-40"
+              />
             </div>
           </div>
 
@@ -1592,11 +1596,12 @@ const Payment = () => {
                 <input type="text" placeholder="Search payments…" value={searchTerm} onChange={e => setSearchTerm(e.target.value)}
                   className="w-full pl-9 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#006837]/20 focus:border-[#006837] transition-all" />
               </div>
-              <select value={residentFilter} onChange={e => setResidentFilter(e.target.value)}
-                className="px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-600 focus:outline-none focus:ring-2 focus:ring-[#006837]/20 cursor-pointer">
-                <option value="All">All Residents</option>
-                {residentsList.map(r => <option key={r.id} value={r.id}>{r.full_name}</option>)}
-              </select>
+              <ResidentFilterSelect
+                value={residentFilter}
+                onChange={setResidentFilter}
+                options={residentsList.map(r => ({ value: r.id, label: r.full_name }))}
+                className="w-40"
+              />
               <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
                 className="px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-600 focus:outline-none focus:ring-2 focus:ring-[#006837]/20 cursor-pointer">
                 <option value="All">All Status</option>

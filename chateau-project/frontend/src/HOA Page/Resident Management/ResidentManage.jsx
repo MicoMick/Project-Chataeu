@@ -10,6 +10,7 @@ import {
 // ── External components ───────────────────────────────────────────────────────
 import ResidentDetailModal, { STATUS_CFG, StatusBadge } from './ResidentDetailModal';
 import AccountApproval from '../Account Approval/AccountApproval';
+import ResidentFilterSelect from './ResidentFilterSelect';
 
 // ─── Block/Lot label helper ───────────────────────────────────────────────────
 // DB values sometimes already include the word "Block"/"Lot" (e.g. "Blk 55")
@@ -323,13 +324,13 @@ const ResidentManage = () => {
                 className="w-full pl-8 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#006837]/30 focus:border-[#006837] transition-all" />
             </div>
             {/* Resident filter */}
-            <select value={residentFilter} onChange={e => setResidentFilter(e.target.value)}
-              className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-600 focus:outline-none focus:ring-2 focus:ring-[#006837]/20 focus:border-[#006837] cursor-pointer sm:w-44 w-full">
-              <option value="all">All Residents</option>
-              {residents.map(r => (
-                <option key={r.id} value={r.id}>{r.full_name || r.username || r.email}</option>
-              ))}
-            </select>
+            <ResidentFilterSelect
+              value={residentFilter}
+              onChange={setResidentFilter}
+              allValue="all"
+              options={residents.map(r => ({ value: r.id, label: r.full_name || r.username || r.email }))}
+              className="sm:w-44 w-full"
+            />
           </div>
 
           <div className="overflow-x-auto">

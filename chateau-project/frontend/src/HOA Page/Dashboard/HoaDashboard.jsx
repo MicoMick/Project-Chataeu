@@ -4,7 +4,7 @@ import { supabase } from '../supabaseAdmin';
 import {
   Calendar, CreditCard, Vote, Users, Megaphone,
   ArrowRight, TrendingUp, Clock, AlertCircle,
-  CheckCircle2, Activity, Bell
+  CheckCircle2, Activity, Bell, LayoutDashboard
 } from 'lucide-react';
 
 const RequireRole = ({ userRole, allowedRoles, children }) => {
@@ -173,14 +173,19 @@ const HoaDashboard = () => {
 
       {/* ── Header ── */}
       <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-2">
-        <div> 
-          <p className="text-lg font-semibold text-slate-500">{greeting}!</p>
-          <h1 className="text-2xl font-black text-slate-900 mt-0.5">Dashboard</h1>
+        <div>
+          <h1 className="text-2xl font-black text-slate-900 flex items-center gap-2">
+            <LayoutDashboard size={22} className="text-[#006837]" /> Dashboard
+          </h1>
           <p className="text-sm text-slate-400 mt-0.5">Here's what's happening in your community today.</p>
         </div>
-        <p className="text-xs font-medium text-slate-400">
-          {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
-        </p>
+        <div className="flex flex-col items-end gap-2">
+          <p className="text-sm font-semibold text-[#006837] bg-[#006837]/10 rounded-full px-3 py-1.5 w-fit">{greeting}!</p>
+          <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-500 bg-white border border-slate-100 shadow-sm rounded-full px-3 py-1.5 w-fit">
+            <Calendar size={14} className="text-[#006837]" />
+            {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
+          </p>
+        </div>
       </div>
 
       {/* ── KPI Row ── */}

@@ -368,7 +368,9 @@ const Reports = () => {
 
       {/* ── Header ── */}
       <div>
-        <h1 className="text-2xl font-black text-slate-900">Resident Reports</h1>
+        <h1 className="text-2xl font-black text-slate-900 flex items-center gap-2">
+          <FileText size={22} className="text-[#006837]" /> Resident Reports
+        </h1>
         <p className="text-sm text-slate-400 mt-0.5">Review and respond to resident-submitted issues</p>
       </div>
 
