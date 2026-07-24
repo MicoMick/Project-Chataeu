@@ -1,13 +1,10 @@
 // supabase/functions/send-soa-emails/index.ts
-// Sends a full SOA HTML email (matching the print SOA layout) to every resident
+// Sends a formal HOA Statement of Account email to every resident
 // with an outstanding balance, via Resend.
-//
-// No server-side PDF generation — the rich HTML email itself IS the SOA.
-// Recipients can File → Print → Save as PDF from their email client if needed.
 //
 // Secrets required:
 //   RESEND_API_KEY=re_...
-//   Domain is verified — TEST_OVERRIDE_EMAIL has been removed
+//   TEST_OVERRIDE_EMAIL=your@email.com  ← remove once domain is verified
 
 import { createClient } from 'npm:@supabase/supabase-js@2'
 
@@ -21,205 +18,322 @@ const CORS = {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-const fc  = (n: number) => `&#8369;${Number(n || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}`
-const fd  = (d: string | null) => d ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '&mdash;'
-const fm  = (d: string | null) => d ? new Date(d).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : '&mdash;'
+const fc  = (n: number) =>
+  `&#8369;${Number(n || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}`
+const fd  = (d: string | null) =>
+  d ? new Date(d).toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' }) : '—'
+const fdShort = (d: string | null) =>
+  d ? new Date(d).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'
 
 function phtToday() {
   const s = new Date(Date.now() + 8 * 60 * 60 * 1000)
-  const y = s.getUTCFullYear()
-  const m = String(s.getUTCMonth() + 1).padStart(2, '0')
-  const d = String(s.getUTCDate()).padStart(2, '0')
-  return `${y}-${m}-${d}`
+  return `${s.getUTCFullYear()}-${String(s.getUTCMonth()+1).padStart(2,'0')}-${String(s.getUTCDate()).padStart(2,'0')}`
 }
 
+// ── Monthly Due Breakdown ─────────────────────────────────────────────────────
+// Proportionally splits ₱150 among HOA's actual monthly operating expenses.
+// - Security Guard Salary and Street Sweeper Salary are FIXED costs.
+// - Electricity Bill and Water Bill are VARIABLE (based on actual monthly usage).
+// The last item absorbs any rounding difference so the total is ALWAYS exactly ₱150.
 function buildLineItemBreakdown() {
   const base = [
-    { label: 'Security Guard',  category: 'Salaries',    fixedTotal: 22000 },
-    { label: 'Electricity',     category: 'Utilities',   fixedTotal: 14000 },
-    { label: 'Street Sweepers', category: 'Maintenance', fixedTotal: 1200  },
-    { label: 'Water',           category: 'Utilities',   fixedTotal: 400   },
+    { label: 'Security Guard Salary', category: 'Salaries',    fixedTotal: 22000, type: 'Fixed'    },
+    { label: 'Electricity Bill',      category: 'Utilities',   fixedTotal: 14000, type: 'Variable' },
+    { label: 'Street Sweeper Salary', category: 'Maintenance', fixedTotal: 1200,  type: 'Fixed'    },
+    { label: 'Water Bill',            category: 'Utilities',   fixedTotal: 400,   type: 'Variable' },
   ]
   const tot = base.reduce((s, i) => s + i.fixedTotal, 0)
-  return base.map(i => ({
-    label: i.label, category: i.category,
-    amount: Math.round((i.fixedTotal / tot) * MONTHLY * 100) / 100,
-  }))
+  const items: Array<{ label: string; category: string; type: string; amount: number }> = []
+  let sumSoFar = 0
+
+  base.forEach((item, idx) => {
+    let amount: number
+    if (idx === base.length - 1) {
+      // Last item = ₱150 minus what's already allocated — prevents rounding drift
+      amount = Math.round((MONTHLY - sumSoFar) * 100) / 100
+    } else {
+      amount = Math.round((item.fixedTotal / tot) * MONTHLY * 100) / 100
+    }
+    sumSoFar = Math.round((sumSoFar + amount) * 100) / 100
+    items.push({ label: item.label, category: item.category, type: item.type, amount })
+  })
+  return items
 }
 
-// ── Full SOA HTML email (mirrors printSOA from Payment.jsx) ───────────────────
-function buildEmailHtml(
-  resident: { full_name: string; fullAddress: string },
-  unpaidList: Array<{ amount: number; due_date: string; statement_date: string|null; reference_no: string|null; status: string; line_items?: Array<{ label:string; category:string; amount:number }>|null }>,
-  paidHistory: Array<{ amount: number; due_date: string; paid_at: string|null; payer_reference_no: string|null; reference_no: string|null }>,
-): string {
-  const today = phtToday()
-  const sorted = [...unpaidList].sort((a, b) => new Date(a.due_date || 0).getTime() - new Date(b.due_date || 0).getTime())
-  const totalDue = sorted.reduce((s, p) => s + Number(p.amount || 0), 0)
-  const isSettled = sorted.length === 0
-  const monthsUnpaid = sorted.length
+// ── Reference Number ──────────────────────────────────────────────────────────
+function generateSoaRef(userId: string, date: string) {
+  const ym   = date.slice(0, 7).replace('-', '')
+  const uid  = userId.slice(0, 6).toUpperCase()
+  return `SOA-${ym}-${uid}`
+}
 
-  const latestStmt = isSettled ? null
-    : sorted.reduce((l, p) => p.statement_date && p.statement_date > l ? p.statement_date : l, sorted[0]?.statement_date || today)
+// ── Formal SOA HTML ───────────────────────────────────────────────────────────
+function buildFormalSoaHtml(
+  resident: { full_name: string; fullAddress: string; email: string; id: string },
+  unpaidList: Array<{
+    amount: number
+    due_date: string
+    statement_date: string | null
+    reference_no: string | null
+    status: string
+    line_items?: Array<{ label: string; category: string; amount: number }> | null
+  }>,
+  paidHistory: Array<{
+    amount: number
+    due_date: string
+    paid_at: string | null
+    payer_reference_no: string | null
+    reference_no: string | null
+  }>,
+): string {
+  const todayStr    = phtToday()
+  const todayFmt    = fd(todayStr)
+  const sorted      = [...unpaidList].sort(
+    (a, b) => new Date(a.due_date || 0).getTime() - new Date(b.due_date || 0).getTime()
+  )
+  const totalDue    = sorted.reduce((s, p) => s + Number(p.amount || 0), 0)
+  const isSettled   = sorted.length === 0
+  const monthsOwed  = sorted.length
   const earliestDue = isSettled ? null : sorted[0]?.due_date
+  const soaRef      = generateSoaRef(resident.id, todayStr)
 
   const lineItems = sorted.find(p => Array.isArray(p.line_items) && p.line_items!.length)?.line_items
     || buildLineItemBreakdown()
 
-  // Breakdown rows
-  const brkRows = isSettled ? '' : lineItems.map((item, i) => `
-    <tr>
-      <td style="padding:7px 8px;border-bottom:1px solid #f1f5f9;background:${i%2===0?'#f8fafc':'#fff'};">${item.label}</td>
-      <td style="padding:7px 8px;border-bottom:1px solid #f1f5f9;background:${i%2===0?'#f8fafc':'#fff'};">${item.category}</td>
-      <td style="padding:7px 8px;border-bottom:1px solid #f1f5f9;text-align:right;background:${i%2===0?'#f8fafc':'#fff'};">${fc(item.amount)}</td>
-      <td style="padding:7px 8px;border-bottom:1px solid #f1f5f9;text-align:right;font-weight:bold;background:${i%2===0?'#f8fafc':'#fff'};">${fc(item.amount * monthsUnpaid)}</td>
-    </tr>`).join('')
+  // ── Table row helpers ─────────────────────────────────────────────────────
+  const TH = (s: string) =>
+    `background:#006837;color:#fff;padding:7px 10px;text-align:left;font-size:10px;font-weight:bold;text-transform:uppercase;letter-spacing:.04em;`
+  const THR = TH('') + 'text-align:right;'
 
-  // Outstanding charge rows
-  const chgRows = sorted.map((p, i) => `
-    <tr>
-      <td style="padding:7px 8px;border-bottom:1px solid #f1f5f9;background:${i%2===0?'#fef2f2':'#fff'};">${fm(p.due_date)}</td>
-      <td style="padding:7px 8px;border-bottom:1px solid #f1f5f9;background:${i%2===0?'#fef2f2':'#fff'};">Monthly HOA Dues</td>
-      <td style="padding:7px 8px;border-bottom:1px solid #f1f5f9;background:${i%2===0?'#fef2f2':'#fff'};">${fd(p.statement_date)}</td>
-      <td style="padding:7px 8px;border-bottom:1px solid #f1f5f9;background:${i%2===0?'#fef2f2':'#fff'};">${fd(p.due_date)}</td>
-      <td style="padding:7px 8px;border-bottom:1px solid #f1f5f9;background:${i%2===0?'#fef2f2':'#fff'};">${p.reference_no || '&mdash;'}</td>
-      <td style="padding:7px 8px;border-bottom:1px solid #f1f5f9;text-align:center;font-weight:bold;color:${p.status==='overdue'?'#dc2626':'#d97706'};text-transform:capitalize;background:${i%2===0?'#fef2f2':'#fff'};">${p.status||'unpaid'}</td>
-      <td style="padding:7px 8px;border-bottom:1px solid #f1f5f9;text-align:right;font-weight:bold;background:${i%2===0?'#fef2f2':'#fff'};">${fc(p.amount)}</td>
-    </tr>`).join('')
+  // Breakdown rows (only when there are unpaid months)
+  const breakdownRows = isSettled ? '' : lineItems.map((item, i) => {
+    const rowBg = i % 2 === 0 ? '#f8fafc' : '#fff'
+    const typeColor = (item as any).type === 'Variable' ? '#64748b' : '#374151'
+    const typeBadge = (item as any).type
+      ? `<span style="font-size:9px;padding:1px 5px;border-radius:3px;border:1px solid;${
+          (item as any).type === 'Fixed'
+            ? 'color:#166534;border-color:#bbf7d0;background:#f0fdf4;'
+            : 'color:#64748b;border-color:#e2e8f0;background:#f8fafc;'
+        }">${(item as any).type}</span>`
+      : ''
+    const monthlyAmt = fc(item.amount)
+    const totalAmt   = fc(item.amount * monthsOwed)
+    return `<tr>
+      <td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;background:${rowBg};">
+        ${item.label} &nbsp;${typeBadge}
+      </td>
+      <td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;background:${rowBg};font-size:10px;color:#64748b;">${item.category}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;background:${rowBg};text-align:right;">${monthlyAmt}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;background:${rowBg};text-align:right;font-weight:bold;">${totalAmt}</td>
+    </tr>`
+  }).join('')
 
-  // Payment history rows (last 12)
-  const hisRows = paidHistory.slice(0, 12).map((p, i) => `
-    <tr>
-      <td style="padding:7px 8px;border-bottom:1px solid #f1f5f9;background:${i%2===0?'#f0fdf4':'#fff'};">${fm(p.due_date)}</td>
-      <td style="padding:7px 8px;border-bottom:1px solid #f1f5f9;background:${i%2===0?'#f0fdf4':'#fff'};">${fd(p.paid_at)}</td>
-      <td style="padding:7px 8px;border-bottom:1px solid #f1f5f9;background:${i%2===0?'#f0fdf4':'#fff'};">${p.payer_reference_no || '&mdash;'}</td>
-      <td style="padding:7px 8px;border-bottom:1px solid #f1f5f9;background:${i%2===0?'#f0fdf4':'#fff'};">${p.reference_no || '&mdash;'}</td>
-      <td style="padding:7px 8px;border-bottom:1px solid #f1f5f9;text-align:right;font-weight:bold;color:#166534;background:${i%2===0?'#f0fdf4':'#fff'};">${fc(p.amount)}</td>
-    </tr>`).join('')
+  // Outstanding charges rows
+  const chargeRows = sorted.map((p, i) => {
+    const rowBg      = i % 2 === 0 ? '#fef2f2' : '#fff'
+    const statusClr  = p.status === 'overdue' ? '#dc2626' : '#d97706'
+    const statusCap  = (p.status || 'Unpaid').charAt(0).toUpperCase() + (p.status || 'Unpaid').slice(1)
+    const periodLabel = p.due_date
+      ? new Date(p.due_date).toLocaleDateString('en-PH', { month: 'long', year: 'numeric' })
+      : '—'
+    return `<tr>
+      <td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;background:${rowBg};">${periodLabel}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;background:${rowBg};">Monthly HOA Dues</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;background:${rowBg};">${fdShort(p.statement_date)}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;background:${rowBg};">${fdShort(p.due_date)}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;background:${rowBg};font-size:10px;">${p.reference_no || '—'}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;background:${rowBg};font-weight:bold;color:${statusClr};">${statusCap}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;background:${rowBg};text-align:right;font-weight:bold;">${fc(p.amount)}</td>
+    </tr>`
+  }).join('')
 
-  const TH = `background:#006837;color:#fff;text-align:left;padding:8px;font-size:10px;text-transform:uppercase;letter-spacing:.03em;`
-  const SEC = `font-size:13px;font-weight:700;color:#006837;margin:22px 0 8px;border-bottom:1px solid #e2e8f0;padding-bottom:6px;`
+  // Payment history rows
+  const histRows = paidHistory.slice(0, 12).map((p, i) => {
+    const rowBg = i % 2 === 0 ? '#f0fdf4' : '#fff'
+    const period = p.due_date
+      ? new Date(p.due_date).toLocaleDateString('en-PH', { month: 'long', year: 'numeric' })
+      : '—'
+    return `<tr>
+      <td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;background:${rowBg};">${period}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;background:${rowBg};">${fdShort(p.paid_at)}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;background:${rowBg};font-size:10px;">${p.payer_reference_no || '—'}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;background:${rowBg};font-size:10px;">${p.reference_no || '—'}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;background:${rowBg};text-align:right;font-weight:bold;color:#166534;">${fc(p.amount)}</td>
+    </tr>`
+  }).join('')
 
+  // ── Document ─────────────────────────────────────────────────────────────
   return `<!DOCTYPE html>
-<html><head><meta charset="UTF-8"><title>Statement of Account &mdash; ${resident.full_name}</title></head>
+<html lang="en"><head><meta charset="UTF-8">
+<title>HOA Statement of Account — ${resident.full_name}</title></head>
 <body style="margin:0;padding:0;background:#f1f5f9;font-family:'Segoe UI',Arial,sans-serif;color:#1e293b;">
 <table width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;">
 <tr><td align="center" style="padding:32px 16px;">
-<table width="680" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.08);max-width:100%;">
+<table width="680" cellpadding="0" cellspacing="0"
+  style="background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.10);max-width:100%;">
 
-  <!-- HEADER -->
-  <tr><td style="background:#006837;padding:24px 32px;">
-    <p style="margin:0;font-size:20px;font-weight:900;color:#fff;">HOA Statement of Account</p>
-    <p style="margin:4px 0 0;font-size:11px;color:#a7f3d0;">Chateau Real Executive Village Homeowners Association Inc. (CREVHAI) &middot; Generated ${fd(today)}</p>
+  <!-- ── Letterhead ── -->
+  <tr><td style="background:#006837;padding:0;">
+    <table width="100%" cellpadding="0" cellspacing="0">
+      <tr>
+        <td style="padding:22px 28px;">
+          <p style="margin:0;font-size:9px;font-weight:bold;color:#a7f3d0;text-transform:uppercase;letter-spacing:.08em;">Official Document</p>
+          <p style="margin:4px 0 0;font-size:20px;font-weight:900;color:#fff;letter-spacing:-.3px;">Statement of Account</p>
+          <p style="margin:2px 0 0;font-size:11px;color:#a7f3d0;">Chateau Real Executive Village Homeowners Association Inc. (CREVHAI)</p>
+        </td>
+        <td style="padding:22px 28px;text-align:right;vertical-align:top;">
+          <p style="margin:0;font-size:9px;color:#a7f3d0;font-weight:bold;text-transform:uppercase;letter-spacing:.05em;">Reference No.</p>
+          <p style="margin:3px 0 0;font-size:13px;font-weight:900;color:#FFF200;letter-spacing:.04em;">${soaRef}</p>
+          <p style="margin:6px 0 0;font-size:10px;color:#a7f3d0;">Issued: ${todayFmt}</p>
+        </td>
+      </tr>
+    </table>
   </td></tr>
 
-  <tr><td style="padding:28px 32px;">
-
-    <!-- Resident + Address -->
-    <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:16px;">
+  <!-- ── Status banner ── -->
+  <tr><td style="background:${isSettled ? '#f0fdf4' : '#fef2f2'};padding:12px 28px;border-bottom:2px solid ${isSettled ? '#bbf7d0' : '#fecaca'};">
+    <table width="100%" cellpadding="0" cellspacing="0">
       <tr>
-        <td width="50%" style="padding-right:8px;">
-          <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:12px 16px;">
-            <div style="font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;">Resident</div>
-            <div style="font-size:13px;font-weight:700;color:#1e293b;margin-top:2px;">${resident.full_name}</div>
-          </div>
+        <td>
+          <p style="margin:0;font-size:10px;font-weight:bold;color:${isSettled ? '#166534' : '#b91c1c'};text-transform:uppercase;letter-spacing:.05em;">
+            ${isSettled ? '✓ Account Status: Fully Settled' : '⚠ Account Status: Payment Required'}
+          </p>
+          ${!isSettled ? `<p style="margin:3px 0 0;font-size:11px;color:#991b1b;">
+            Payment due on or before <strong>${fd(earliestDue)}</strong>
+          </p>` : ''}
         </td>
-        <td width="50%" style="padding-left:8px;">
-          <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:12px 16px;">
-            <div style="font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;">Address</div>
-            <div style="font-size:13px;font-weight:700;color:#1e293b;margin-top:2px;">${resident.fullAddress || 'N/A'}</div>
-          </div>
+        ${!isSettled ? `<td style="text-align:right;">
+          <p style="margin:0;font-size:10px;font-weight:bold;color:#b91c1c;text-transform:uppercase;letter-spacing:.05em;">Total Amount Due</p>
+          <p style="margin:2px 0 0;font-size:22px;font-weight:900;color:#dc2626;">${fc(totalDue)}</p>
+        </td>` : ''}
+      </tr>
+    </table>
+  </td></tr>
+
+  <!-- ── Account info ── -->
+  <tr><td style="padding:20px 28px;border-bottom:1px solid #e2e8f0;">
+    <table width="100%" cellpadding="0" cellspacing="0">
+      <tr>
+        <td width="50%" style="vertical-align:top;padding-right:12px;">
+          <p style="margin:0;font-size:9px;font-weight:bold;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;">Account Holder</p>
+          <p style="margin:4px 0 0;font-size:14px;font-weight:900;color:#0f172a;">${resident.full_name}</p>
+          <p style="margin:2px 0 0;font-size:11px;color:#64748b;">${resident.fullAddress || 'N/A'}</p>
+          <p style="margin:2px 0 0;font-size:11px;color:#64748b;">${resident.email || ''}</p>
+        </td>
+        <td width="50%" style="vertical-align:top;padding-left:12px;border-left:1px solid #f1f5f9;">
+          <p style="margin:0;font-size:9px;font-weight:bold;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;">Billing Period</p>
+          <p style="margin:4px 0 0;font-size:13px;font-weight:700;color:#0f172a;">
+            ${monthsOwed > 0
+              ? `${new Date(sorted[0].due_date).toLocaleDateString('en-PH',{month:'long',year:'numeric'})} — ${new Date(sorted[sorted.length-1].due_date).toLocaleDateString('en-PH',{month:'long',year:'numeric'})}`
+              : 'All periods settled'}
+          </p>
+          <p style="margin:4px 0 0;font-size:10px;color:#64748b;">
+            Months unpaid: <strong style="color:${monthsOwed > 0 ? '#dc2626' : '#166534'};">${monthsOwed}</strong>
+            &nbsp;·&nbsp; Monthly Due: <strong>${fc(MONTHLY)}</strong>
+          </p>
         </td>
       </tr>
     </table>
+  </td></tr>
 
-    <!-- Date boxes -->
-    <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
-      <tr>
-        <td width="50%" style="padding-right:8px;">
-          <div style="background:${isSettled?'#f0fdf4':'#eff6ff'};border:1px solid ${isSettled?'#bbf7d0':'#bfdbfe'};border-radius:10px;padding:12px 16px;">
-            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:${isSettled?'#15803d':'#1d4ed8'};">Statement Date &mdash; Bill Issued</div>
-            <div style="font-size:15px;font-weight:900;margin-top:2px;color:${isSettled?'#166534':'#1e3a8a'};">${isSettled?'N/A &mdash; Fully Settled':fd(latestStmt)}</div>
-          </div>
-        </td>
-        <td width="50%" style="padding-left:8px;">
-          <div style="background:${isSettled?'#f0fdf4':'#fef2f2'};border:1px solid ${isSettled?'#bbf7d0':'#fecaca'};border-radius:10px;padding:12px 16px;">
-            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:${isSettled?'#15803d':'#b91c1c'};">Due Date &mdash; Payment Deadline</div>
-            <div style="font-size:15px;font-weight:900;margin-top:2px;color:${isSettled?'#166534':'#991b1b'};">${isSettled?'No Pending Dues':fd(earliestDue)}</div>
-          </div>
-        </td>
-      </tr>
-    </table>
+  <tr><td style="padding:20px 28px 0;">
 
-    <!-- Balance banner -->
-    <table width="100%" cellpadding="0" cellspacing="0" style="background:linear-gradient(135deg,#fef2f2,#fff);border:2px solid #fecaca;border-radius:14px;margin-bottom:24px;">
-      <tr>
-        <td style="padding:18px 22px;">
-          <div style="font-size:11px;font-weight:700;color:#b91c1c;text-transform:uppercase;letter-spacing:.05em;">Total Outstanding Balance</div>
-          <div style="font-size:28px;font-weight:900;color:#dc2626;">${fc(totalDue)}</div>
-        </td>
-        <td style="padding:18px 22px;text-align:right;">
-          <div style="font-size:11px;font-weight:700;color:#b91c1c;text-transform:uppercase;letter-spacing:.05em;">Months Unpaid</div>
-          <div style="font-size:22px;font-weight:900;color:#b91c1c;">${monthsUnpaid}</div>
-        </td>
-      </tr>
-    </table>
-
-    <!-- Monthly Due Breakdown -->
-    <div style="${SEC}">Monthly Due Breakdown &mdash; What Your &#8369;${MONTHLY}/month Covers</div>
-    ${isSettled
-      ? `<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:14px 18px;font-size:12px;color:#166534;">No outstanding months to bill right now. Next month's &#8369;${MONTHLY} due will be itemized here once issued.</div>`
-      : `<table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-size:11px;">
-          <thead><tr>
-            <th style="${TH}">Item</th><th style="${TH}">Category</th>
-            <th style="${TH}text-align:right;">Per Month</th>
-            <th style="${TH}text-align:right;">&times; ${monthsUnpaid} Month${monthsUnpaid!==1?'s':''}</th>
-          </tr></thead>
-          <tbody>${brkRows}</tbody>
-          <tfoot><tr>
-            <td colspan="3" style="padding:7px 8px;text-align:right;font-weight:bold;background:#f8fafc;">Total:</td>
-            <td style="padding:7px 8px;text-align:right;font-weight:900;background:#f8fafc;color:#006837;">${fc(totalDue)}</td>
-          </tr></tfoot>
-        </table>`}
-
-    <!-- Outstanding Charges -->
-    <div style="${SEC}">Outstanding Charges</div>
-    <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-size:11px;">
-      <thead><tr>
-        <th style="${TH}">Period</th><th style="${TH}">Description</th>
-        <th style="${TH}">Statement Date</th><th style="${TH}">Due Date</th>
-        <th style="${TH}">Reference #</th>
-        <th style="${TH}text-align:center;">Status</th>
-        <th style="${TH}text-align:right;">Amount</th>
-      </tr></thead>
-      <tbody>${chgRows || `<tr><td colspan="7" style="padding:14px;text-align:center;color:#16a34a;font-weight:bold;">No outstanding balance &mdash; account is fully settled.</td></tr>`}</tbody>
-      ${chgRows?`<tfoot><tr>
-        <td colspan="6" style="padding:7px 8px;text-align:right;font-weight:bold;background:#fef2f2;">Total Amount Due:</td>
-        <td style="padding:7px 8px;text-align:right;font-weight:900;background:#fef2f2;color:#dc2626;">${fc(totalDue)}</td>
-      </tr></tfoot>`:''}
-    </table>
-
-    ${paidHistory.length?`
-    <!-- Recent Payment History -->
-    <div style="${SEC}">Recent Payment History</div>
-    <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-size:11px;">
-      <thead><tr>
-        <th style="${TH}">Period</th><th style="${TH}">Date Paid</th>
-        <th style="${TH}">Your Payment Ref #</th><th style="${TH}">HOA Ref #</th>
-        <th style="${TH}text-align:right;">Amount</th>
-      </tr></thead>
-      <tbody>${hisRows}</tbody>
-    </table>`:''}
-
-    <!-- Footer -->
-    <p style="margin-top:28px;font-size:10px;color:#94a3b8;border-top:1px solid #e2e8f0;padding-top:10px;line-height:1.6;">
-      This statement reflects account balance as of ${fd(today)}. The statement date shows when this bill was issued;
-      the due date is your payment deadline. Please settle outstanding dues at the HOA office or through your
-      designated treasurer on or before the due date. For questions, contact the HOA Treasurer's office.
+    ${!isSettled ? `
+    <!-- ── Monthly Due Breakdown ── -->
+    <p style="margin:0 0 8px;font-size:12px;font-weight:900;color:#006837;text-transform:uppercase;letter-spacing:.04em;border-bottom:2px solid #006837;padding-bottom:5px;">
+      Monthly Due Breakdown — What Your ${fc(MONTHLY)}/month Covers
     </p>
-    <p style="font-size:10px;color:#cbd5e1;text-align:center;margin-top:8px;">This is an automated message from the CREVHAI billing system. Please do not reply directly to this email.</p>
+    <p style="margin:0 0 8px;font-size:10px;color:#94a3b8;font-style:italic;">
+      * Fixed costs are charged at the same rate every month. Variable costs are estimates based on actual utility bills.
+    </p>
+    <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-size:11px;margin-bottom:20px;">
+      <thead><tr>
+        <th style="${TH('')}width:35%;">Item</th>
+        <th style="${TH('')}width:18%;">Category</th>
+        <th style="${THR}width:20%;">Per Month</th>
+        <th style="${THR}width:27%;">&times;&nbsp;${monthsOwed} Month${monthsOwed !== 1 ? 's' : ''}</th>
+      </tr></thead>
+      <tbody>${breakdownRows}</tbody>
+      <tfoot><tr>
+        <td colspan="3" style="padding:8px 10px;font-weight:bold;text-align:right;background:#f0fdf4;border-top:2px solid #006837;font-size:12px;">Total:</td>
+        <td style="padding:8px 10px;font-weight:900;text-align:right;background:#f0fdf4;border-top:2px solid #006837;color:#006837;font-size:13px;">${fc(totalDue)}</td>
+      </tr></tfoot>
+    </table>
+
+    <!-- ── Outstanding Charges ── -->
+    <p style="margin:0 0 8px;font-size:12px;font-weight:900;color:#006837;text-transform:uppercase;letter-spacing:.04em;border-bottom:2px solid #006837;padding-bottom:5px;">
+      Outstanding Charges
+    </p>
+    <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-size:11px;margin-bottom:20px;">
+      <thead><tr>
+        <th style="${TH('')}">Period</th>
+        <th style="${TH('')}">Description</th>
+        <th style="${TH('')}">Statement Date</th>
+        <th style="${TH('')}">Due Date</th>
+        <th style="${TH('')}">Reference #</th>
+        <th style="${TH('')}">Status</th>
+        <th style="${THR}">Amount</th>
+      </tr></thead>
+      <tbody>${chargeRows}</tbody>
+      <tfoot><tr>
+        <td colspan="6" style="padding:8px 10px;font-weight:bold;text-align:right;background:#fef2f2;border-top:2px solid #dc2626;">Total Amount Due:</td>
+        <td style="padding:8px 10px;font-weight:900;text-align:right;background:#fef2f2;border-top:2px solid #dc2626;color:#dc2626;font-size:13px;">${fc(totalDue)}</td>
+      </tr></tfoot>
+    </table>
+
+    <!-- ── Payment Instructions ── -->
+    <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
+      <tr><td style="background:#fffbeb;border:1.5px solid #f59e0b;border-radius:10px;padding:14px 18px;">
+        <p style="margin:0;font-size:11px;font-weight:900;color:#92400e;text-transform:uppercase;letter-spacing:.04em;">&#128179; Payment Instructions</p>
+        <p style="margin:6px 0 0;font-size:11px;color:#78350f;line-height:1.7;">
+          Please settle your outstanding balance on or before <strong>${fd(earliestDue)}</strong> to avoid late penalties.<br>
+          Payments may be made at the <strong>HOA Office</strong> or through your designated <strong>HOA Treasurer</strong>.<br>
+          Present this Statement of Account as your billing reference (Ref. No. <strong>${soaRef}</strong>).
+        </p>
+      </td></tr>
+    </table>
+    ` : `
+    <!-- ── Settled notice ── -->
+    <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
+      <tr><td style="background:#f0fdf4;border:1.5px solid #bbf7d0;border-radius:10px;padding:18px;text-align:center;">
+        <p style="margin:0;font-size:16px;">&#10003;</p>
+        <p style="margin:4px 0 0;font-size:13px;font-weight:900;color:#166534;">Account Fully Settled</p>
+        <p style="margin:4px 0 0;font-size:11px;color:#15803d;">No outstanding dues. Thank you for your prompt payments!</p>
+      </td></tr>
+    </table>
+    `}
+
+    ${paidHistory.length > 0 ? `
+    <!-- ── Payment History ── -->
+    <p style="margin:0 0 8px;font-size:12px;font-weight:900;color:#006837;text-transform:uppercase;letter-spacing:.04em;border-bottom:2px solid #006837;padding-bottom:5px;">
+      Recent Payment History
+    </p>
+    <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-size:11px;margin-bottom:20px;">
+      <thead><tr>
+        <th style="${TH('')}">Period</th>
+        <th style="${TH('')}">Date Paid</th>
+        <th style="${TH('')}">Your Ref #</th>
+        <th style="${TH('')}">HOA Ref #</th>
+        <th style="${THR}">Amount</th>
+      </tr></thead>
+      <tbody>${histRows}</tbody>
+    </table>
+    ` : ''}
 
   </td></tr>
+
+  <!-- ── Footer ── -->
+  <tr><td style="padding:16px 28px;background:#f8fafc;border-top:2px solid #e2e8f0;">
+    <p style="margin:0;font-size:10px;color:#94a3b8;line-height:1.7;">
+      This is an official Statement of Account issued by the <strong>Chateau Real Executive Village Homeowners Association Inc. (CREVHAI)</strong>
+      on ${todayFmt}. This document is system-generated and is valid without a signature.
+      For disputes or inquiries, please contact the HOA Treasurer's office within 5 business days of receipt.
+    </p>
+    <p style="margin:8px 0 0;font-size:10px;color:#cbd5e1;text-align:center;">
+      &#128274; This email contains sensitive billing information. Please do not forward to unauthorized parties. &nbsp;|&nbsp; Do not reply directly to this email.
+    </p>
+  </td></tr>
+
 </table>
 </td></tr></table>
 </body></html>`
@@ -227,9 +341,7 @@ function buildEmailHtml(
 
 // ── Main handler ──────────────────────────────────────────────────────────────
 Deno.serve(async (req: Request) => {
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: CORS })
-  }
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS })
 
   const supabase = createClient(
     Deno.env.get('SUPABASE_URL')!,
@@ -240,13 +352,12 @@ Deno.serve(async (req: Request) => {
   const today         = phtToday()
 
   try {
-    // 1. Fetch all unpaid payments
     const { data: unpaidPayments, error: uErr } = await supabase
       .from('payments')
       .select('id, user_id, amount, due_date, statement_date, reference_no, status, line_items')
       .in('status', ['unpaid', 'overdue', 'pending'])
       .order('due_date', { ascending: true })
-    if (uErr) { console.error('Fetch unpaid error:', uErr.message); throw new Error(uErr.message) }
+    if (uErr) { console.error('Fetch unpaid:', uErr.message); throw new Error(uErr.message) }
 
     if (!unpaidPayments?.length) {
       return new Response(JSON.stringify({ sent: 0, failed: 0, note: 'No outstanding balances.' }), {
@@ -256,23 +367,20 @@ Deno.serve(async (req: Request) => {
 
     const userIds = [...new Set(unpaidPayments.map((p: { user_id: string }) => p.user_id))]
 
-    // 2. Fetch resident profiles
     const { data: residents, error: rErr } = await supabase
       .from('profiles')
       .select('id, full_name, email, block, lot, street')
       .in('id', userIds)
-    if (rErr) { console.error('Fetch profiles error:', rErr.message); throw new Error(rErr.message) }
+    if (rErr) { console.error('Fetch profiles:', rErr.message); throw new Error(rErr.message) }
 
-    // 3. Fetch paid history
     const { data: paidPayments, error: pErr } = await supabase
       .from('payments')
       .select('user_id, amount, due_date, paid_at, payer_reference_no, reference_no')
       .in('user_id', userIds)
       .eq('status', 'paid')
       .order('paid_at', { ascending: false })
-    if (pErr) { console.error('Fetch paid error:', pErr.message); throw new Error(pErr.message) }
+    if (pErr) { console.error('Fetch paid:', pErr.message); throw new Error(pErr.message) }
 
-    // 4. Build per-user maps
     const unpaidMap: Record<string, typeof unpaidPayments> = {}
     unpaidPayments.forEach((p: { user_id: string }) => {
       if (!unpaidMap[p.user_id]) unpaidMap[p.user_id] = []
@@ -284,7 +392,6 @@ Deno.serve(async (req: Request) => {
       if (paidMap[p.user_id].length < 12) paidMap[p.user_id].push(p)
     })
 
-    // 5. Send emails
     let sent = 0, failed = 0
     const errors: string[] = []
 
@@ -293,39 +400,42 @@ Deno.serve(async (req: Request) => {
       const paidHistory = paidMap[resident.id]   || []
       if (!unpaidList.length) continue
 
-      // block/lot may already include "Blk"/"Lot" prefix in the DB
-      // so we check before adding to avoid "Blk Blk 52, Lot Lot 9"
-      const fmtBlock = (b: string) => b.trim().toLowerCase().startsWith('blk') ? b.trim() : `Blk ${b.trim()}`
-      const fmtLot   = (l: string) => l.trim().toLowerCase().startsWith('lot') ? l.trim() : `Lot ${l.trim()}`
+      const fmtBlock = (b: string) => b?.toLowerCase().startsWith('blk') ? b : `Blk ${b}`
+      const fmtLot   = (l: string) => l?.toLowerCase().startsWith('lot') ? l : `Lot ${l}`
       const addrParts = [
-        resident.block  ? fmtBlock(resident.block)  : null,
-        resident.lot    ? fmtLot(resident.lot)      : null,
+        resident.block  ? fmtBlock(resident.block) : null,
+        resident.lot    ? fmtLot(resident.lot)     : null,
         resident.street || null,
       ].filter(Boolean)
       const fullAddress = addrParts.join(', ') || 'N/A'
+
       const totalDue = unpaidList.reduce((s: number, p: { amount: number }) => s + Number(p.amount || 0), 0)
       const recipient = TEST_OVERRIDE || resident.email
       if (!recipient) { failed++; continue }
 
-      console.log(`Sending SOA to ${resident.full_name} (${recipient}) — ${unpaidList.length} unpaid month(s)`)
+      console.log(`Sending SOA to ${resident.full_name} (${recipient}) — ${unpaidList.length} unpaid month(s), total ${fc(totalDue)}`)
 
-      const htmlBody = buildEmailHtml(
-        { full_name: resident.full_name, fullAddress },
+      const htmlBody = buildFormalSoaHtml(
+        { full_name: resident.full_name, fullAddress, email: resident.email, id: resident.id },
         unpaidList,
         paidHistory,
       )
-      const amtStr = `\u20B1${Number(totalDue).toLocaleString('en-PH', { minimumFractionDigits: 2 })}`
+      const soaRef  = generateSoaRef(resident.id, today)
+      const amtStr  = `PHP ${Number(totalDue).toLocaleString('en-PH', { minimumFractionDigits: 2 })}`
 
       const resendRes = await fetch('https://api.resend.com/emails', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${RESEND_KEY}` },
         body: JSON.stringify({
-          from: 'CREVHAI Billing <billing@chateaureals.online>',
-          to: [recipient],
-          subject: `HOA Statement of Account \u2014 ${resident.full_name} (${amtStr} due)`,
-          html: htmlBody,
+          from:    'CREVHAI Billing <billing@chateaureals.online>',
+          to:      [recipient],
+          subject: `[${soaRef}] HOA Statement of Account — ${resident.full_name} | ${amtStr} Outstanding`,
+          html:    htmlBody,
         }),
       })
+
+      // Respect Resend's 2 emails/second rate limit
+      await new Promise(r => setTimeout(r, 600))
 
       if (resendRes.ok) {
         sent++
@@ -333,30 +443,24 @@ Deno.serve(async (req: Request) => {
           await supabase.from('soa_email_log').insert({
             user_id: resident.id, sent_to: recipient, amount_due: totalDue,
           })
-        } catch (_e) { /* best-effort audit log */ }
+        } catch (_e) { /* best-effort */ }
       } else {
         failed++
         const body = await resendRes.text()
         console.error(`Send failed for ${resident.full_name}:`, body)
         errors.push(`${resident.full_name}: ${body}`)
       }
-
-      // ── Rate limit: Resend free plan allows max 2 emails/second.
-      // Wait 600ms between each send to stay safely under the limit.
-      await new Promise(r => setTimeout(r, 600))
     }
 
     console.log(`Done. Sent: ${sent}, Failed: ${failed}`)
     return new Response(JSON.stringify({ sent, failed, errors: errors.length ? errors : undefined }), {
       status: 200, headers: { 'Content-Type': 'application/json', ...CORS },
     })
-
   } catch (err) {
-    const errMsg = err instanceof Error ? err.message : String(err)
-    console.error('HANDLER_ERROR:', errMsg)
-    return new Response(
-      JSON.stringify({ error: errMsg }),
-      { status: 500, headers: { 'Content-Type': 'application/json', ...CORS } },
-    )
+    const msg = err instanceof Error ? err.message : String(err)
+    console.error('HANDLER_ERROR:', msg)
+    return new Response(JSON.stringify({ error: msg }), {
+      status: 500, headers: { 'Content-Type': 'application/json', ...CORS },
+    })
   }
 })

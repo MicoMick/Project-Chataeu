@@ -99,6 +99,14 @@ const ProfileManage = () => {
       const url = data.publicUrl;
 
       await supabase.auth.updateUser({ data: { avatar_url: url } });
+
+      // ── Sync to admins table so avatar_url column reflects the new image ──
+      const { error: syncErr } = await supabase
+        .from('admins')
+        .update({ avatar_url: url })
+        .eq('email', userEmail);
+      if (syncErr) console.warn('[ProfileManage] admins avatar sync:', syncErr.message);
+
       setAvatarUrl(url);
       await logAudit('Profile Updated', 'HOA Administrator updated profile picture.');
       triggerToast('Profile picture updated!');
