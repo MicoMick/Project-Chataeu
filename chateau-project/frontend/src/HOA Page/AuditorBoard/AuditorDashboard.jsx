@@ -252,16 +252,15 @@ const AddExpenseModal = ({ onClose, onSave }) => {
 // Expenses (Salary Wages, Maintenance, Utility/Bills) → Total Expenses
 // Summary (Net Income, Beginning Balance, Ending Balance)
 const printFinancialReport = ({ duesIncome, courtIncome, expenses, unpaid, period }) => {
-  const today   = new Date().toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' });
+  const today = new Date().toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' });
+  const isAnnual = period && (period.toLowerCase().includes('year') || period.toLowerCase().includes('annual'));
+  const docTitle = isAnnual ? 'Annual Financial Report' : 'Financial Statement';
 
-  // ── Income — only Monthly Dues and Court Rental, per the physical form ───
-  const totalIncome  = duesIncome.total + courtIncome.total;
+  // ── Income ────────────────────────────────────────────────────────────────
+  const totalIncome = duesIncome.total + courtIncome.total;
 
-  // ── Expenses — bucketed into Salary Wages / Maintenance Repair / Utility ──
-  // matching the physical form's expense line items. Anything not matching
-  // one of these three keywords falls under "Utility" as a catch-all bill,
-  // since the form only tracks these three categories.
-  // ── Expense bucketing — mapped by category field (reliable, no keyword guessing) ──
+  // ── Expenses — ALL categories, bucketed for the summary statement ─────────
+  // Using ALL categories ensures the summary total matches the itemized total.
   const sumByCat = (cats) => (expenses.records || [])
     .filter(e => cats.includes(e.category))
     .reduce((s, e) => s + Number(e.amount || 0), 0);
@@ -269,134 +268,258 @@ const printFinancialReport = ({ duesIncome, courtIncome, expenses, unpaid, perio
   const salaryWages       = sumByCat(['Salaries']);
   const maintenanceRepair = sumByCat(['Maintenance']);
   const utilityBills      = sumByCat(['Utilities']);
-  const totalExpense      = salaryWages + maintenanceRepair + utilityBills;
+  const otherExpenses     = sumByCat(['Supplies', 'Events', 'Projects', 'Legal', 'Insurance', 'Other']);
+  const totalExpense      = salaryWages + maintenanceRepair + utilityBills + otherExpenses;
+  // totalExpense now equals expenses.total — no more accounting discrepancy
 
-  // ── Summary ────────────────────────────────────────────────────────────
-  const netIncome    = totalIncome - totalExpense;
+  // ── Summary ────────────────────────────────────────────────────────────────
+  const netIncome = totalIncome - totalExpense;
 
-  // ── Consolidate dues: one row per resident ──────────────────────────────
+  // ── Outstanding Dues ───────────────────────────────────────────────────────
+  const totalOutstanding = (unpaid.records || []).reduce((s, p) => s + Number(p.amount || 0), 0);
+  const unpaidByResident = {};
+  (unpaid.records || []).forEach(p => {
+    const name = p.profiles?.full_name || '—';
+    if (!unpaidByResident[name]) unpaidByResident[name] = { name, total: 0, months: 0 };
+    unpaidByResident[name].total  += Number(p.amount || 0);
+    unpaidByResident[name].months += 1;
+  });
+  const unpaidResidents = Object.values(unpaidByResident).sort((a, b) => b.total - a.total);
+
+  // ── Dues rows (one per resident) ──────────────────────────────────────────
   const duesMap = {};
   (duesIncome.records || []).forEach(p => {
     const name = p.profiles?.full_name || '—';
     if (!duesMap[p.user_id]) {
-      duesMap[p.user_id] = { full_name: name, total: 0, count: 0, last_paid: p.paid_at, audited: true, isDelinquent: p.profiles?.account_status === 'delinquent' };
+      duesMap[p.user_id] = { full_name: name, total: 0, count: 0, last_paid: p.paid_at };
     }
     duesMap[p.user_id].total += Number(p.amount || 0);
     duesMap[p.user_id].count += 1;
-    if (!p.audited) duesMap[p.user_id].audited = false;
     if (!duesMap[p.user_id].last_paid || (p.paid_at && p.paid_at > duesMap[p.user_id].last_paid))
       duesMap[p.user_id].last_paid = p.paid_at;
   });
   const consolidatedDuesPrint = Object.values(duesMap).sort((a, b) => a.full_name.localeCompare(b.full_name));
 
-  const duesRows = consolidatedDuesPrint.map((r, i) => {
-    const statusLabel = r.audited ? '✓ Verified' : r.isDelinquent ? '⚠ Needs Review' : 'Pending';
-    const statusColor  = r.audited ? '#166534' : r.isDelinquent ? '#c2410c' : '#64748b';
-    return `
+  const fmtCur = (n) => '₱' + Number(n || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 });
+  const fmtDt  = (d) => d ? new Date(d).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
+  const TH     = (cols) => `<tr>${cols.map(col => `<th>${col}</th>`).join('')}</tr>`;
+
+  const duesRows = consolidatedDuesPrint.map((r, i) => `
     <tr style="background:${i%2===0?'#f0fdf4':'#fff'}">
       <td>${r.full_name}</td>
-      <td style="text-align:center;">${r.count} month${r.count !== 1 ? 's' : ''}</td>
-      <td>${fmtDate(r.last_paid)}</td>
-      <td style="text-align:center;font-weight:bold;color:${statusColor};">${statusLabel}</td>
-      <td style="text-align:right;font-weight:bold;">${fmtCurrency(r.total)}</td>
-    </tr>`;
-  }).join('');
+      <td style="text-align:center;">${r.count} month${r.count!==1?'s':''}</td>
+      <td>${fmtDt(r.last_paid)}</td>
+      <td style="text-align:right;font-weight:bold;">${fmtCur(r.total)}</td>
+    </tr>`).join('');
 
-  const courtRows = courtIncome.records.map((r, i) => `
+  const courtRows = (courtIncome.records || []).map((r, i) => `
     <tr style="background:${i%2===0?'#f0fdf4':'#fff'}">
-      <td>${fmtDate(r.date)}</td>
+      <td>${fmtDt(r.date)}</td>
       <td>${r.profiles?.full_name || '—'}</td>
       <td>${r.facilities?.name || '—'}</td>
-      <td style="text-align:right;font-weight:bold;">${fmtCurrency(r.amount || 0)}</td>
+      <td style="text-align:right;font-weight:bold;">${fmtCur(r.amount || 0)}</td>
     </tr>`).join('');
 
-  const expenseRows = expenses.records.map((e, i) => `
+  const expenseRows = (expenses.records || []).map((e, i) => `
     <tr style="background:${i%2===0?'#fff5f5':'#fff'}">
-      <td>${fmtDate(e.expense_date)}</td>
-      <td>${e.description}</td>
-      <td>${e.category}</td>
-      <td style="text-align:right;font-weight:bold;color:#dc2626;">${fmtCurrency(e.amount)}</td>
+      <td>${fmtDt(e.expense_date)}</td>
+      <td>${e.description || '—'}</td>
+      <td>${e.category || '—'}</td>
+      <td style="text-align:right;font-weight:bold;color:#dc2626;">${fmtCur(e.amount)}</td>
     </tr>`).join('');
 
-  const colHeaders = (cols) => `<tr>${cols.map(c=>`<th>${c}</th>`).join('')}</tr>`;
+  const unpaidRows = unpaidResidents.map((r, i) => `
+    <tr style="background:${i%2===0?'#fef2f2':'#fff'}">
+      <td>${r.name}</td>
+      <td style="text-align:center;">${r.months} month${r.months!==1?'s':''}</td>
+      <td style="text-align:right;font-weight:bold;color:#dc2626;">${fmtCur(r.total)}</td>
+    </tr>`).join('');
 
-  const html = `<!DOCTYPE html><html><head><title>HOA Financial Statement — ${today}</title>
+  const html = `<!DOCTYPE html><html><head>
+  <title>${docTitle} — ${today}</title>
   <style>
-    body{font-family:Arial,sans-serif;margin:20px;color:#1a1a1a;}
-    h1{text-align:center;font-size:16px;margin-bottom:3px;text-transform:uppercase;letter-spacing:0.5px;}
-    h2{font-size:12px;color:#006837;margin:18px 0 6px;border-bottom:2px solid #006837;padding-bottom:4px;text-transform:uppercase;}
-    p.sub{text-align:center;font-size:11px;color:#666;margin-bottom:18px;}
-    table{width:100%;border-collapse:collapse;margin-bottom:6px;font-size:11px;}
-    th{background:#006837;color:#FFF200;padding:6px 8px;text-align:left;font-weight:bold;}
+    *{box-sizing:border-box;}
+    body{font-family:Arial,sans-serif;margin:24px;color:#1a1a1a;font-size:12px;}
+    .doc-header{text-align:center;border-bottom:3px solid #006837;padding-bottom:14px;margin-bottom:16px;}
+    .doc-header h1{font-size:18px;font-weight:900;text-transform:uppercase;letter-spacing:1px;color:#006837;margin:0 0 4px;}
+    .doc-header .org{font-size:12px;color:#374151;font-weight:bold;margin:2px 0;}
+    .doc-header .period{font-size:11px;color:#64748b;margin:4px 0 0;}
+    h2{font-size:11.5px;color:#006837;margin:20px 0 6px;border-bottom:2px solid #006837;
+       padding-bottom:3px;text-transform:uppercase;letter-spacing:0.5px;}
+    table{width:100%;border-collapse:collapse;margin-bottom:8px;font-size:11px;}
+    th{background:#006837;color:#FFF200;padding:6px 8px;text-align:left;font-weight:bold;font-size:10.5px;}
     td{padding:5px 8px;border-bottom:1px solid #e2e8f0;}
-    .statement-table td{padding:7px 10px;font-size:12px;border-bottom:1px solid #e2e8f0;}
-    .statement-table .label{color:#334155;}
-    .statement-table .amt{text-align:right;font-weight:bold;font-family:monospace,Arial;}
-    .statement-table .total-row td{border-top:2px solid #006837;border-bottom:2px solid #006837;font-weight:900;background:#f0fdf4;}
-    .statement-table .section-title{background:#006837;color:#FFF200;font-weight:bold;padding:7px 10px;text-transform:uppercase;letter-spacing:0.5px;}
-    .summary-box{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin:16px 0;}
-    .box{border:2px solid;border-radius:8px;padding:12px;text-align:center;}
-    .box .amt{font-size:18px;font-weight:900;}
-    .box .lbl{font-size:10px;font-weight:bold;text-transform:uppercase;margin-top:3px;}
-    .income{border-color:#006837;background:#f0fdf4;color:#006837;}
-    .expense{border-color:#dc2626;background:#fef2f2;color:#dc2626;}
-    .net{border-color:${netIncome>=0?'#0369a1':'#dc2626'};background:${netIncome>=0?'#eff6ff':'#fef2f2'};color:${netIncome>=0?'#0369a1':'#dc2626'};}
-    .summary-final{border:2px solid #006837;border-radius:10px;padding:14px 18px;margin:18px 0;background:#fafafa;}
-    .summary-final .row{display:flex;justify-content:space-between;padding:5px 0;font-size:12px;}
-    .summary-final .row.endbal{border-top:2px solid #006837;margin-top:6px;padding-top:10px;font-size:15px;font-weight:900;color:#006837;}
-    @media print{body{margin:8px;}@page{margin:10mm;}}
+    tfoot td{background:#f8fafc;font-weight:bold;padding:6px 8px;}
+
+    /* Statement of Income & Expenditure */
+    .stmt td{padding:7px 10px;font-size:12px;border-bottom:1px solid #e2e8f0;}
+    .stmt .lbl{color:#334155;}
+    .stmt .amt{text-align:right;font-weight:bold;font-family:'Courier New',monospace;}
+    .stmt .section-hdr{background:#006837;color:#FFF200;font-weight:900;
+      padding:7px 10px;text-transform:uppercase;font-size:11px;letter-spacing:0.5px;}
+    .stmt .section-hdr.red{background:#dc2626;}
+    .stmt .total-row td{border-top:2.5px solid #006837;border-bottom:2.5px solid #006837;
+      font-weight:900;background:#f0fdf4;font-size:13px;}
+    .stmt .total-row.exp td{border-color:#dc2626;background:#fef2f2;}
+    .stmt .indent{padding-left:22px;}
+
+    /* Summary boxes */
+    .summary-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin:16px 0;}
+    .sbox{border-radius:10px;padding:12px 14px;text-align:center;border:2px solid;}
+    .sbox .amt{font-size:17px;font-weight:900;}
+    .sbox .lbl{font-size:9px;font-weight:bold;text-transform:uppercase;margin-top:4px;letter-spacing:0.5px;}
+    .sbox.income{border-color:#006837;background:#f0fdf4;color:#006837;}
+    .sbox.expense{border-color:#dc2626;background:#fef2f2;color:#dc2626;}
+    .sbox.net-pos{border-color:#0369a1;background:#eff6ff;color:#0369a1;}
+    .sbox.net-neg{border-color:#dc2626;background:#fef2f2;color:#dc2626;}
+
+    /* Net income final line */
+    .net-line{display:flex;justify-content:space-between;align-items:center;
+      padding:12px 16px;border:2.5px solid ${netIncome>=0?'#006837':'#dc2626'};
+      border-radius:10px;margin:16px 0;
+      background:${netIncome>=0?'#f0fdf4':'#fef2f2'};}
+    .net-line span:first-child{font-size:12px;font-weight:bold;color:#374151;}
+    .net-line span:last-child{font-size:17px;font-weight:900;color:${netIncome>=0?'#166534':'#dc2626'};}
+
+    /* Outstanding dues alert */
+    .outstanding-banner{background:#fef3c7;border:2px solid #f59e0b;border-radius:8px;
+      padding:10px 14px;margin:14px 0;display:flex;justify-content:space-between;align-items:center;}
+    .outstanding-banner .label{font-size:11px;font-weight:bold;color:#92400e;}
+    .outstanding-banner .amount{font-size:16px;font-weight:900;color:#b45309;}
+
+    /* Certification */
+    .cert{margin-top:32px;padding-top:16px;border-top:2px solid #e2e8f0;}
+    .cert-text{font-size:10.5px;color:#374151;line-height:1.6;margin-bottom:20px;}
+    .sig-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:24px;margin-top:16px;}
+    .sig-box{text-align:center;}
+    .sig-line{border-top:1.5px solid #1a1a1a;margin-bottom:4px;margin-top:28px;}
+    .sig-name{font-size:11px;font-weight:bold;}
+    .sig-role{font-size:10px;color:#64748b;}
+
+    @media print{body{margin:8px;}@page{margin:12mm;size:A4;}}
   </style></head><body>
-  <h1>Financial Statement</h1>
-  <p class="sub">Chateau Real Executive Village Homeowners Association Inc. (CREVHAI)<br>Generated: ${today}${period ? ' · Period: ' + period : ''}</p>
 
-  <!-- ── Statement layout matching the physical ledger sheet ── -->
-  <table class="statement-table">
-    <tr><td colspan="2" class="section-title">Income</td></tr>
-    <tr><td class="label">Monthly Dues</td><td class="amt">${fmtCurrency(duesIncome.total)}</td></tr>
-    <tr><td class="label">Court Rental</td><td class="amt">${fmtCurrency(courtIncome.total)}</td></tr>
-    <tr class="total-row"><td>Total Income</td><td class="amt">${fmtCurrency(totalIncome)}</td></tr>
-
-    <tr><td colspan="2" class="section-title" style="background:#dc2626;">Expenses for the Month</td></tr>
-    <tr><td class="label">Salary Wages</td><td class="amt">${fmtCurrency(salaryWages)}</td></tr>
-    <tr><td class="label">Maintenance Repair</td><td class="amt">${fmtCurrency(maintenanceRepair)}</td></tr>
-    <tr><td class="label">Utility (Electricity &amp; Water Bills)</td><td class="amt">${fmtCurrency(utilityBills)}</td></tr>
-    <tr class="total-row" style="background:#fef2f2;border-color:#dc2626;"><td>Total Expenses</td><td class="amt" style="color:#dc2626;">${fmtCurrency(totalExpense)}</td></tr>
-  </table>
-
-  <div class="summary-final">
-    <div class="row endbal"><span>Net Income (Total Income − Total Expenses)</span><span style="color:${netIncome>=0?'#166534':'#dc2626'};">${netIncome >= 0 ? '' : '-'}${fmtCurrency(Math.abs(netIncome))}</span></div>
+  <!-- ── Document Header ── -->
+  <div class="doc-header">
+    <h1>${docTitle}</h1>
+    <div class="org">Chateau Real Executive Village Homeowners Association Inc. (CREVHAI)</div>
+    ${period
+      ? `<div class="period">Period: <strong>${period}</strong> &nbsp;·&nbsp; Generated: ${today}</div>`
+      : `<div class="period">Generated: ${today}</div>`}
   </div>
 
-  <div class="summary-box">
-    <div class="box income"><div class="amt">${fmtCurrency(totalIncome)}</div><div class="lbl">Total Income</div></div>
-    <div class="box expense"><div class="amt">${fmtCurrency(totalExpense)}</div><div class="lbl">Total Expenses</div></div>
-    <div class="box net"><div class="amt">${fmtCurrency(Math.abs(netIncome))}</div><div class="lbl">${netIncome>=0?'Net Income':'Net Deficit'}</div></div>
+  <!-- ── Statement of Income & Expenditure ── -->
+  <h2>Statement of Income &amp; Expenditure${period ? ` — ${period}` : ''}</h2>
+  <table class="stmt">
+    <tr><td colspan="2" class="section-hdr">Income</td></tr>
+    <tr><td class="lbl indent">Monthly Dues Collected</td><td class="amt">${fmtCur(duesIncome.total)}</td></tr>
+    <tr><td class="lbl indent">Court / Facility Rental</td><td class="amt">${fmtCur(courtIncome.total)}</td></tr>
+    <tr class="total-row"><td class="lbl"><strong>Total Income</strong></td><td class="amt">${fmtCur(totalIncome)}</td></tr>
+
+    <tr><td colspan="2" class="section-hdr red">Expenses</td></tr>
+    <tr><td class="lbl indent">Salary Wages</td><td class="amt">${fmtCur(salaryWages)}</td></tr>
+    <tr><td class="lbl indent">Maintenance &amp; Repair</td><td class="amt">${fmtCur(maintenanceRepair)}</td></tr>
+    <tr><td class="lbl indent">Utility Bills (Electricity &amp; Water)</td><td class="amt">${fmtCur(utilityBills)}</td></tr>
+    ${otherExpenses > 0 ? `<tr><td class="lbl indent">Other / Miscellaneous</td><td class="amt">${fmtCur(otherExpenses)}</td></tr>` : ''}
+    <tr class="total-row exp"><td class="lbl"><strong>Total Expenses</strong></td><td class="amt">${fmtCur(totalExpense)}</td></tr>
+  </table>
+
+  <!-- ── Net Income Summary ── -->
+  <div class="net-line">
+    <span>Net ${netIncome >= 0 ? 'Income' : 'Deficit'} (Total Income − Total Expenses)</span>
+    <span>${netIncome < 0 ? '−' : ''}${fmtCur(Math.abs(netIncome))}</span>
   </div>
 
-  <h2>Monthly Dues Collected (${consolidatedDuesPrint.length} resident${consolidatedDuesPrint.length !== 1 ? 's' : ''} · ${duesIncome.records.length} total payments)</h2>
-  <table><thead>${colHeaders(['Resident','Months Paid','Last Payment','Audit Status','Total Paid'])}</thead><tbody>${duesRows || '<tr><td colspan="5" style="text-align:center;color:#999">No records</td></tr>'}</tbody>
-  <tfoot><tr><td colspan="4" style="font-weight:bold;text-align:right;padding:6px 8px;background:#f8fafc;">Total Dues Collected:</td><td style="font-weight:900;text-align:right;padding:6px 8px;background:#f8fafc;color:#006837;">${fmtCurrency(duesIncome.total)}</td></tr></tfoot>
+  <div class="summary-grid">
+    <div class="sbox income"><div class="amt">${fmtCur(totalIncome)}</div><div class="lbl">Total Income</div></div>
+    <div class="sbox expense"><div class="amt">${fmtCur(totalExpense)}</div><div class="lbl">Total Expenses</div></div>
+    <div class="sbox ${netIncome>=0?'net-pos':'net-neg'}"><div class="amt">${fmtCur(Math.abs(netIncome))}</div><div class="lbl">Net ${netIncome>=0?'Income':'Deficit'}</div></div>
+  </div>
+
+  <!-- ── Outstanding Dues Alert ── -->
+  ${unpaidResidents.length > 0 ? `
+  <h2>Accounts Receivable — Outstanding Dues</h2>
+  <div class="outstanding-banner">
+    <span class="label">⚠ ${unpaidResidents.length} resident${unpaidResidents.length!==1?'s are':' is'} behind on dues</span>
+    <span class="amount">Total Outstanding: ${fmtCur(totalOutstanding)}</span>
+  </div>
+  <table>
+    <thead>${TH(['Resident','Unpaid Months','Outstanding Balance'])}</thead>
+    <tbody>${unpaidRows}</tbody>
+    <tfoot><tr>
+      <td colspan="2" style="text-align:right;">Total Accounts Receivable:</td>
+      <td style="text-align:right;color:#b45309;font-weight:900;">${fmtCur(totalOutstanding)}</td>
+    </tr></tfoot>
+  </table>` : `
+  <h2>Accounts Receivable — Outstanding Dues</h2>
+  <p style="color:#166534;font-weight:bold;font-size:11px;padding:10px;">✓ All dues are current — no outstanding balances.</p>`}
+
+  <!-- ── Monthly Dues Collected ── -->
+  <h2>Monthly Dues Collected — ${consolidatedDuesPrint.length} Resident${consolidatedDuesPrint.length!==1?'s':''} (${duesIncome.records.length} payments)</h2>
+  <table>
+    <thead>${TH(['Resident','Months Paid','Last Payment','Total Paid'])}</thead>
+    <tbody>${duesRows || '<tr><td colspan="4" style="text-align:center;color:#999">No records for this period</td></tr>'}</tbody>
+    <tfoot><tr>
+      <td colspan="3" style="text-align:right;">Total Dues Collected:</td>
+      <td style="text-align:right;color:#166534;font-weight:900;">${fmtCur(duesIncome.total)}</td>
+    </tr></tfoot>
   </table>
 
-  <h2>Court Rental Income (${courtIncome.records.length} completed reservations)</h2>
-  <table><thead>${colHeaders(['Date','Resident','Facility','Amount'])}</thead><tbody>${courtRows || '<tr><td colspan="4" style="text-align:center;color:#999">No records</td></tr>'}</tbody>
-  <tfoot><tr><td colspan="3" style="font-weight:bold;text-align:right;padding:6px 8px;background:#f8fafc;">Total Court Income:</td><td style="font-weight:900;text-align:right;padding:6px 8px;background:#f8fafc;color:#006837;">${fmtCurrency(courtIncome.total)}</td></tr></tfoot>
+  <!-- ── Court / Facility Rental ── -->
+  <h2>Court &amp; Facility Rental Income (${(courtIncome.records||[]).length} reservation${(courtIncome.records||[]).length!==1?'s':''})</h2>
+  <table>
+    <thead>${TH(['Date','Resident','Facility','Amount'])}</thead>
+    <tbody>${courtRows || '<tr><td colspan="4" style="text-align:center;color:#999">No court rentals for this period</td></tr>'}</tbody>
+    <tfoot><tr>
+      <td colspan="3" style="text-align:right;">Total Rental Income:</td>
+      <td style="text-align:right;color:#166534;font-weight:900;">${fmtCur(courtIncome.total)}</td>
+    </tr></tfoot>
   </table>
 
-  <h2>Itemized Expenses (${expenses.records.length} entries)</h2>
-  <table><thead>${colHeaders(['Date','Description','Category','Amount'])}</thead><tbody>${expenseRows || '<tr><td colspan="4" style="text-align:center;color:#999">No records</td></tr>'}</tbody>
-  <tfoot><tr><td colspan="3" style="font-weight:bold;text-align:right;padding:6px 8px;background:#f8fafc;">Total Expenses:</td><td style="font-weight:900;text-align:right;padding:6px 8px;background:#fef2f2;color:#dc2626;">${fmtCurrency(expenses.total)}</td></tr></tfoot>
+  <!-- ── Itemized Expenses ── -->
+  <h2>Itemized Expenses (${(expenses.records||[]).length} entries)</h2>
+  <table>
+    <thead>${TH(['Date','Description','Category','Amount'])}</thead>
+    <tbody>${expenseRows || '<tr><td colspan="4" style="text-align:center;color:#999">No expenses for this period</td></tr>'}</tbody>
+    <tfoot><tr>
+      <td colspan="3" style="text-align:right;">Total Expenses:</td>
+      <td style="text-align:right;color:#dc2626;font-weight:900;">${fmtCur(totalExpense)}</td>
+    </tr></tfoot>
   </table>
+
+  <!-- ── Certification Block ── -->
+  <div class="cert">
+    <p class="cert-text">
+      We, the undersigned officers of the Chateau Real Executive Village Homeowners Association Inc. (CREVHAI),
+      hereby certify that the foregoing financial statement is true and correct to the best of our knowledge,
+      based on the records of the Association${period ? ` for the period ${period}` : ''}.
+      This report was generated from the CREVHAI HOA Management System on ${today}.
+    </p>
+    <div class="sig-grid">
+      <div class="sig-box">
+        <div class="sig-line"></div>
+        <div class="sig-name">HOA President</div>
+        <div class="sig-role">Signature over Printed Name</div>
+      </div>
+      <div class="sig-box">
+        <div class="sig-line"></div>
+        <div class="sig-name">HOA Treasurer</div>
+        <div class="sig-role">Signature over Printed Name</div>
+      </div>
+      <div class="sig-box">
+        <div class="sig-line"></div>
+        <div class="sig-name">HOA Auditor</div>
+        <div class="sig-role">Signature over Printed Name</div>
+      </div>
+    </div>
+  </div>
+
   </body></html>`;
 
-  const w = window.open('', '_blank', 'width=1100,height=800');
+  const w = window.open('', '_blank', 'width=1100,height=850');
   w.document.write(html);
   w.document.close();
   w.focus();
-  // Trigger the print dialog but DON'T auto-close the tab afterward —
-  // closing unconditionally also closes the tab if the person clicks
-  // "Cancel" in the print dialog, losing the report. The person can close
-  // the tab themselves once they're done (same behavior as the SOA printer).
   w.onload = () => { w.print(); };
 };
 

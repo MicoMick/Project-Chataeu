@@ -6,6 +6,7 @@ import {
   Award, Filter,
 } from "lucide-react";
 import logger from '../auditlogger';
+import ResidentFilterSelect from '../Resident Management/ResidentFilterSelect';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const POSITION_COLORS = {
@@ -231,14 +232,15 @@ const CandidatesPage = ({ onBack }) => {
         {/* Filters */}
         <div className="flex flex-wrap gap-3">
           {/* Election filter */}
-          <div className="relative">
-            <Filter size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-            <select value={selectedElection} onChange={e => setSelectedElection(e.target.value)}
-              className="pl-8 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-600 focus:outline-none focus:ring-2 focus:ring-[#006837]/20 cursor-pointer shadow-sm appearance-none">
-              <option value="all">All Elections</option>
-              {elections.map(el => <option key={el.id} value={el.title}>{el.title}</option>)}
-            </select>
-          </div>
+          <ResidentFilterSelect
+            value={selectedElection}
+            onChange={setSelectedElection}
+            options={elections.map(el => ({ value: el.title, label: el.title }))}
+            allValue="all"
+            allLabel="All Elections"
+            icon={Filter}
+            className="w-56"
+          />
           {/* Search */}
           <div className="relative">
             <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />

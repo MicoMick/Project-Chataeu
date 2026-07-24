@@ -66,10 +66,10 @@ const MONTHLY_DUE_AMOUNT = 150; // ₱150 standard monthly HOA due (total of lin
 // Electricity has no fixed cost (it's an actual utility bill that varies),
 // so its per-resident share is computed at generation time from the total.
 const BILL_LINE_ITEMS_BASE = [
-  { label: 'Security Guard',  category: 'Salaries',    fixedTotal: 22000 },
-  { label: 'Electricity',     category: 'Utilities',   fixedTotal: 14000 }, // variable bill — see note above
-  { label: 'Street Sweepers', category: 'Maintenance', fixedTotal: 1200  },
-  { label: 'Water',           category: 'Utilities',   fixedTotal: 400   },
+  { label: 'Security Guard Salary', category: 'Salaries',    fixedTotal: 22000, type: 'Fixed'    },
+  { label: 'Electricity Bill',      category: 'Utilities',   fixedTotal: 14000, type: 'Variable' }, // actual bill — varies monthly
+  { label: 'Street Sweeper Salary', category: 'Maintenance', fixedTotal: 1200,  type: 'Fixed'    },
+  { label: 'Water Bill',            category: 'Utilities',   fixedTotal: 400,   type: 'Variable' }, // actual bill — varies monthly
 ];
 const ESTIMATED_RESIDENT_COUNT = 280;
 
@@ -78,12 +78,17 @@ const ESTIMATED_RESIDENT_COUNT = 280;
 // so the SOA can show exactly what portion of their due funds what.
 const buildLineItemBreakdown = () => {
   const totalBase = BILL_LINE_ITEMS_BASE.reduce((s, i) => s + i.fixedTotal, 0); // ₱37,600
-  return BILL_LINE_ITEMS_BASE.map(item => ({
-    label:    item.label,
-    category: item.category,
-    // Proportional share of ₱150 based on this item's % of total monthly cost
-    amount: Math.round((item.fixedTotal / totalBase) * MONTHLY_DUE_AMOUNT * 100) / 100,
-  }));
+  const items = [];
+  let sumSoFar = 0;
+  BILL_LINE_ITEMS_BASE.forEach((item, idx) => {
+    // Last item absorbs any rounding difference so items sum to EXACTLY ₱150.00
+    const amount = idx === BILL_LINE_ITEMS_BASE.length - 1
+      ? Math.round((MONTHLY_DUE_AMOUNT - sumSoFar) * 100) / 100
+      : Math.round((item.fixedTotal / totalBase) * MONTHLY_DUE_AMOUNT * 100) / 100;
+    sumSoFar = Math.round((sumSoFar + amount) * 100) / 100;
+    items.push({ label: item.label, category: item.category, type: item.type, amount });
+  });
+  return items;
 };
 
 
@@ -149,164 +154,249 @@ const buildFullAddress = (block, lot, street) => {
 // then triggers the browser print dialog.
 const printSOA = (resident, paidHistory = []) => {
   const fmtCurrency = (n) => `₱${Number(n || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}`;
-  const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
-  const fmtMonth = (d) => d ? new Date(d).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : '—';
+  const fmtDate  = (d) => d ? new Date(d).toLocaleDateString('en-PH', { month: 'short',  day: 'numeric', year: 'numeric' }) : '—';
+  const fmtDateL = (d) => d ? new Date(d).toLocaleDateString('en-PH', { month: 'long',   day: 'numeric', year: 'numeric' }) : '—';
+  const fmtMonth = (d) => d ? new Date(d).toLocaleDateString('en-PH', { month: 'long',   year: 'numeric' }) : '—';
 
-  const unpaidList = (resident.unpaidList || []).slice().sort((a, b) => new Date(a.due_date||0) - new Date(b.due_date||0));
-  const totalDue   = unpaidList.reduce((s, p) => s + Number(p.amount || 0), 0);
-  const today      = localToday();
-  const isSettled  = unpaidList.length === 0;
-  // Statement date: most recent bill issue date among unpaid items (when this SOA reflects billing from)
-  // Due date: the earliest unpaid due date — the most urgent deadline
-  // If the account has no outstanding balance, there's no real bill/deadline to show —
-  // so we display "N/A" instead of silently falling back to today's date for both.
-  const latestStatementDate = isSettled
-    ? null
-    : unpaidList.reduce((latest, p) => (p.statement_date && p.statement_date > latest ? p.statement_date : latest), unpaidList[0]?.statement_date || today);
-  const earliestDueDate = isSettled ? null : unpaidList[0]?.due_date;
+  const unpaidList       = (resident.unpaidList || []).slice().sort((a, b) => new Date(a.due_date||0) - new Date(b.due_date||0));
+  const totalDue         = unpaidList.reduce((s, p) => s + Number(p.amount || 0), 0);
+  const today            = localToday();
+  const isSettled        = unpaidList.length === 0;
+  const monthsUnpaidCount = unpaidList.length;
+  const latestStatementDate = isSettled ? null
+    : unpaidList.reduce((l, p) => (p.statement_date && p.statement_date > l ? p.statement_date : l), unpaidList[0]?.statement_date || today);
+  const earliestDueDate  = isSettled ? null : unpaidList[0]?.due_date;
+
+  // Reference number — YearMonth + first 6 chars of user id
+  const soaRef = `SOA-${today.slice(0,7).replace('-','')}` +
+    `-${(resident.id || resident.user_id || 'XXXXXX').slice(0,6).toUpperCase()}`;
+
+  // Breakdown — use stored line_items or freshly computed
+  const sampleLineItems = unpaidList.find(p => Array.isArray(p.line_items) && p.line_items.length)?.line_items
+    || buildLineItemBreakdown();
+
+  const TH = `background:#006837;color:#fff;text-align:left;padding:7px 9px;font-size:10px;font-weight:bold;text-transform:uppercase;letter-spacing:.04em;`;
+  const THR = TH + 'text-align:right;';
+
+  const breakdownRows = isSettled ? '' : sampleLineItems.map((item, i) => {
+    const bg   = i % 2 === 0 ? '#f8fafc' : '#fff';
+    const type = item.type;
+    const badge = type
+      ? `<span style="font-size:9px;padding:1px 5px;border-radius:3px;margin-left:4px;border:1px solid;${
+          type === 'Fixed'
+            ? 'color:#166534;background:#f0fdf4;border-color:#bbf7d0;'
+            : 'color:#64748b;background:#f8fafc;border-color:#e2e8f0;'
+        }">${type}</span>`
+      : '';
+    return `<tr>
+      <td style="padding:7px 9px;border-bottom:1px solid #f1f5f9;background:${bg};">${item.label}${badge}</td>
+      <td style="padding:7px 9px;border-bottom:1px solid #f1f5f9;background:${bg};font-size:10px;color:#64748b;">${item.category}</td>
+      <td style="padding:7px 9px;border-bottom:1px solid #f1f5f9;background:${bg};text-align:right;">${fmtCurrency(item.amount)}</td>
+      <td style="padding:7px 9px;border-bottom:1px solid #f1f5f9;background:${bg};text-align:right;font-weight:bold;">${fmtCurrency(item.amount * monthsUnpaidCount)}</td>
+    </tr>`;
+  }).join('');
 
   const unpaidRows = unpaidList.map((p, i) => `
     <tr style="background:${i % 2 === 0 ? '#fef2f2' : '#fff'}">
-      <td>${fmtMonth(p.due_date)}</td>
-      <td>Monthly HOA Dues</td>
-      <td>${fmtDate(p.statement_date)}</td>
-      <td>${fmtDate(p.due_date)}</td>
-      <td>${p.reference_no || '—'}</td>
-      <td style="text-align:center;font-weight:bold;color:${p.status === 'overdue' ? '#dc2626' : '#d97706'};text-transform:capitalize;">${p.status || 'unpaid'}</td>
-      <td style="text-align:right;font-weight:bold;">${fmtCurrency(p.amount)}</td>
-    </tr>`).join('');
-
-  // ── Itemized breakdown of what the ₱150 monthly due actually covers ──────
-  // Uses line_items stored on the most recent unpaid bill (or falls back to
-  // a fresh breakdown if older bills don't have it stored).
-  // Only shown when the resident actually has an outstanding balance —
-  // showing a "× 1 Month" breakdown for a ₱0.00 settled account is misleading.
-  const sampleLineItems = unpaidList.find(p => Array.isArray(p.line_items) && p.line_items.length)?.line_items
-    || buildLineItemBreakdown();
-  const monthsUnpaidCount = unpaidList.length;
-  const breakdownRows = isSettled ? '' : sampleLineItems.map((item, i) => `
-    <tr style="background:${i % 2 === 0 ? '#f8fafc' : '#fff'}">
-      <td>${item.label}</td>
-      <td>${item.category}</td>
-      <td style="text-align:right;">${fmtCurrency(item.amount)}</td>
-      <td style="text-align:right;font-weight:bold;">${fmtCurrency(item.amount * monthsUnpaidCount)}</td>
+      <td style="padding:7px 9px;border-bottom:1px solid #f1f5f9;">${fmtMonth(p.due_date)}</td>
+      <td style="padding:7px 9px;border-bottom:1px solid #f1f5f9;">Monthly HOA Dues</td>
+      <td style="padding:7px 9px;border-bottom:1px solid #f1f5f9;">${fmtDate(p.statement_date)}</td>
+      <td style="padding:7px 9px;border-bottom:1px solid #f1f5f9;">${fmtDate(p.due_date)}</td>
+      <td style="padding:7px 9px;border-bottom:1px solid #f1f5f9;font-size:10px;">${p.reference_no || '—'}</td>
+      <td style="padding:7px 9px;border-bottom:1px solid #f1f5f9;font-weight:bold;text-align:center;color:${p.status === 'overdue' ? '#dc2626' : '#d97706'};text-transform:capitalize;">${p.status || 'Unpaid'}</td>
+      <td style="padding:7px 9px;border-bottom:1px solid #f1f5f9;text-align:right;font-weight:bold;">${fmtCurrency(p.amount)}</td>
     </tr>`).join('');
 
   const paidRows = paidHistory.slice(0, 12).map((p, i) => `
     <tr style="background:${i % 2 === 0 ? '#f0fdf4' : '#fff'}">
-      <td>${fmtMonth(p.due_date)}</td>
-      <td>${fmtDate(p.paid_at)}</td>
-      <td>${p.payer_reference_no || '—'}</td>
-      <td>${p.reference_no || '—'}</td>
-      <td style="text-align:right;font-weight:bold;color:#166534;">${fmtCurrency(p.amount)}</td>
+      <td style="padding:7px 9px;border-bottom:1px solid #f1f5f9;">${fmtMonth(p.due_date)}</td>
+      <td style="padding:7px 9px;border-bottom:1px solid #f1f5f9;">${fmtDate(p.paid_at)}</td>
+      <td style="padding:7px 9px;border-bottom:1px solid #f1f5f9;font-size:10px;">${p.payer_reference_no || '—'}</td>
+      <td style="padding:7px 9px;border-bottom:1px solid #f1f5f9;font-size:10px;">${p.reference_no || '—'}</td>
+      <td style="padding:7px 9px;border-bottom:1px solid #f1f5f9;text-align:right;font-weight:bold;color:#166534;">${fmtCurrency(p.amount)}</td>
     </tr>`).join('');
 
-  const html = `
-  <html><head><title>Statement of Account — ${resident.full_name}</title>
+  const html = `<!DOCTYPE html><html lang="en"><head>
+  <meta charset="UTF-8">
+  <title>Statement of Account — ${resident.full_name}</title>
   <style>
-    * { box-sizing: border-box; }
-    body { font-family: 'Segoe UI', Arial, sans-serif; padding: 32px; color: #1e293b; }
-    .header { display: flex; align-items: center; gap: 14px; border-bottom: 3px solid #006837; padding-bottom: 14px; margin-bottom: 20px; }
-    .header h1 { font-size: 18px; margin: 0; color: #006837; }
-    .header p { font-size: 11px; color: #64748b; margin: 2px 0 0; }
-    .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
-    .meta-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px 16px; }
-    .meta-label { font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: .05em; }
-    .meta-val { font-size: 13px; font-weight: 700; color: #1e293b; margin-top: 2px; }
-    .date-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
-    .date-box { border-radius: 10px; padding: 12px 16px; border: 1px solid; }
-    .date-box.statement { background: #eff6ff; border-color: #bfdbfe; }
-    .date-box.due { background: #fef2f2; border-color: #fecaca; }
-    .date-box .lbl { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }
-    .date-box.statement .lbl { color: #1d4ed8; }
-    .date-box.due .lbl { color: #b91c1c; }
-    .date-box .val { font-size: 15px; font-weight: 900; margin-top: 2px; }
-    .date-box.statement .val { color: #1e3a8a; }
-    .date-box.due .val { color: #991b1b; }
-    .balance-banner { background: linear-gradient(135deg, #fef2f2, #fff); border: 2px solid #fecaca; border-radius: 14px; padding: 18px 22px; margin-bottom: 24px; display: flex; justify-content: space-between; align-items: center; }
-    .balance-banner .amt { font-size: 28px; font-weight: 900; color: #dc2626; }
-    .balance-banner .lbl { font-size: 11px; font-weight: 700; color: #b91c1c; text-transform: uppercase; letter-spacing: .05em; }
-    h2 { font-size: 13px; color: #006837; margin: 22px 0 8px; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px; }
-    table { width: 100%; border-collapse: collapse; font-size: 11px; }
-    th { background: #006837; color: #fff; text-align: left; padding: 8px; font-size: 10px; text-transform: uppercase; letter-spacing: .03em; }
-    td { padding: 7px 8px; border-bottom: 1px solid #f1f5f9; }
-    .footer-note { margin-top: 28px; font-size: 10px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 10px; }
-    @media print { body { padding: 16px; } }
+    *{box-sizing:border-box;}
+    body{font-family:'Segoe UI',Arial,sans-serif;margin:0;padding:0;background:#f1f5f9;color:#1e293b;}
+    .page{max-width:760px;margin:28px auto;background:#fff;border-radius:12px;overflow:hidden;
+      box-shadow:0 4px 20px rgba(0,0,0,.10);}
+    /* Letterhead */
+    .lh{background:#006837;padding:0;}
+    .lh-inner{display:flex;justify-content:space-between;align-items:flex-start;padding:20px 26px;}
+    .lh h1{margin:0;font-size:20px;font-weight:900;color:#fff;letter-spacing:-.3px;}
+    .lh .org{font-size:11px;color:#a7f3d0;margin:3px 0 0;}
+    .lh .doc-type{font-size:9px;font-weight:bold;color:#a7f3d0;text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px;}
+    .lh .ref-no{font-size:12px;font-weight:900;color:#FFF200;letter-spacing:.04em;}
+    .lh .issued{font-size:10px;color:#a7f3d0;margin-top:5px;}
+    /* Status banner */
+    .status-bar{padding:11px 26px;border-bottom:2px solid;display:flex;justify-content:space-between;align-items:center;}
+    .status-bar.unpaid{background:#fef2f2;border-color:#fecaca;}
+    .status-bar.settled{background:#f0fdf4;border-color:#bbf7d0;}
+    .status-bar .slbl{font-size:10px;font-weight:bold;text-transform:uppercase;letter-spacing:.05em;}
+    .status-bar.unpaid .slbl{color:#b91c1c;}
+    .status-bar.settled .slbl{color:#166534;}
+    .status-bar .sdl{font-size:11px;color:#991b1b;margin-top:2px;}
+    .status-bar .total-amt{font-size:22px;font-weight:900;color:#dc2626;text-align:right;}
+    .status-bar .total-lbl{font-size:9px;font-weight:bold;color:#b91c1c;text-transform:uppercase;letter-spacing:.05em;text-align:right;}
+    /* Account block */
+    .acct{display:grid;grid-template-columns:1fr 1fr;gap:0;border-bottom:1px solid #e2e8f0;}
+    .acct-cell{padding:16px 26px;}
+    .acct-cell:first-child{border-right:1px solid #f1f5f9;}
+    .acct-lbl{font-size:9px;font-weight:bold;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;}
+    .acct-val{font-size:13px;font-weight:900;color:#0f172a;margin-top:4px;}
+    .acct-sub{font-size:11px;color:#64748b;margin-top:2px;}
+    /* Body */
+    .body{padding:18px 26px;}
+    h2{font-size:11.5px;color:#006837;margin:18px 0 7px;border-bottom:2px solid #006837;
+      padding-bottom:4px;text-transform:uppercase;letter-spacing:.04em;}
+    h2:first-child{margin-top:0;}
+    table{width:100%;border-collapse:collapse;font-size:11px;margin-bottom:4px;}
+    th{${TH}}
+    td{padding:7px 9px;border-bottom:1px solid #f1f5f9;}
+    /* Breakdown note */
+    .bkd-note{font-size:10px;color:#94a3b8;font-style:italic;margin:0 0 7px;}
+    /* Payment instructions */
+    .pay-box{background:#fffbeb;border:1.5px solid #f59e0b;border-radius:8px;padding:13px 16px;margin:14px 0;}
+    .pay-box .plbl{font-size:10px;font-weight:900;color:#92400e;text-transform:uppercase;letter-spacing:.04em;margin-bottom:5px;}
+    .pay-box p{margin:0;font-size:10.5px;color:#78350f;line-height:1.7;}
+    /* Footer */
+    .footer{background:#f8fafc;border-top:2px solid #e2e8f0;padding:13px 26px;}
+    .footer p{margin:0;font-size:10px;color:#94a3b8;line-height:1.6;}
+    @media print{
+      body{background:#fff;}
+      .page{margin:0;border-radius:0;box-shadow:none;max-width:100%;}
+      @page{margin:8mm;size:A4;}
+    }
   </style></head>
   <body>
-    <div class="header">
+  <div class="page">
+
+    <!-- Letterhead -->
+    <div class="lh">
+      <div class="lh-inner">
+        <div>
+          <div class="doc-type">Official Document</div>
+          <h1>Statement of Account</h1>
+          <div class="org">Chateau Real Executive Village Homeowners Association Inc. (CREVHAI)</div>
+        </div>
+        <div style="text-align:right;">
+          <div style="font-size:9px;color:#a7f3d0;font-weight:bold;text-transform:uppercase;letter-spacing:.05em;">Reference No.</div>
+          <div class="ref-no">${soaRef}</div>
+          <div class="issued">Issued: ${fmtDateL(today)}</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Status banner -->
+    <div class="status-bar ${isSettled ? 'settled' : 'unpaid'}">
       <div>
-        <h1>HOA Statement of Account</h1>
-        <p>Chateau Real Executive Village Homeowners Association Inc. (CREVHAI) · Generated ${fmtDate(today)}</p>
+        <div class="slbl">${isSettled ? '✓ Account Status: Fully Settled' : '⚠ Account Status: Payment Required'}</div>
+        ${!isSettled ? `<div class="sdl">Payment due on or before <strong>${fmtDateL(earliestDueDate)}</strong></div>` : ''}
+      </div>
+      ${!isSettled ? `<div>
+        <div class="total-lbl">Total Amount Due</div>
+        <div class="total-amt">${fmtCurrency(totalDue)}</div>
+      </div>` : ''}
+    </div>
+
+    <!-- Account info -->
+    <div class="acct">
+      <div class="acct-cell">
+        <div class="acct-lbl">Account Holder</div>
+        <div class="acct-val">${resident.full_name}</div>
+        <div class="acct-sub">${resident.fullAddress || resident.street || 'N/A'}</div>
+      </div>
+      <div class="acct-cell">
+        <div class="acct-lbl">Billing Summary</div>
+        <div class="acct-val" style="${monthsUnpaidCount > 0 ? 'color:#dc2626;' : 'color:#166534;'}">
+          ${monthsUnpaidCount > 0
+            ? `${monthsUnpaidCount} month${monthsUnpaidCount !== 1 ? 's' : ''} unpaid`
+            : 'No outstanding balance'}
+        </div>
+        <div class="acct-sub">Monthly due: <strong>${fmtCurrency(MONTHLY_DUE_AMOUNT)}</strong>
+          ${monthsUnpaidCount > 1 ? ` · Period: ${fmtMonth(unpaidList[0]?.due_date)} – ${fmtMonth(unpaidList[unpaidList.length-1]?.due_date)}` : ''}</div>
       </div>
     </div>
 
-    <div class="meta-grid">
-      <div class="meta-box">
-        <div class="meta-label">Resident</div>
-        <div class="meta-val">${resident.full_name}</div>
-      </div>
-      <div class="meta-box">
-        <div class="meta-label">Address</div>
-        <div class="meta-val">${resident.fullAddress || resident.street || 'N/A'}</div>
-      </div>
-    </div>
+    <div class="body">
 
-    <div class="date-grid">
-      <div class="date-box statement" style="${isSettled ? 'background:#f0fdf4;border-color:#bbf7d0;' : ''}">
-        <div class="lbl" style="${isSettled ? 'color:#15803d;' : ''}">Statement Date — Bill Issued</div>
-        <div class="val" style="${isSettled ? 'color:#166534;font-size:13px;' : ''}">${isSettled ? 'N/A — Fully Settled' : fmtDate(latestStatementDate)}</div>
-      </div>
-      <div class="date-box due" style="${isSettled ? 'background:#f0fdf4;border-color:#bbf7d0;' : ''}">
-        <div class="lbl" style="${isSettled ? 'color:#15803d;' : ''}">Due Date — Payment Deadline</div>
-        <div class="val" style="${isSettled ? 'color:#166534;font-size:13px;' : ''}">${isSettled ? 'No Pending Dues' : fmtDate(earliestDueDate)}</div>
-      </div>
-    </div>
-
-    <div class="balance-banner">
-      <div>
-        <div class="lbl">Total Outstanding Balance</div>
-        <div class="amt">${fmtCurrency(totalDue)}</div>
-      </div>
-      <div style="text-align:right">
-        <div class="lbl">Months Unpaid</div>
-        <div style="font-size:22px;font-weight:900;color:#b91c1c;">${unpaidList.length}</div>
-      </div>
-    </div>
-
-    <h2>Monthly Due Breakdown — What Your ₱${MONTHLY_DUE_AMOUNT}/month Covers</h2>
-    ${isSettled ? `
-    <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:14px 18px;font-size:12px;color:#166534;">
-      No outstanding months to bill right now. Next month's ₱${MONTHLY_DUE_AMOUNT} due will be itemized here once issued.
-    </div>` : `
+    ${!isSettled ? `
+    <!-- Breakdown -->
+    <h2>Monthly Due Breakdown — What Your ${fmtCurrency(MONTHLY_DUE_AMOUNT)}/month Covers</h2>
+    <p class="bkd-note">* Fixed costs are charged at the same rate every month. Variable costs are estimates based on actual utility bills.</p>
     <table>
-      <thead><tr><th>Item</th><th>Category</th><th style="text-align:right;">Per Month</th><th style="text-align:right;">× ${monthsUnpaidCount} Month${monthsUnpaidCount !== 1 ? 's' : ''}</th></tr></thead>
+      <thead><tr>
+        <th>Item</th>
+        <th>Category</th>
+        <th style="text-align:right;">Per Month</th>
+        <th style="text-align:right;">&times; ${monthsUnpaidCount} Month${monthsUnpaidCount !== 1 ? 's' : ''}</th>
+      </tr></thead>
       <tbody>${breakdownRows}</tbody>
-      <tfoot><tr><td colspan="3" style="text-align:right;font-weight:bold;background:#f8fafc;">Total:</td><td style="text-align:right;font-weight:900;background:#f8fafc;color:#006837;">${fmtCurrency(totalDue)}</td></tr></tfoot>
-    </table>`}
-
-    <h2>Outstanding Charges</h2>
-    <table>
-      <thead><tr><th>Period</th><th>Description</th><th>Statement Date</th><th>Due Date</th><th>Reference #</th><th style="text-align:center;">Status</th><th style="text-align:right;">Amount</th></tr></thead>
-      <tbody>${unpaidRows || `<tr><td colspan="7" style="text-align:center;color:#16a34a;font-weight:bold;padding:14px;">No outstanding balance — account is fully settled.</td></tr>`}</tbody>
-      ${unpaidRows ? `<tfoot><tr><td colspan="6" style="text-align:right;font-weight:bold;background:#fef2f2;">Total Amount Due:</td><td style="text-align:right;font-weight:900;background:#fef2f2;color:#dc2626;">${fmtCurrency(totalDue)}</td></tr></tfoot>` : ''}
+      <tfoot><tr>
+        <td colspan="3" style="text-align:right;font-weight:bold;background:#f0fdf4;border-top:2px solid #006837;">Total:</td>
+        <td style="text-align:right;font-weight:900;background:#f0fdf4;border-top:2px solid #006837;color:#006837;font-size:13px;">${fmtCurrency(totalDue)}</td>
+      </tr></tfoot>
     </table>
 
+    <!-- Outstanding charges -->
+    <h2>Outstanding Charges</h2>
+    <table>
+      <thead><tr>
+        <th>Period</th><th>Description</th><th>Statement Date</th><th>Due Date</th>
+        <th>Reference #</th><th style="text-align:center;">Status</th><th style="text-align:right;">Amount</th>
+      </tr></thead>
+      <tbody>${unpaidRows}</tbody>
+      <tfoot><tr>
+        <td colspan="6" style="text-align:right;font-weight:bold;background:#fef2f2;border-top:2px solid #dc2626;">Total Amount Due:</td>
+        <td style="text-align:right;font-weight:900;background:#fef2f2;border-top:2px solid #dc2626;color:#dc2626;font-size:13px;">${fmtCurrency(totalDue)}</td>
+      </tr></tfoot>
+    </table>
+
+    <!-- Payment instructions -->
+    <div class="pay-box">
+      <div class="plbl">&#128179; Payment Instructions</div>
+      <p>Please settle your outstanding balance on or before <strong>${fmtDateL(earliestDueDate)}</strong> to avoid late penalties.<br>
+      Payments may be made at the <strong>HOA Office</strong> or through your designated <strong>HOA Treasurer</strong>.<br>
+      Present this document as your billing reference — Ref. No. <strong>${soaRef}</strong>.</p>
+    </div>
+    ` : `
+    <!-- Settled -->
+    <div style="background:#f0fdf4;border:1.5px solid #bbf7d0;border-radius:8px;padding:18px;text-align:center;margin-bottom:16px;">
+      <div style="font-size:24px;margin-bottom:4px;">&#10003;</div>
+      <div style="font-size:14px;font-weight:900;color:#166534;">Account Fully Settled</div>
+      <div style="font-size:11px;color:#15803d;margin-top:4px;">No outstanding dues. Thank you for your prompt payments!</div>
+    </div>
+    `}
+
     ${paidHistory.length ? `
+    <!-- Payment history -->
     <h2>Recent Payment History</h2>
     <table>
-      <thead><tr><th>Period</th><th>Date Paid</th><th>Your Payment Ref #</th><th>HOA Ref #</th><th style="text-align:right;">Amount</th></tr></thead>
+      <thead><tr>
+        <th>Period</th><th>Date Paid</th><th>Your Ref #</th><th>HOA Ref #</th>
+        <th style="text-align:right;">Amount</th>
+      </tr></thead>
       <tbody>${paidRows}</tbody>
     </table>` : ''}
 
-    <p class="footer-note">
-      This statement reflects account balance as of ${fmtDate(today)}. The statement date shows when this bill was issued;
-      the due date is your payment deadline. Please settle outstanding dues at the HOA office or through your designated treasurer
-      on or before the due date to avoid late status. For questions regarding this statement, please contact the HOA Treasurer's office.
-    </p>
+    </div><!-- end .body -->
+
+    <!-- Footer -->
+    <div class="footer">
+      <p>This is an official Statement of Account issued by the <strong>Chateau Real Executive Village
+      Homeowners Association Inc. (CREVHAI)</strong> on ${fmtDateL(today)}. This document is system-generated
+      and is valid without a manual signature. For disputes or inquiries, please contact the HOA Treasurer's
+      office within 5 business days. Ref. No.: <strong>${soaRef}</strong>.</p>
+    </div>
+
+  </div><!-- end .page -->
   </body></html>`;
 
-  const win = window.open('', '_blank', 'width=900,height=1000');
+  const win = window.open('', '_blank', 'width=900,height=1050');
   if (!win) { alert('Please allow popups to print the Statement of Account.'); return; }
   win.document.write(html);
   win.document.close();

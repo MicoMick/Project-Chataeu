@@ -4,12 +4,13 @@ import {
   Plus, BarChart2, Users, Calendar, X, CheckCircle,
   Bell, Pencil, Trash2, SearchX, ArrowLeft, AlertCircle,
   LayoutDashboard, UserPlus, Vote, Trophy, Clock,
-  TrendingUp, Shield, Zap, ChevronRight, Activity,
+  TrendingUp, Shield, Zap, ChevronRight, Activity, Filter,
 } from "lucide-react";
 import CandidateManager from "./CandidateManager.jsx";
 import CandidatesPage from "./CandidatesPage.jsx";
 import Results from "./Results.jsx";
 import logger from '../auditLogger';
+import ResidentFilterSelect from '../Resident Management/ResidentFilterSelect';
 
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -388,6 +389,7 @@ const ElectionPage = () => {
   const [elections,          setElections]          = useState([]);
   const [loading,            setLoading]            = useState(true);
   const [activeTab,          setActiveTab]          = useState('all');
+  const [electionFilter,     setElectionFilter]     = useState('all');
   const [isModalOpen,        setIsModalOpen]        = useState(false);
   const [isEditing,          setIsEditing]          = useState(false);
   const [selectedElectionId, setSelectedElectionId] = useState(null);
@@ -524,7 +526,9 @@ const ElectionPage = () => {
   }
 
   // ── Filtered list ─────────────────────────────────────────────────────────
-  const filtered = elections.filter(e => activeTab === 'results' ? e.status === 'closed' : true);
+  const filtered = elections
+    .filter(e => activeTab === 'results' ? e.status === 'closed' : true)
+    .filter(e => electionFilter === 'all' || e.id === electionFilter);
   const activeElection = elections.find(e => e.status === 'active');
   const totalVotes     = elections.reduce((s, e) => s + (e.votes_count || 0), 0);
 
@@ -633,18 +637,30 @@ const ElectionPage = () => {
 
       {/* ── Tab filter + grid ── */}
       {elections.length > 0 && (
-        <div className="flex gap-1 bg-slate-100 p-1 rounded-xl w-fit">
-          {[
-            { key: 'all',       label: 'All Elections' },
-            { key: 'results',   label: 'Completed'     },
-            { key: 'candidates',label: 'Candidates'    },
-          ].map(t => (
-            <button key={t.key} onClick={() => setActiveTab(t.key)}
-              className={`px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap
-                ${activeTab === t.key ? 'bg-white text-[#006837] shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
-              {t.label}
-            </button>
-          ))}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex gap-1 bg-slate-100 p-1 rounded-xl w-fit">
+            {[
+              { key: 'all',       label: 'All Elections' },
+              { key: 'results',   label: 'Completed'     },
+              { key: 'candidates',label: 'Candidates'    },
+            ].map(t => (
+              <button key={t.key} onClick={() => setActiveTab(t.key)}
+                className={`px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap
+                  ${activeTab === t.key ? 'bg-white text-[#006837] shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+
+          <ResidentFilterSelect
+            value={electionFilter}
+            onChange={setElectionFilter}
+            options={elections.map(el => ({ value: el.id, label: el.title }))}
+            allValue="all"
+            allLabel="All Elections"
+            icon={Filter}
+            className="w-56"
+          />
         </div>
       )}
 
