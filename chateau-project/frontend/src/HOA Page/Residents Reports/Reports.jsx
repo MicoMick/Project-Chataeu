@@ -3,7 +3,7 @@ import {
   Search, FileText, AlertCircle, CheckCircle2,
   Eye, Trash2, X, User, Tag, Calendar, Send,
   ChevronDown, ImageIcon, Maximize2, Video,
-  MoreHorizontal,
+  MoreHorizontal, RefreshCw,
 } from 'lucide-react';
 import { supabase } from '../supabaseAdmin';
 import { logAudit } from '../auditLogger';
@@ -367,11 +367,17 @@ const Reports = () => {
       )}
 
       {/* ── Header ── */}
-      <div>
-        <h1 className="text-2xl font-black text-slate-900 flex items-center gap-2">
-          <FileText size={22} className="text-[#006837]" /> Resident Reports
-        </h1>
-        <p className="text-sm text-slate-400 mt-0.5">Review and respond to resident-submitted issues</p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-black text-slate-900 flex items-center gap-2">
+            <FileText size={22} className="text-[#006837]" /> Resident Reports
+          </h1>
+          <p className="text-sm text-slate-400 mt-0.5">Review and respond to resident-submitted issues</p>
+        </div>
+        <button onClick={fetchReports}
+          className="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-semibold text-slate-600 hover:bg-slate-50 shadow-sm cursor-pointer transition-all shrink-0">
+          <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Refresh
+        </button>
       </div>
 
       {/* ── KPI Cards ── */}

@@ -225,7 +225,7 @@ const ResidentManage = () => {
       (r.block     || '').toLowerCase().includes(term) ||
       (r.lot       || '').toLowerCase().includes(term);
     const matchStatus   = statusFilter   === 'all' || r.account_status === statusFilter;
-    const matchResident = residentFilter === 'all' || r.id === residentFilter;
+    const matchResident = residentFilter === 'all' || (r.resident_type || '').toLowerCase() === residentFilter;
     return matchSearch && matchStatus && matchResident;
   });
   const { paginated: paginatedResidents, page: resPage, setPage: setResPage, totalPages: resTotalPages, total: filteredTotal } = usePagination(filtered, 5);
@@ -323,12 +323,16 @@ const ResidentManage = () => {
               <input type="text" placeholder="Search name, email, block…" value={searchTerm} onChange={e => setSearchTerm(e.target.value)}
                 className="w-full pl-8 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#006837]/30 focus:border-[#006837] transition-all" />
             </div>
-            {/* Resident filter */}
+            {/* Resident type filter */}
             <ResidentFilterSelect
               value={residentFilter}
               onChange={setResidentFilter}
               allValue="all"
-              options={residents.map(r => ({ value: r.id, label: r.full_name || r.username || r.email }))}
+              allLabel="All Residents"
+              options={[
+                { value: 'owner',  label: 'Owners' },
+                { value: 'tenant', label: 'Tenant' },
+              ]}
               className="sm:w-44 w-full"
             />
           </div>
@@ -401,7 +405,14 @@ const ResidentManage = () => {
                         {/* Actions */}
                         <td className="px-5 py-4">
                           <div className="flex items-center gap-1 justify-end">
-                            <button onClick={() => setViewProfile(r)} title="View" className="p-2 hover:bg-blue-50 text-slate-400 hover:text-blue-600 rounded-lg cursor-pointer"><Eye size={15} /></button>
+                            <button
+                              onClick={() => {
+                                const ownerName = r.owner_id
+                                  ? (residents.find(x => x.id === r.owner_id)?.full_name || null)
+                                  : null;
+                                setViewProfile({ ...r, ownerName });
+                              }}
+                              title="View" className="p-2 hover:bg-blue-50 text-slate-400 hover:text-blue-600 rounded-lg cursor-pointer"><Eye size={15} /></button>
 
                           </div>
                         </td>

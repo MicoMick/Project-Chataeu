@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   TrendingUp, TrendingDown, Users, Calendar, DollarSign, ShoppingCart,
   Wrench, AlertTriangle, CheckCircle, ChevronDown, RefreshCw,
   BarChart3, Activity, Shield, Volume2, Leaf, Lock, Car, HelpCircle,
-  Building, User, PieChart,
+  Building, User, PieChart, X,
 } from 'lucide-react';
 import {
   useMaintenanceStats,
@@ -34,11 +34,29 @@ const CAT_ICON = {
   roads:       Car,
   other:       HelpCircle,
 };
-const FILTERS = [
-  { value: '7d',    label: 'Last 7 Days' },
-  { value: 'month', label: 'This Month'  },
-  { value: 'year',  label: 'This Year'   },
+const PERIOD_OPTIONS = [
+  { key: 'all',        label: 'All Records'  },
+  { key: 'last7d',     label: 'Last 7 Days'  },
+  { key: 'this_month', label: 'This Month'   },
+  { key: 'last_month', label: 'Last Month'   },
+  { key: 'this_year',  label: 'This Year'    },
+  { key: 'last_year',  label: 'Last Year'    },
+  { key: 'custom',     label: 'Custom Range' },
 ];
+
+const getPeriodLabel = (period, customFrom, customTo) => {
+  const now = new Date();
+  switch (period) {
+    case 'all':        return 'All Records';
+    case 'last7d':     return 'Last 7 Days';
+    case 'this_month': return now.toLocaleString('default', { month: 'long', year: 'numeric' });
+    case 'last_month': { const d = new Date(now.getFullYear(), now.getMonth() - 1, 1); return d.toLocaleString('default', { month: 'long', year: 'numeric' }); }
+    case 'this_year':  return `Year ${now.getFullYear()}`;
+    case 'last_year':  return `Year ${now.getFullYear() - 1}`;
+    case 'custom':     return customFrom && customTo ? `${customFrom} – ${customTo}` : 'Custom Range';
+    default:           return '';
+  }
+};
 
 // ─── Pure-CSS chart primitives ────────────────────────────────────────────────
 
@@ -234,31 +252,60 @@ const DonutChart = ({ data = [], size = 160 }) => {
 
 // ─── Shared UI ────────────────────────────────────────────────────────────────
 
-const FilterDropdown = ({ value, onChange }) => {
+const PeriodFilter = ({ period, onPeriodChange, customFrom, customTo, onCustomFromChange, onCustomToChange }) => {
   const [open, setOpen] = useState(false);
-  const current = FILTERS.find((o) => o.value === value);
   return (
     <div className="relative">
       <button
-        onClick={() => setOpen(!open)}
+        onClick={() => setOpen((o) => !o)}
         className="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 hover:border-slate-300 hover:bg-slate-50 transition-all shadow-sm cursor-pointer"
       >
         <Calendar size={15} className="text-slate-400" />
-        {current?.label}
+        {getPeriodLabel(period, customFrom, customTo)}
         <ChevronDown size={14} className={`text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
       {open && (
-        <div className="absolute right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg z-20 overflow-hidden min-w-[160px]">
-          {FILTERS.map((opt) => (
-            <button
-              key={opt.value}
-              onClick={() => { onChange(opt.value); setOpen(false); }}
-              className={`w-full text-left px-4 py-2.5 text-sm font-medium transition-colors cursor-pointer
-                ${value === opt.value ? 'bg-green-50 text-[#006837] font-semibold' : 'text-slate-600 hover:bg-slate-50'}`}
-            >
-              {opt.label}
+        <div className="absolute right-0 top-full mt-2 w-72 bg-white rounded-2xl shadow-2xl border border-slate-200 p-5 z-20">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-sm font-black text-slate-800">Filter by Period</p>
+            <button onClick={() => setOpen(false)} className="p-1 hover:bg-slate-100 rounded-lg cursor-pointer">
+              <X size={14} className="text-slate-400" />
             </button>
-          ))}
+          </div>
+          <div className="grid grid-cols-2 gap-1.5 mb-3">
+            {PERIOD_OPTIONS.map((p) => (
+              <button
+                key={p.key}
+                onClick={() => {
+                  onPeriodChange(p.key);
+                  if (p.key !== 'custom') { onCustomFromChange(''); onCustomToChange(''); }
+                }}
+                className={`py-2 px-3 rounded-xl text-xs font-bold border-2 cursor-pointer transition-all text-left
+                  ${period === p.key ? 'bg-[#006837] border-[#006837] text-white' : 'bg-slate-50 border-slate-200 text-slate-500 hover:border-[#006837]/40 hover:text-[#006837]'}
+                  ${p.key === 'custom' ? 'col-span-2' : ''}`}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+          {period === 'custom' && (
+            <div className="grid grid-cols-2 gap-2 mb-3">
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">From</label>
+                <input type="date" value={customFrom} onChange={(e) => onCustomFromChange(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-[#006837]/20" />
+              </div>
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">To</label>
+                <input type="date" value={customTo} onChange={(e) => onCustomToChange(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-[#006837]/20" />
+              </div>
+            </div>
+          )}
+          <button onClick={() => setOpen(false)}
+            className="w-full py-2.5 bg-[#006837] hover:bg-[#004d29] text-white text-xs font-bold rounded-xl cursor-pointer">
+            Apply Filter
+          </button>
         </div>
       )}
     </div>
@@ -598,7 +645,14 @@ const RevenueWidget = ({ filter }) => {
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 const Statistics = () => {
-  const [filter, setFilter] = useState('year');
+  const [period, setPeriod]         = useState('this_year');
+  const [customFrom, setCustomFrom] = useState('');
+  const [customTo, setCustomTo]     = useState('');
+
+  const filter = useMemo(
+    () => (period === 'custom' ? { period: 'custom', from: customFrom, to: customTo } : period),
+    [period, customFrom, customTo]
+  );
 
   const { data: payData,  loading: payLoading  } = usePaymentStats(filter);
   const { data: maintData, loading: maintLoading } = useMaintenanceStats(filter);
@@ -625,7 +679,14 @@ const Statistics = () => {
             Real-time insights across maintenance, reservations &amp; payments
           </p>
         </div>
-        <FilterDropdown value={filter} onChange={setFilter} />
+        <PeriodFilter
+          period={period}
+          onPeriodChange={setPeriod}
+          customFrom={customFrom}
+          customTo={customTo}
+          onCustomFromChange={setCustomFrom}
+          onCustomToChange={setCustomTo}
+        />
       </div>
 
       {/* KPI Row 1 — Revenue / Orders */}

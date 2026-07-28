@@ -183,7 +183,10 @@ const FacilityCard = ({ fac, onView, onEdit, onDelete, currentUserRole }) => {
           {isItem && (
             <div className="flex items-center gap-1.5 mt-2 flex-wrap">
               <span className="inline-flex items-center gap-1 text-[9px] font-black text-blue-600 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full">
-                <Package size={9} /> {fac.amount ?? 0} in stock
+                <Package size={9} /> {fac.amount ?? 0} available
+              </span>
+              <span className="inline-flex items-center gap-1 text-[9px] font-black text-slate-500 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-full">
+                <Layers size={9} /> {fac.total_quantity ?? fac.amount ?? 0} total stock
               </span>
               <span className="inline-flex items-center gap-1 text-[9px] font-bold text-amber-600 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
                 <AlertTriangle size={9} /> Liability agreement applies
@@ -335,7 +338,7 @@ const Facility = () => {
       const { data, error } = await supabase.from('facilities').insert([{
         name: newItem.name, description: fullDescription,
         status: amountVal > 0 ? newItem.status : 'Not Available',
-        category: 'Amenity Item', amount: amountVal,
+        category: 'Amenity Item', amount: amountVal, total_quantity: amountVal,
         image_360_url: url, is_360: is360,
       }]).select();
       if (error) throw error;
@@ -535,10 +538,10 @@ const Facility = () => {
           onSubmit={handleAddItem} submitLabel="Add Item">
           <div><label className={labelCls}>Item Name</label><input className={inputCls} placeholder="e.g. Folding Chairs" value={newItem.name} onChange={e => setNewItem(p => ({...p, name: e.target.value}))} /></div>
           <div>
-            <label className={labelCls}>Amount in Stock</label>
+            <label className={labelCls}>Total Stock</label>
             <input type="number" min="0" className={inputCls} placeholder="e.g. 43" value={newItem.amount}
               onChange={e => setNewItem(p => ({...p, amount: e.target.value}))} />
-            <p className="text-[10px] text-slate-400 mt-1.5">Total units available for residents to borrow.</p>
+            <p className="text-[10px] text-slate-400 mt-1.5">Total units the HOA owns — all of them start out available to borrow.</p>
           </div>
           <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl">
             <div className="flex items-center gap-2 mb-2.5">
@@ -574,11 +577,19 @@ const Facility = () => {
           onSubmit={handleUpdate} submitLabel="Save Changes">
           <div><label className={labelCls}>Name</label><input className={inputCls} value={editingFacility.name} onChange={e => setEditingFacility(p => ({...p, name: e.target.value}))} /></div>
           {editingFacility.category === 'Amenity Item' && (
-            <div>
-              <label className={labelCls}>Amount in Stock</label>
-              <input type="number" min="0" className={inputCls} value={editingFacility.amount ?? ''}
-                onChange={e => setEditingFacility(p => ({...p, amount: e.target.value}))} />
-              <p className="text-[10px] text-slate-400 mt-1.5">Status auto-switches to "Not Available" when this reaches 0.</p>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className={labelCls}>Available Stock</label>
+                <input type="number" min="0" className={inputCls} value={editingFacility.amount ?? ''}
+                  onChange={e => setEditingFacility(p => ({...p, amount: e.target.value}))} />
+                <p className="text-[10px] text-slate-400 mt-1.5">Status auto-switches to "Not Available" at 0.</p>
+              </div>
+              <div>
+                <label className={labelCls}>Total Stock</label>
+                <input type="number" min="0" className={inputCls} value={editingFacility.total_quantity ?? ''}
+                  onChange={e => setEditingFacility(p => ({...p, total_quantity: e.target.value}))} />
+                <p className="text-[10px] text-slate-400 mt-1.5">Total units the HOA owns, including borrowed ones.</p>
+              </div>
             </div>
           )}
           {editingFacility.category === 'Amenity Facility' && (
@@ -704,15 +715,28 @@ const Facility = () => {
                   {/* Metadata */}
                   <div className="space-y-2.5">
                     {viewingFacility.category === 'Amenity Item' && (
-                      <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl border border-slate-100">
-                        <div className="w-8 h-8 bg-[#006837]/10 rounded-lg flex items-center justify-center shrink-0">
-                          <Package size={14} className="text-[#006837]" />
+                      <>
+                        <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl border border-slate-100">
+                          <div className="w-8 h-8 bg-[#006837]/10 rounded-lg flex items-center justify-center shrink-0">
+                            <Package size={14} className="text-[#006837]" />
+                          </div>
+                          <div>
+                            <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Available Stock</p>
+                            <p className="text-sm font-bold text-slate-800">{viewingFacility.amount ?? 0} unit{(viewingFacility.amount ?? 0) !== 1 ? 's' : ''}</p>
+                          </div>
                         </div>
-                        <div>
-                          <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Available Stock</p>
-                          <p className="text-sm font-bold text-slate-800">{viewingFacility.amount ?? 0} unit{(viewingFacility.amount ?? 0) !== 1 ? 's' : ''}</p>
+                        <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl border border-slate-100">
+                          <div className="w-8 h-8 bg-[#006837]/10 rounded-lg flex items-center justify-center shrink-0">
+                            <Layers size={14} className="text-[#006837]" />
+                          </div>
+                          <div>
+                            <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Total Stock</p>
+                            <p className="text-sm font-bold text-slate-800">
+                              {viewingFacility.total_quantity ?? viewingFacility.amount ?? 0} unit{(viewingFacility.total_quantity ?? viewingFacility.amount ?? 0) !== 1 ? 's' : ''}
+                            </p>
+                          </div>
                         </div>
-                      </div>
+                      </>
                     )}
                     {viewingFacility.capacity && (
                       <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl border border-slate-100">

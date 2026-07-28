@@ -52,6 +52,9 @@ const ACCESS = {
   // Resident/operational management
   OPERATIONS:  [ROLES.PRESIDENT, ROLES.VICE_PRESIDENT, ROLES.SECRETARY],
 
+  // Reservations — operational roles + treasurer (confirms payments, manages bookings)
+  RESERVATIONS: [ROLES.PRESIDENT, ROLES.VICE_PRESIDENT, ROLES.SECRETARY, ROLES.TREASURER],
+
   // Announcements + Reports — board_member can manage these
   COMM_OPS:    [ROLES.PRESIDENT, ROLES.VICE_PRESIDENT, ROLES.SECRETARY, ROLES.BOARD_MEMBER],
 
@@ -64,8 +67,8 @@ const ACCESS = {
   // Move In/Out Clearances — president + treasurer manage these
   CLEARANCES:  [ROLES.PRESIDENT, ROLES.TREASURER],
 
-  // Statistics — everyone except treasurer (no operational context)
-  STATISTICS:  [ROLES.PRESIDENT, ROLES.VICE_PRESIDENT, ROLES.SECRETARY, ROLES.AUDITOR],
+  // Statistics
+  STATISTICS:  [ROLES.PRESIDENT, ROLES.VICE_PRESIDENT, ROLES.SECRETARY, ROLES.AUDITOR, ROLES.TREASURER],
 
   // Auditor workspace — auditor + treasurer (treasurer needs full financial view)
   AUDITOR:     [ROLES.AUDITOR, ROLES.TREASURER],
@@ -214,7 +217,7 @@ function App() {
 
           {/* ── Reservations ── */}
           <Route path="reservations" element={
-            <RoleBasedRoute allowedRoles={ACCESS.OPERATIONS}>
+            <RoleBasedRoute allowedRoles={ACCESS.RESERVATIONS}>
               <Reservation />
             </RoleBasedRoute>
           } />
@@ -253,7 +256,7 @@ function App() {
             </RoleBasedRoute>
           } />
 
-          {/* ── Statistics — everyone except treasurer ── */}
+          {/* ── Statistics ── */}
           <Route path="statistics" element={
             <RoleBasedRoute allowedRoles={ACCESS.STATISTICS}>
               <Statistics />
