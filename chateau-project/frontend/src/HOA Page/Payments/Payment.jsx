@@ -3,6 +3,7 @@ import {
   Search, Plus, CreditCard, AlertCircle, CheckCircle2, DollarSign,
   Edit2, Trash2, X, Filter, Loader2, Download,
   Calendar, Users, ChevronDown, LayoutList, TableProperties, Printer, Mail,
+  Eye, FileText, XCircle, QrCode, Upload, RefreshCw,
 } from 'lucide-react';
 import { supabase } from '../supabaseAdmin';
 import { logAudit } from '../auditLogger';
@@ -58,11 +59,11 @@ const PaginationBar = ({ page, totalPages, setPage, total, rowsPerPage }) => {
 
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-const MONTHLY_DUE_AMOUNT = 150; // ₱150 standard monthly HOA due (total of line items below)
+const MONTHLY_DUE_DEFAULT = 150; // fallback used only until /hoa_settings has loaded
 
 // ─── Standard monthly bill breakdown ──────────────────────────────────────────
-// The ₱150 monthly due is not one flat charge — it's the sum of these
-// operating costs, split per resident (~280 residents in Chateau).
+// The monthly due is not one flat charge — it's the sum of these operating
+// costs, split per resident (~280 residents in Chateau).
 // Electricity has no fixed cost (it's an actual utility bill that varies),
 // so its per-resident share is computed at generation time from the total.
 const BILL_LINE_ITEMS_BASE = [
@@ -73,18 +74,19 @@ const BILL_LINE_ITEMS_BASE = [
 ];
 const ESTIMATED_RESIDENT_COUNT = 280;
 
-// Builds the per-resident breakdown for one month's bill.
-// Each resident's ₱150 is divided proportionally across the 4 categories,
+// Builds the per-resident breakdown for one month's bill, given the current
+// monthly due amount (configurable by Treasurer/President — see hoa_settings).
+// Each resident's due is divided proportionally across the 4 categories,
 // so the SOA can show exactly what portion of their due funds what.
-const buildLineItemBreakdown = () => {
+const buildLineItemBreakdown = (monthlyDueAmount = MONTHLY_DUE_DEFAULT) => {
   const totalBase = BILL_LINE_ITEMS_BASE.reduce((s, i) => s + i.fixedTotal, 0); // ₱37,600
   const items = [];
   let sumSoFar = 0;
   BILL_LINE_ITEMS_BASE.forEach((item, idx) => {
-    // Last item absorbs any rounding difference so items sum to EXACTLY ₱150.00
+    // Last item absorbs any rounding difference so items sum to EXACTLY the due amount
     const amount = idx === BILL_LINE_ITEMS_BASE.length - 1
-      ? Math.round((MONTHLY_DUE_AMOUNT - sumSoFar) * 100) / 100
-      : Math.round((item.fixedTotal / totalBase) * MONTHLY_DUE_AMOUNT * 100) / 100;
+      ? Math.round((monthlyDueAmount - sumSoFar) * 100) / 100
+      : Math.round((item.fixedTotal / totalBase) * monthlyDueAmount * 100) / 100;
     sumSoFar = Math.round((sumSoFar + amount) * 100) / 100;
     items.push({ label: item.label, category: item.category, type: item.type, amount });
   });
@@ -109,11 +111,12 @@ const getMonthYear = (date) => {
 };
 
 // ─── Reference number generator ───────────────────────────────────────────────
-// Generates a short unique ref like HOA-062026-A3F9
-const generateRefNo = (month, year) => {
-  const mm   = String(month + 1).padStart(2, '0');
-  const rand = Math.random().toString(36).substring(2, 6).toUpperCase();
-  return `HOA-${mm}${year}-${rand}`;
+// Generates a per-resident, per-month ref like SOA-202607-1F7A7D — same format
+// as the Statement of Account's own reference number, so both match.
+const generateRefNo = (month, year, userId) => {
+  const mm = String(month + 1).padStart(2, '0');
+  const uid = (userId || 'XXXXXX').slice(0, 6).toUpperCase();
+  return `SOA-${year}${mm}-${uid}`;
 };
 
 // ─── Local date helper ────────────────────────────────────────────────────────
@@ -152,28 +155,45 @@ const buildFullAddress = (block, lot, street) => {
 // Generates a printable per-resident billing statement, similar in spirit to
 // AuditorDashboard's printFinancialReport — opens a new window, builds HTML,
 // then triggers the browser print dialog.
-const printSOA = (resident, paidHistory = []) => {
+const printSOA = (resident, paidHistory = [], viewMode = 'both', monthlyDueAmount = MONTHLY_DUE_DEFAULT, qrCodeUrl = null) => {
   const fmtCurrency = (n) => `₱${Number(n || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}`;
   const fmtDate  = (d) => d ? new Date(d).toLocaleDateString('en-PH', { month: 'short',  day: 'numeric', year: 'numeric' }) : '—';
   const fmtDateL = (d) => d ? new Date(d).toLocaleDateString('en-PH', { month: 'long',   day: 'numeric', year: 'numeric' }) : '—';
   const fmtMonth = (d) => d ? new Date(d).toLocaleDateString('en-PH', { month: 'long',   year: 'numeric' }) : '—';
 
-  const unpaidList       = (resident.unpaidList || []).slice().sort((a, b) => new Date(a.due_date||0) - new Date(b.due_date||0));
-  const totalDue         = unpaidList.reduce((s, p) => s + Number(p.amount || 0), 0);
+  const showOutstanding = viewMode === 'outstanding' || viewMode === 'both';
+  const showHistory     = viewMode === 'history'     || viewMode === 'both';
+
+  // Ascending copy (oldest → newest) — used for date-range math (earliest due
+  // date, period span). Order-independent of how the table is displayed.
+  const unpaidListAsc    = (resident.unpaidList || []).slice().sort((a, b) => new Date(a.due_date||0) - new Date(b.due_date||0));
+  // Display copy (newest → oldest) — so when a new month's due is generated,
+  // it appears above older unpaid dues in the printed/emailed table.
+  const unpaidListDesc   = unpaidListAsc.slice().reverse();
+  const totalDue         = unpaidListAsc.reduce((s, p) => s + Number(p.amount || 0), 0);
   const today            = localToday();
-  const isSettled        = unpaidList.length === 0;
-  const monthsUnpaidCount = unpaidList.length;
+  const isSettled        = unpaidListAsc.length === 0;
+  const monthsUnpaidCount = unpaidListAsc.length;
   const latestStatementDate = isSettled ? null
-    : unpaidList.reduce((l, p) => (p.statement_date && p.statement_date > l ? p.statement_date : l), unpaidList[0]?.statement_date || today);
-  const earliestDueDate  = isSettled ? null : unpaidList[0]?.due_date;
+    : unpaidListAsc.reduce((l, p) => (p.statement_date && p.statement_date > l ? p.statement_date : l), unpaidListAsc[0]?.statement_date || today);
+  const earliestDueDate  = isSettled ? null : unpaidListAsc[0]?.due_date;
+
+  // Payment history — chronological order (January → July, etc.), oldest first.
+  // Capped to the most recent 12 entries, but that cap is applied before the
+  // chronological sort so we keep the newest 12 without disturbing their order.
+  const paidHistoryChrono = paidHistory
+    .slice()
+    .sort((a, b) => new Date(b.due_date || b.paid_at || 0) - new Date(a.due_date || a.paid_at || 0))
+    .slice(0, 12)
+    .sort((a, b) => new Date(a.due_date || a.paid_at || 0) - new Date(b.due_date || b.paid_at || 0));
 
   // Reference number — YearMonth + first 6 chars of user id
   const soaRef = `SOA-${today.slice(0,7).replace('-','')}` +
     `-${(resident.id || resident.user_id || 'XXXXXX').slice(0,6).toUpperCase()}`;
 
   // Breakdown — use stored line_items or freshly computed
-  const sampleLineItems = unpaidList.find(p => Array.isArray(p.line_items) && p.line_items.length)?.line_items
-    || buildLineItemBreakdown();
+  const sampleLineItems = unpaidListAsc.find(p => Array.isArray(p.line_items) && p.line_items.length)?.line_items
+    || buildLineItemBreakdown(monthlyDueAmount);
 
   const TH = `background:#006837;color:#fff;text-align:left;padding:7px 9px;font-size:10px;font-weight:bold;text-transform:uppercase;letter-spacing:.04em;`;
   const THR = TH + 'text-align:right;';
@@ -196,7 +216,7 @@ const printSOA = (resident, paidHistory = []) => {
     </tr>`;
   }).join('');
 
-  const unpaidRows = unpaidList.map((p, i) => `
+  const unpaidRows = unpaidListDesc.map((p, i) => `
     <tr style="background:${i % 2 === 0 ? '#fef2f2' : '#fff'}">
       <td style="padding:7px 9px;border-bottom:1px solid #f1f5f9;">${fmtMonth(p.due_date)}</td>
       <td style="padding:7px 9px;border-bottom:1px solid #f1f5f9;">Monthly HOA Dues</td>
@@ -207,7 +227,7 @@ const printSOA = (resident, paidHistory = []) => {
       <td style="padding:7px 9px;border-bottom:1px solid #f1f5f9;text-align:right;font-weight:bold;">${fmtCurrency(p.amount)}</td>
     </tr>`).join('');
 
-  const paidRows = paidHistory.slice(0, 12).map((p, i) => `
+  const paidRows = paidHistoryChrono.map((p, i) => `
     <tr style="background:${i % 2 === 0 ? '#f0fdf4' : '#fff'}">
       <td style="padding:7px 9px;border-bottom:1px solid #f1f5f9;">${fmtMonth(p.due_date)}</td>
       <td style="padding:7px 9px;border-bottom:1px solid #f1f5f9;">${fmtDate(p.paid_at)}</td>
@@ -317,16 +337,16 @@ const printSOA = (resident, paidHistory = []) => {
             ? `${monthsUnpaidCount} month${monthsUnpaidCount !== 1 ? 's' : ''} unpaid`
             : 'No outstanding balance'}
         </div>
-        <div class="acct-sub">Monthly due: <strong>${fmtCurrency(MONTHLY_DUE_AMOUNT)}</strong>
-          ${monthsUnpaidCount > 1 ? ` · Period: ${fmtMonth(unpaidList[0]?.due_date)} – ${fmtMonth(unpaidList[unpaidList.length-1]?.due_date)}` : ''}</div>
+        <div class="acct-sub">Monthly due: <strong>${fmtCurrency(monthlyDueAmount)}</strong>
+          ${monthsUnpaidCount > 1 ? ` · Period: ${fmtMonth(unpaidListAsc[0]?.due_date)} – ${fmtMonth(unpaidListAsc[unpaidListAsc.length-1]?.due_date)}` : ''}</div>
       </div>
     </div>
 
     <div class="body">
 
-    ${!isSettled ? `
+    ${showOutstanding ? (!isSettled ? `
     <!-- Breakdown -->
-    <h2>Monthly Due Breakdown — What Your ${fmtCurrency(MONTHLY_DUE_AMOUNT)}/month Covers</h2>
+    <h2>Monthly Due Breakdown — What Your ${fmtCurrency(monthlyDueAmount)}/month Covers</h2>
     <p class="bkd-note">* Fixed costs are charged at the same rate every month. Variable costs are estimates based on actual utility bills.</p>
     <table>
       <thead><tr>
@@ -342,7 +362,8 @@ const printSOA = (resident, paidHistory = []) => {
       </tr></tfoot>
     </table>
 
-    <!-- Outstanding charges -->
+    <!-- Outstanding charges — newest due shown first, so a freshly-generated
+         month's due appears above older unpaid months -->
     <h2>Outstanding Charges</h2>
     <table>
       <thead><tr>
@@ -362,6 +383,12 @@ const printSOA = (resident, paidHistory = []) => {
       <p>Please settle your outstanding balance on or before <strong>${fmtDateL(earliestDueDate)}</strong> to avoid late penalties.<br>
       Payments may be made at the <strong>HOA Office</strong> or through your designated <strong>HOA Treasurer</strong>.<br>
       Present this document as your billing reference — Ref. No. <strong>${soaRef}</strong>.</p>
+      ${qrCodeUrl ? `
+      <div style="margin-top:12px;text-align:center;">
+        <img src="${qrCodeUrl}" alt="GCash QR Code" style="max-width:160px;border:1px solid #e2e8f0;border-radius:8px;" />
+        <p style="margin:6px 0 0;font-size:10px;color:#92700e;font-weight:bold;">Scan this QR Code to pay directly</p>
+      </div>
+      ` : ''}
     </div>
     ` : `
     <!-- Settled -->
@@ -370,18 +397,21 @@ const printSOA = (resident, paidHistory = []) => {
       <div style="font-size:14px;font-weight:900;color:#166534;">Account Fully Settled</div>
       <div style="font-size:11px;color:#15803d;margin-top:4px;">No outstanding dues. Thank you for your prompt payments!</div>
     </div>
-    `}
+    `) : ''}
 
-    ${paidHistory.length ? `
-    <!-- Payment history -->
-    <h2>Recent Payment History</h2>
+    ${showHistory ? (paidHistoryChrono.length ? `
+    <!-- Payment history — chronological order, oldest month first -->
+    <h2>Past Recent Payment History</h2>
     <table>
       <thead><tr>
         <th>Period</th><th>Date Paid</th><th>Your Ref #</th><th>HOA Ref #</th>
         <th style="text-align:right;">Amount</th>
       </tr></thead>
       <tbody>${paidRows}</tbody>
-    </table>` : ''}
+    </table>` : `
+    <h2>Past Recent Payment History</h2>
+    <p style="font-size:11px;color:#94a3b8;font-style:italic;">No payment history on record yet.</p>
+    `) : ''}
 
     </div><!-- end .body -->
 
@@ -517,10 +547,10 @@ const StandingLedger = ({ residentsList, payments }) => {
         ? new Date(lastPaid.paid_at).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
         : 'No record',
       totalPaid: paidPayments.reduce((s, p) => s + Number(p.amount || 0), 0),
-      unpaidCount: rPayments.filter(p => ['unpaid','pending','overdue'].includes((p.status||'').toLowerCase())).length,
+      unpaidCount: rPayments.filter(p => ['unpaid','pending','pending_verification','overdue'].includes((p.status||'').toLowerCase())).length,
       // Accumulated balance — sum of ALL unpaid dues (grace period adds up)
       unpaidBalance: rPayments
-        .filter(p => ['unpaid','pending','overdue'].includes((p.status||'').toLowerCase()))
+        .filter(p => ['unpaid','pending','pending_verification','overdue'].includes((p.status||'').toLowerCase()))
         .reduce((sum, p) => sum + Number(p.amount || 0), 0),
     };
   });
@@ -534,7 +564,7 @@ const StandingLedger = ({ residentsList, payments }) => {
     (!search || r.full_name.toLowerCase().includes(search.toLowerCase()) ||
     r.block.toLowerCase().includes(search.toLowerCase()) ||
     r.lot.toLowerCase().includes(search.toLowerCase()))
-  );
+  ).sort((a, b) => (a.unpaidBalance > 0 ? 0 : 1) - (b.unpaidBalance > 0 ? 0 : 1));
   const { paginated: paginatedPayment, page: payPage, setPage: setPayPage, totalPages: payTotalPages, total: filteredTotal } = usePagination(filtered, 5);
 
   const printLedger = () => {
@@ -825,6 +855,11 @@ const Payment = () => {
   const [paidResidentFilter, setPaidResidentFilter] = useState('All');
 
   const [isEditTransactionOpen, setIsEditTransactionOpen] = useState(false);
+
+  // ── Proof-of-payment verification (resident-submitted, status 'pending_verification') ──
+  const [proofReviewPayment, setProofReviewPayment] = useState(null); // the payment row being reviewed
+  const [proofReviewImage,   setProofReviewImage]   = useState(null); // proof_url shown in lightbox
+  const [verifyingPaymentId, setVerifyingPaymentId]  = useState(null);
   const [selectedPayment,       setSelectedPayment]       = useState(null);
   const [isConfirmVoidOpen,     setIsConfirmVoidOpen]     = useState(false);
   const [isUnpaidBreakdownOpen, setIsUnpaidBreakdownOpen] = useState(false);
@@ -838,6 +873,149 @@ const Payment = () => {
 
   const currentUserRole = localStorage.getItem('userRole') || 'resident';
 
+  // ── Configurable monthly due (Treasurer/President only) ─────────────────────
+  // Stored in hoa_settings (single row, id=1). Falls back to MONTHLY_DUE_DEFAULT
+  // until the fetch below resolves, and again if the table doesn't exist yet.
+  const [monthlyDue,           setMonthlyDue]           = useState(MONTHLY_DUE_DEFAULT);
+  const [isEditDueOpen,        setIsEditDueOpen]        = useState(false);
+  const [editDueValue,         setEditDueValue]         = useState('');
+  const [savingDue,            setSavingDue]            = useState(false);
+
+  // ── GCash QR code (Treasurer/President only) ─────────────────────────────────
+  // Also stored on the hoa_settings single row, as photo_url — an image in
+  // the public 'hoa-qr-codes' storage bucket. Shown on the printed/emailed SOA
+  // so residents can scan-to-pay.
+  const [qrCodeUrl,            setQrCodeUrl]            = useState(null);
+  const [uploadingQr,          setUploadingQr]          = useState(false);
+  const [isQrModalOpen,        setIsQrModalOpen]        = useState(false);
+
+  const fetchMonthlyDue = async () => {
+    try {
+      const { data, error } = await supabase.from('hoa_settings').select('monthly_due_amount, photo_url').eq('id', 1).single();
+      if (!error && data) {
+        if (data.monthly_due_amount != null) setMonthlyDue(Number(data.monthly_due_amount));
+        setQrCodeUrl(data.photo_url || null);
+      }
+    } catch (_e) {
+      // hoa_settings not set up yet — keep the defaults.
+    }
+  };
+
+  const handleUploadQrCode = async (file) => {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { alert('Please upload an image file (PNG or JPG).'); return; }
+    setUploadingQr(true);
+    try {
+      const ext = file.name.split('.').pop() || 'png';
+      const path = `gcash-qr-${Date.now()}.${ext}`;
+      const { error: uploadErr } = await supabase.storage.from('hoa-qr-codes').upload(path, file, { upsert: true });
+      if (uploadErr) throw uploadErr;
+
+      const { data: { publicUrl } } = supabase.storage.from('hoa-qr-codes').getPublicUrl(path);
+      const { data: { user } } = await supabase.auth.getUser();
+      const { error: updateErr } = await supabase.from('hoa_settings').update({
+        photo_url: publicUrl,
+        updated_at: new Date().toISOString(),
+        updated_by: user?.id || null,
+      }).eq('id', 1);
+      if (updateErr) throw updateErr;
+
+      setQrCodeUrl(publicUrl);
+      await logAudit('UPDATE_QR_CODE', 'Updated the GCash payment QR code shown on the Statement of Account.');
+    } catch (e) {
+      alert('Failed to upload QR code: ' + e.message);
+    } finally {
+      setUploadingQr(false);
+    }
+  };
+
+  const handleSaveMonthlyDue = async () => {
+    const newAmount = Number(editDueValue);
+    if (!newAmount || newAmount <= 0) { alert('Enter a valid amount greater than 0.'); return; }
+    setSavingDue(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      const { error } = await supabase.from('hoa_settings').update({
+        monthly_due_amount: newAmount,
+        updated_at: new Date().toISOString(),
+        updated_by: user?.id || null,
+      }).eq('id', 1);
+      if (error) throw error;
+      setMonthlyDue(newAmount);
+      await logAudit('UPDATE_MONTHLY_DUE', `Monthly due changed from ₱${monthlyDue} to ₱${newAmount}.`);
+      setIsEditDueOpen(false);
+    } catch (e) {
+      alert('Failed to update monthly due: ' + e.message);
+    } finally {
+      setSavingDue(false);
+    }
+  };
+
+  // ── Approve or reject a resident-submitted proof of payment ─────────────────
+  // Payment rows land in status 'pending_verification' once a resident submits
+  // payer_reference_no + proof_url (+ submitted_at) from the mobile app.
+  const handleVerifyPayment = async (payment, decision) => {
+    if (!payment) return;
+    setVerifyingPaymentId(payment.id);
+    try {
+      let updates;
+      if (decision === 'approve') {
+        updates = {
+          status: 'paid',
+          paid_at: payment.submitted_at || new Date().toISOString(),
+        };
+      } else {
+        // Reject — revert to unpaid/overdue (based on due date) and clear the
+        // submission so the resident can resubmit a corrected proof.
+        const isPastDue = payment.due_date && new Date(payment.due_date) < new Date();
+        updates = {
+          status: isPastDue ? 'overdue' : 'unpaid',
+          payer_reference_no: null,
+          proof_url: null,
+          submitted_at: null,
+        };
+      }
+      const { error } = await supabase.from('payments').update(updates).eq('id', payment.id);
+      if (error) throw error;
+
+      const residentName = residentsList.find(r => r.id === payment.user_id)?.full_name || 'Resident';
+      await logAudit(
+        decision === 'approve' ? 'PAYMENT_VERIFIED' : 'PAYMENT_REJECTED',
+        `${decision === 'approve' ? 'Approved' : 'Rejected'} submitted proof of payment for ${residentName} — ₱${Number(payment.amount || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}, due ${payment.due_date || '—'}.`,
+      );
+
+      // ── Auto-reactivate if approving cleared the resident's last unpaid due ──
+      if (decision === 'approve') {
+        const { data: residentData } = await supabase
+          .from('profiles').select('id, full_name, account_status')
+          .eq('id', payment.user_id).single();
+
+        if (residentData?.account_status === 'delinquent') {
+          const { data: stillUnpaid } = await supabase
+            .from('payments').select('id')
+            .eq('user_id', payment.user_id)
+            .in('status', ['unpaid', 'overdue', 'pending', 'pending_verification'])
+            .limit(1);
+
+          if (!stillUnpaid?.length) {
+            await supabase.from('profiles')
+              .update({ account_status: 'active' }).eq('id', payment.user_id);
+            await logAudit('AUTO_REACTIVATE',
+              `${residentData.full_name} auto-reactivated — all dues are now paid.`);
+            fetchResidentsList();
+          }
+        }
+      }
+
+      await fetchPayments();
+      setProofReviewPayment(null);
+    } catch (e) {
+      alert('Failed to update payment: ' + e.message);
+    } finally {
+      setVerifyingPaymentId(null);
+    }
+  };
+
   // ── Bulk-send SOA emails to every resident with an outstanding balance ──
   // Calls the 'send-soa-emails' Supabase Edge Function (see
   // supabase/functions/send-soa-emails/index.ts). Requires RESEND_API_KEY
@@ -845,12 +1023,21 @@ const Payment = () => {
   const [sendingSOA,        setSendingSOA]        = useState(false);
   const [showSendConfirm,   setShowSendConfirm]   = useState(false);
   const [sendSOAResult,     setSendSOAResult]     = useState(null);
+  const [sendSOAViewMode,   setSendSOAViewMode]   = useState('both'); // 'outstanding' | 'history' | 'both' — applied to bulk email
+
+  // ── Per-resident SOA print — content filter modal ──────────────────────────
+  // Lets the treasurer choose, right before printing, whether the statement
+  // shows outstanding charges only or past payment history only.
+  const [soaPrintTarget, setSoaPrintTarget] = useState(null); // { resident, paidHistory } | null
+  const [soaPrintChoice, setSoaPrintChoice] = useState('outstanding'); // 'outstanding' | 'history' | 'both'
 
   const handleSendAllSOA = async () => {
     setSendingSOA(true);
     setSendSOAResult(null);
     try {
-      const { data, error } = await supabase.functions.invoke('send-soa-emails');
+      const { data, error } = await supabase.functions.invoke('send-soa-emails', {
+        body: { viewMode: sendSOAViewMode },
+      });
       if (error) throw error;
       setSendSOAResult({ type: 'success', ...data });
       await logAudit('BULK_SEND_SOA', `Sent ${data.sent || 0} SOA email(s), ${data.failed || 0} failed.`);
@@ -862,7 +1049,9 @@ const Payment = () => {
     }
   };
 
-  useEffect(() => { fetchPayments(); fetchResidentsList(); }, []);
+  const fetchAll = () => { fetchPayments(); fetchResidentsList(); fetchMonthlyDue(); };
+
+  useEffect(() => { fetchAll(); }, []);
 
   // ── Extracted: generate dues for current month ──────────────────────────────
   // Called automatically on the 1st, OR manually via the demo test button.
@@ -892,15 +1081,15 @@ const Payment = () => {
       .eq('account_status', 'active').order('full_name');
     if (!residents?.length) return { skipped: true, reason: 'No active residents found.' };
 
-    const lineItems = buildLineItemBreakdown();
+    const lineItems = buildLineItemBreakdown(monthlyDue);
 
     const rows = residents.map(r => ({
       user_id:        r.id,
-      amount:         MONTHLY_DUE_AMOUNT,
+      amount:         monthlyDue,
       statement_date: statementDate,
       due_date:       monthEnd,
       status:         'unpaid',
-      reference_no:   generateRefNo(month, year),
+      reference_no:   generateRefNo(month, year, r.id),
       line_items:     lineItems,
     }));
 
@@ -908,7 +1097,7 @@ const Payment = () => {
     if (error) return { success: false, error: error.message };
 
     await logAudit('AUTO_MONTHLY_DUE',
-      `Generated ₱${MONTHLY_DUE_AMOUNT} monthly dues for ${rows.length} residents — ${MONTHS[month]} ${year}. Statement: ${statementDate}, Due: ${monthEnd}.`);
+      `Generated ₱${monthlyDue} monthly dues for ${rows.length} residents — ${MONTHS[month]} ${year}. Statement: ${statementDate}, Due: ${monthEnd}.`);
     fetchPayments();
     return { success: true, count: rows.length, month: MONTHS[month], year };
   };
@@ -917,13 +1106,13 @@ const Payment = () => {
   // Flags any active resident whose total unpaid balance is ≥ ₱450 (3 months).
   // The graceDays param is kept for backward-compat but no longer used.
   const runDelinquencyCheck = async (graceDays = null) => {
-    const DELINQUENT_THRESHOLD = MONTHLY_DUE_AMOUNT * 3; // ₱450
+    const DELINQUENT_THRESHOLD = monthlyDue * 3; // 3 months unpaid, at the current due amount
 
     // Fetch all unpaid payments grouped by resident
     const { data: unpaidPayments, error: fetchErr } = await supabase
       .from('payments')
       .select('user_id, amount')
-      .in('status', ['unpaid', 'overdue', 'pending']);
+      .in('status', ['unpaid', 'overdue', 'pending', 'pending_verification']);
 
     if (fetchErr || !unpaidPayments?.length) return { success: true, count: 0 };
 
@@ -969,7 +1158,9 @@ const Payment = () => {
       const { data } = await supabase.from('profiles')
         .select('id, full_name, email, phone, block, lot, street, resident_type')
         .order('full_name');
-      if (data) setResidentsList(data);
+      // Tenants aren't billed for HOA dues — exclude them from every table on this page.
+      const owners = (data || []).filter(r => (r.resident_type || '').toLowerCase() !== 'tenant');
+      setResidentsList(owners);
     } catch (e) { console.error(e.message); }
   };
 
@@ -982,7 +1173,7 @@ const Payment = () => {
 
       // Auto-overdue check
       const today = new Date(); today.setHours(0, 0, 0, 0);
-      const toOverdue = pData.filter(p => p.status !== 'paid' && p.status !== 'overdue' && p.due_date && new Date(p.due_date) < today).map(p => p.id);
+      const toOverdue = pData.filter(p => p.status !== 'paid' && p.status !== 'overdue' && p.status !== 'pending_verification' && p.due_date && new Date(p.due_date) < today).map(p => p.id);
       if (toOverdue.length) {
         await supabase.from('payments').update({ status: 'overdue' }).in('id', toOverdue);
         await logAudit('SYSTEM_AUTO_UPDATE', `Auto-updated ${toOverdue.length} payment(s) to Overdue.`);
@@ -1053,7 +1244,7 @@ const Payment = () => {
             .from('payments')
             .select('id')
             .eq('user_id', selectedPayment.user_id)
-            .in('status', ['unpaid', 'overdue', 'pending'])
+            .in('status', ['unpaid', 'overdue', 'pending', 'pending_verification'])
             .neq('id', selectedPayment.id) // exclude the one we just paid
             .limit(1);
 
@@ -1116,81 +1307,23 @@ const Payment = () => {
     }
   };
 
-  // ── Mark ALL unpaid dues for a resident as paid in one click ────────────────
-  const [markAllPaidDate, setMarkAllPaidDate] = useState(localToday());
-  const [payerReferenceNo, setPayerReferenceNo] = useState('');
+  // A due can only become 'paid' through the proof-of-verification step — a
+  // month only reaches 'pending_verification' once the resident has actually
+  // submitted a payer_reference_no + proof_url. This modal is a read-only
+  // overview of what's owed; it hands off to Review Proof, never sets 'paid' itself.
+  const breakdownPendingPayment = breakdownPayments.find(
+    p => (p.status || '').toLowerCase() === 'pending_verification'
+  ) || null;
 
-  const submitMarkAllPaid = async () => {
-    if (!breakdownPayments.length) return;
-    if (!payerReferenceNo.trim()) {
-      setTransaction({ status: 'error', message: 'Please enter the resident\'s payment reference number (GCash/bank transfer #) before marking as paid.' });
-      return;
-    }
-    const paidAt = markAllPaidDate
-      ? new Date(markAllPaidDate).toISOString()
-      : new Date().toISOString();
-
-    setIsUnpaidBreakdownOpen(false);
-    setTransaction({ status: 'loading', message: `Marking ${breakdownPayments.length} payment(s) as paid…` });
-
-    try {
-      const ids = breakdownPayments.map(p => p.id);
-      const { error } = await supabase
-        .from('payments')
-        .update({ status: 'paid', paid_at: paidAt, payer_reference_no: payerReferenceNo.trim() })
-        .in('id', ids);
-      if (error) throw error;
-
-      const residentName = (Array.isArray(breakdownPayments[0]?.profiles)
-        ? breakdownPayments[0]?.profiles[0]?.full_name
-        : breakdownPayments[0]?.profiles?.full_name) || 'Resident';
-
-      await logAudit(
-        'BULK_MARK_PAID',
-        `Marked ${ids.length} due(s) as paid for ${residentName}. IDs: ${ids.join(', ')}.`
-      );
-
-      // ── Auto-reactivate if resident was delinquent ──────────────────────
-      const userId = breakdownPayments[0]?.user_id;
-      if (userId) {
-        const { data: residentData } = await supabase
-          .from('profiles').select('id, full_name, account_status')
-          .eq('id', userId).single();
-
-        if (residentData?.account_status === 'delinquent') {
-          // Re-query remaining unpaid AFTER the update so the count is accurate
-          const { data: stillUnpaid } = await supabase
-            .from('payments').select('id')
-            .eq('user_id', userId)
-            .in('status', ['unpaid', 'overdue', 'pending'])
-            .limit(1);
-
-          if (!stillUnpaid?.length) {
-            await supabase.from('profiles')
-              .update({ account_status: 'active' }).eq('id', userId);
-            await logAudit('AUTO_REACTIVATE',
-              `${residentData.full_name} auto-reactivated — all dues are now paid (bulk).`);
-            fetchPayments();
-            fetchResidentsList();
-            setTransaction({
-              status: 'success',
-              message: `All ${ids.length} due(s) marked as paid. ${residentData.full_name}'s account has been automatically reactivated.`,
-            });
-            return;
-          }
-        }
-      }
-      // ────────────────────────────────────────────────────────────────────
-
-      fetchPayments();
-      setTransaction({
-        status: 'success',
-        message: `${breakdownPayments.length} due(s) marked as paid successfully.`,
-      });
-    } catch (e) {
-      setTransaction({ status: 'error', message: 'Failed: ' + e.message });
-    }
-  };
+  // Full billing history (paid + unpaid) for whoever the modal is open for,
+  // newest month first — so past settled months (Jan–Jun, etc.) stay visible
+  // below the current unpaid/pending one instead of disappearing entirely.
+  const breakdownUserId = breakdownPayments[0]?.user_id;
+  const breakdownFullHistory = breakdownUserId
+    ? payments
+        .filter(p => p.user_id === breakdownUserId)
+        .sort((a, b) => new Date(b.due_date || 0) - new Date(a.due_date || 0))
+    : breakdownPayments;
 
   // ── Resident-based table rows — one row per resident, always ─────────────────
   // Amount = unpaid balance (grows as months are generated, resets to ₱0 when paid).
@@ -1198,7 +1331,7 @@ const Payment = () => {
   const residentRows = residentsList.map(r => {
     const rPayments = payments.filter(p => p.user_id === r.id);
     const unpaidList = rPayments.filter(p =>
-      ['unpaid','overdue','pending'].includes((p.status || '').toLowerCase())
+      ['unpaid','overdue','pending','pending_verification'].includes((p.status || '').toLowerCase())
     ).sort((a, b) => new Date(a.due_date || 0) - new Date(b.due_date || 0));
 
     const balance = unpaidList.reduce((s, p) => s + Number(p.amount || 0), 0);
@@ -1212,6 +1345,10 @@ const Payment = () => {
     if (hasAnyPayment) {
       standing = months > 0 ? 'Unpaid' : 'Settled';
     }
+
+    // The specific unpaid month (if any) currently awaiting treasurer/president
+    // review — resident already submitted payer_reference_no + proof_url.
+    const pendingVerification = unpaidList.find(p => (p.status || '').toLowerCase() === 'pending_verification') || null;
 
     return {
       _residentRow: true,
@@ -1227,6 +1364,7 @@ const Payment = () => {
       newest,
       standing,
       unpaidList,
+      pendingVerification,
     };
   });
 
@@ -1238,9 +1376,10 @@ const Payment = () => {
       || (statusFilter === 'Paid'    && r.standing === 'Settled')
       || (statusFilter === 'Unpaid'  && r.months > 0)
       || (statusFilter === 'Overdue' && r.months > 0)
-      || (statusFilter === 'Pending' && r.months > 0);
+      || (statusFilter === 'Pending' && r.months > 0)
+      || (statusFilter === 'PendingVerification' && !!r.pendingVerification);
     return nameMatch && residentMatch && statusMatch;
-  });
+  }).sort((a, b) => (a.months > 0 ? 0 : 1) - (b.months > 0 ? 0 : 1));
 
   const { paginated: paginatedPayments, page: transPage, setPage: setTransPage, totalPages: transTotalPages } = usePagination(consolidatedPayments, 5);
 
@@ -1252,7 +1391,7 @@ const Payment = () => {
     const totalPaid  = paidList.reduce((s, p) => s + Number(p.amount || 0), 0);
     const lastPaid   = paidList[0]?.paid_at || null;
     const stillUnpaid = rPayments.filter(p =>
-      ['unpaid','overdue','pending'].includes((p.status || '').toLowerCase())
+      ['unpaid','overdue','pending','pending_verification'].includes((p.status || '').toLowerCase())
     ).length;
     return {
       user_id:    r.id,
@@ -1270,14 +1409,15 @@ const Payment = () => {
     const nameMatch     = r.full_name.toLowerCase().includes(paidSearchTerm.toLowerCase());
     const residentMatch = paidResidentFilter === 'All' || r.user_id === paidResidentFilter;
     return nameMatch && residentMatch;
-  });
+  }).sort((a, b) => (a.stillUnpaid > 0 ? 0 : 1) - (b.stillUnpaid > 0 ? 0 : 1));
 
   const { paginated: paginatedPaid, page: paidPage, setPage: setPaidPage, totalPages: paidTotalPages } =
     usePagination(filteredPaid, 5);
 
   const getStatusStyle = (s) => {
     switch ((s || '').toLowerCase()) {
-      case 'paid':    return 'bg-emerald-50 text-emerald-700 border border-emerald-100';
+      case 'paid':                return 'bg-emerald-50 text-emerald-700 border border-emerald-100';
+      case 'pending_verification': return 'bg-blue-50 text-blue-700 border border-blue-100';
       case 'pending': return 'bg-amber-50 text-amber-700 border border-amber-100';
       case 'overdue': return 'bg-red-50 text-red-600 border border-red-100';
       case 'unpaid':  return 'bg-slate-100 text-slate-600 border border-slate-200';
@@ -1287,6 +1427,7 @@ const Payment = () => {
 
   const totalCollected = payments.filter(p => p.status?.toLowerCase() === 'paid').reduce((s, p) => s + Number(p.amount || 0), 0);
   const pendingCount   = payments.filter(p => ['pending','unpaid'].includes(p.status?.toLowerCase())).length;
+  const pendingVerificationCount = payments.filter(p => p.status?.toLowerCase() === 'pending_verification').length;
   const overdueCount   = payments.filter(p => p.status?.toLowerCase() === 'overdue').length;
   const paidCount      = payments.filter(p => p.status?.toLowerCase() === 'paid').length;
 
@@ -1346,19 +1487,34 @@ const Payment = () => {
                 </div>
               </div>
 
-              {/* Individual month list (read-only reference) */}
-              <div className="space-y-1.5 max-h-44 overflow-y-auto pr-1 mb-5">
-                {breakdownPayments.map((p, i) => (
+              {/* Full billing history — unpaid/pending months plus past settled ones, scrolls past ~4 rows */}
+              <div className="space-y-1.5 max-h-64 overflow-y-auto pr-1 mb-5">
+                {breakdownFullHistory.map((p, i) => {
+                  const st = (p.status || '').toLowerCase();
+                  const badgeColor = st === 'paid'
+                    ? 'bg-emerald-100 text-emerald-600'
+                    : st === 'pending_verification'
+                    ? 'bg-blue-100 text-blue-600'
+                    : 'bg-red-100 text-red-500';
+                  return (
                   <div key={p.id} className="flex items-center justify-between px-3.5 py-2.5 bg-slate-50 border border-slate-100 rounded-xl">
                     <div className="flex items-center gap-2.5">
-                      <span className="w-5 h-5 rounded-full bg-red-100 text-red-500 text-[10px] font-black flex items-center justify-center shrink-0">{i + 1}</span>
+                      <span className={`w-5 h-5 rounded-full ${badgeColor} text-[10px] font-black flex items-center justify-center shrink-0`}>{i + 1}</span>
                       <div>
-                        <span className="text-sm font-semibold text-slate-700">
+                        <span className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
                           {p.due_date ? new Date(p.due_date).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : '—'}
+                          {st === 'pending_verification' && (
+                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-100">Pending Verification</span>
+                          )}
+                          {st === 'paid' && (
+                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100">Paid</span>
+                          )}
                         </span>
-                        <p className="text-[10px] text-slate-400">
-                          Billed {p.statement_date ? new Date(p.statement_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'}
-                          {' · '}Due {p.due_date ? new Date(p.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'}
+                        <p className="text-[11px] text-slate-500 font-medium">
+                          {st === 'paid'
+                            ? `Paid ${p.paid_at ? new Date(p.paid_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}`
+                            : <>Billed {p.statement_date ? new Date(p.statement_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'}
+                              {' · '}Due {p.due_date ? new Date(p.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'}</>}
                         </p>
                       </div>
                     </div>
@@ -1385,34 +1541,26 @@ const Payment = () => {
                       </button>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
 
-              {/* Payer's payment reference number — mandatory proof of payment */}
-              <div className="mb-4">
-                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
-                  Resident's Payment Ref # <span className="text-red-500">*required</span>
-                </label>
-                <input
-                  type="text"
-                  value={payerReferenceNo}
-                  onChange={e => setPayerReferenceNo(e.target.value)}
-                  placeholder="e.g. GCash ref # or bank transfer #"
-                  className="w-full px-4 py-2.5 bg-blue-50 border border-blue-200 text-blue-800 placeholder-blue-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-400/30 text-sm"
-                />
-                <p className="text-[10px] text-slate-400 mt-1">This is the resident's own GCash/bank transaction number — proof that they actually paid.</p>
-              </div>
-
-              {/* Date paid picker */}
-              <div className="mb-5">
-                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Date Paid (defaults to today)</label>
-                <input
-                  type="date"
-                  value={markAllPaidDate}
-                  onChange={e => setMarkAllPaidDate(e.target.value)}
-                  className="w-full px-4 py-2.5 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 cursor-pointer text-sm"
-                />
-              </div>
+              {/* Verification status banner */}
+              {breakdownPendingPayment ? (
+                <div className="mb-5 p-3.5 bg-blue-50 border border-blue-100 rounded-2xl flex items-start gap-2.5">
+                  <AlertCircle size={16} className="text-blue-500 shrink-0 mt-0.5" />
+                  <p className="text-xs font-semibold text-blue-700">
+                    The resident has submitted proof of payment for one of these months. Review it to approve or reject — a due can only become <span className="font-black">Paid</span> through that step.
+                  </p>
+                </div>
+              ) : (
+                <div className="mb-5 p-3.5 bg-slate-50 border border-slate-200 rounded-2xl flex items-start gap-2.5">
+                  <AlertCircle size={16} className="text-slate-400 shrink-0 mt-0.5" />
+                  <p className="text-xs font-semibold text-slate-500">
+                    Waiting on the resident to pay and submit proof (GCash/bank transfer #). These months can't be marked as paid until then.
+                  </p>
+                </div>
+              )}
 
               {/* Action buttons */}
               <div className="flex gap-3">
@@ -1420,11 +1568,16 @@ const Payment = () => {
                   className="flex-1 px-5 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl font-bold cursor-pointer transition-all">
                   Cancel
                 </button>
-                <button onClick={submitMarkAllPaid}
-                  disabled={!payerReferenceNo.trim()}
+                <button
+                  onClick={() => {
+                    setIsUnpaidBreakdownOpen(false);
+                    setProofReviewPayment(breakdownPendingPayment);
+                  }}
+                  disabled={!breakdownPendingPayment}
+                  title={!breakdownPendingPayment ? 'No submitted payment to review yet' : undefined}
                   className="flex-1 px-5 py-3 bg-[#006837] hover:bg-[#004d29] text-white rounded-2xl font-bold shadow-lg shadow-[#006837]/20 cursor-pointer transition-all flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed">
-                  <CheckCircle2 size={16} />
-                  Mark All {breakdownPayments.length} as Paid
+                  <Eye size={16} />
+                  {breakdownPendingPayment ? 'Review Payment Proof' : 'Awaiting Resident Payment'}
                 </button>
               </div>
 
@@ -1471,6 +1624,7 @@ const Payment = () => {
                 <option value="paid">Paid</option>
                 <option value="unpaid">Unpaid</option>
                 <option value="pending">Pending</option>
+                <option value="pending_verification">Pending Verification</option>
                 <option value="overdue">Overdue</option>
               </select>
             </div>
@@ -1516,6 +1670,30 @@ const Payment = () => {
           <p className="text-sm text-slate-400 mt-0.5">Manage dues, issue bills, and track resident standing</p>
         </div>
         <div className="flex items-center gap-2.5 flex-wrap">
+          <button onClick={fetchAll}
+            className="flex items-center gap-2 px-3.5 py-2 bg-white border border-slate-200 rounded-xl text-sm font-semibold text-slate-600 hover:bg-slate-50 shadow-sm cursor-pointer transition-all">
+            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Refresh
+          </button>
+          <div className="flex items-center gap-2 px-3.5 py-2 bg-white border border-slate-200 rounded-xl">
+            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Monthly Due</span>
+            <span className="text-sm font-black text-slate-800">₱{monthlyDue.toLocaleString('en-PH', { minimumFractionDigits: 2 })}</span>
+            <RequireRole userRole={currentUserRole} allowedRoles={['treasurer','president']}>
+              <button onClick={() => { setEditDueValue(String(monthlyDue)); setIsEditDueOpen(true); }}
+                title="Edit monthly due"
+                className="p-1 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-[#006837] cursor-pointer transition-all">
+                <Edit2 size={13} />
+              </button>
+            </RequireRole>
+          </div>
+          <button onClick={() => setIsQrModalOpen(true)}
+            className="flex items-center gap-2 px-3.5 py-2 bg-white border border-slate-200 hover:border-[#006837] rounded-xl transition-all cursor-pointer">
+            {qrCodeUrl ? (
+              <img src={qrCodeUrl} alt="GCash QR" className="w-6 h-6 rounded object-cover border border-slate-200" />
+            ) : (
+              <QrCode size={16} className="text-slate-400" />
+            )}
+            <span className="text-xs font-bold text-slate-600">Upload QR Code</span>
+          </button>
           <RequireRole userRole={currentUserRole} allowedRoles={['treasurer']}>
             <button onClick={() => setShowSendConfirm(true)}
               className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-50 border border-blue-200 hover:bg-blue-100 text-blue-700 text-xs font-bold rounded-xl transition-all cursor-pointer">
@@ -1543,6 +1721,175 @@ const Payment = () => {
         </div>
       </div>
 
+      {/* ── Edit Monthly Due modal (Treasurer/President only) ── */}
+      <ModalOverlay
+        title="Edit Monthly Due"
+        subtitle="This changes the amount used for future dues generation — past invoices already issued are not affected."
+        isOpen={isEditDueOpen}
+        onClose={() => setIsEditDueOpen(false)}
+        actionLabel={savingDue ? 'Saving…' : 'Save'}
+        onAction={savingDue ? undefined : handleSaveMonthlyDue}>
+        <div>
+          <label className="text-xs font-bold text-slate-500 mb-1.5 block">New Monthly Due Amount (₱)</label>
+          <input type="number" min="1" step="0.01" value={editDueValue} onChange={e => setEditDueValue(e.target.value)}
+            className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#006837]/20 focus:border-[#006837]"
+            placeholder="150.00" />
+          <p className="text-xs text-slate-400 mt-2">
+            Current: ₱{monthlyDue.toLocaleString('en-PH', { minimumFractionDigits: 2 })}. The breakdown (Security Guard,
+            Electricity, Street Sweepers, Water) will be re-proportioned against the new amount for dues generated from now on.
+          </p>
+        </div>
+      </ModalOverlay>
+
+      {/* ── GCash QR Code modal — view for everyone, upload for Treasurer/President ── */}
+      {isQrModalOpen && (
+        <div className="fixed inset-0 z-[10700] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={() => setIsQrModalOpen(false)} />
+          <div className="relative bg-white rounded-3xl shadow-2xl w-full max-w-sm z-10 overflow-hidden">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-[#006837]/10 flex items-center justify-center shrink-0">
+                    <QrCode size={18} className="text-[#006837]" />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-black text-slate-900">Upload QR Code</h2>
+                    <p className="text-xs text-slate-400">Shown on every printed &amp; emailed Statement of Account</p>
+                  </div>
+                </div>
+                <button onClick={() => setIsQrModalOpen(false)} className="p-2 hover:bg-slate-100 rounded-xl text-slate-400 cursor-pointer"><X size={16} /></button>
+              </div>
+
+              <div className="bg-slate-50 border border-slate-100 rounded-2xl p-5 flex items-center justify-center mb-4 min-h-[180px]">
+                {qrCodeUrl ? (
+                  <img src={qrCodeUrl} alt="GCash payment QR code" className="max-w-full max-h-52 rounded-xl object-contain" />
+                ) : (
+                  <div className="text-center text-slate-300">
+                    <QrCode size={40} className="mx-auto mb-2" />
+                    <p className="text-xs font-semibold">No QR code uploaded yet</p>
+                  </div>
+                )}
+              </div>
+
+              <RequireRole userRole={currentUserRole} allowedRoles={['treasurer','president']}>
+                <label className={`w-full flex items-center justify-center gap-2 py-3 rounded-2xl font-bold cursor-pointer transition-all
+                  ${uploadingQr ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-[#006837] hover:bg-[#004d29] text-white shadow-lg shadow-[#006837]/20'}`}>
+                  <Upload size={15} />
+                  {uploadingQr ? 'Uploading…' : qrCodeUrl ? 'Replace QR Code' : 'Upload QR Code'}
+                  <input type="file" accept="image/png,image/jpeg,image/webp" className="hidden" disabled={uploadingQr}
+                    onChange={e => { const f = e.target.files?.[0]; if (f) handleUploadQrCode(f); e.target.value = ''; }} />
+                </label>
+                <p className="text-[10px] text-slate-400 mt-2 text-center">PNG or JPG. Upload the screenshot of your QR code.</p>
+              </RequireRole>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Proof of payment review modal (Treasurer/President only) ── */}
+      {proofReviewPayment && (
+        <div className="fixed inset-0 z-[10500] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={() => setProofReviewPayment(null)} />
+          <div className="relative bg-white rounded-3xl shadow-2xl w-full max-w-md z-10 overflow-hidden">
+            <div className="p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center shrink-0">
+                  <FileText size={18} className="text-blue-600" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-black text-slate-900">Review Proof of Payment</h2>
+                  <p className="text-xs text-slate-400">
+                    {residentsList.find(r => r.id === proofReviewPayment.user_id)?.full_name || 'Resident'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="bg-slate-50 rounded-2xl border border-slate-100 divide-y divide-slate-100 mb-4">
+                <div className="flex items-center justify-between p-3">
+                  <span className="text-xs font-semibold text-slate-500">Due Period</span>
+                  <span className="text-sm font-bold text-slate-800">
+                    {proofReviewPayment.due_date ? new Date(proofReviewPayment.due_date).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : '—'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between p-3">
+                  <span className="text-xs font-semibold text-slate-500">Amount</span>
+                  <span className="text-sm font-bold text-slate-800">
+                    ₱{Number(proofReviewPayment.amount || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between p-3">
+                  <span className="text-xs font-semibold text-slate-500">Resident's Ref #</span>
+                  <span className="text-sm font-bold text-slate-800">{proofReviewPayment.payer_reference_no || '—'}</span>
+                </div>
+                <div className="flex items-center justify-between p-3">
+                  <span className="text-xs font-semibold text-slate-500">Submitted</span>
+                  <span className="text-sm font-bold text-slate-800">
+                    {proofReviewPayment.submitted_at ? new Date(proofReviewPayment.submitted_at).toLocaleString('en-PH', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—'}
+                  </span>
+                </div>
+                {proofReviewPayment.proof_url && (
+                  <div className="p-3">
+                    <button onClick={() => setProofReviewImage(proofReviewPayment.proof_url)}
+                      className="w-full flex items-center justify-center gap-2 py-2.5 bg-white border border-slate-200 hover:border-blue-400 hover:text-blue-600 text-slate-600 text-xs font-bold rounded-xl cursor-pointer transition-all">
+                      <Eye size={13} /> View Proof of Payment
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex gap-2.5">
+                <button
+                  onClick={() => setProofReviewPayment(null)}
+                  className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl font-bold cursor-pointer transition-all">
+                  Cancel
+                </button>
+                <button
+                  onClick={() => handleVerifyPayment(proofReviewPayment, 'reject')}
+                  disabled={verifyingPaymentId === proofReviewPayment.id}
+                  className="flex-1 py-3 bg-red-500 hover:bg-red-600 text-white rounded-2xl font-bold shadow-lg shadow-red-500/20 cursor-pointer transition-all flex items-center justify-center gap-2 disabled:opacity-50">
+                  <XCircle size={15} /> Reject
+                </button>
+                <button
+                  onClick={() => handleVerifyPayment(proofReviewPayment, 'approve')}
+                  disabled={verifyingPaymentId === proofReviewPayment.id}
+                  className="flex-1 py-3 bg-[#006837] hover:bg-[#004d29] text-white rounded-2xl font-bold shadow-lg shadow-[#006837]/20 cursor-pointer transition-all flex items-center justify-center gap-2 disabled:opacity-50">
+                  <CheckCircle2 size={15} /> {verifyingPaymentId === proofReviewPayment.id ? 'Saving…' : 'Approve'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Proof of payment lightbox ── */}
+      {proofReviewImage && (
+        <div className="fixed inset-0 z-[10600] flex items-center justify-center p-4" onClick={() => setProofReviewImage(null)}>
+          <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-sm" />
+          <div className="relative bg-white rounded-2xl shadow-2xl overflow-hidden max-w-lg w-full max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
+              <p className="text-sm font-black text-slate-800 flex items-center gap-1.5">
+                <FileText size={14} className="text-blue-600" /> Proof of Payment
+              </p>
+              <button onClick={() => setProofReviewImage(null)}
+                className="p-1.5 hover:bg-slate-100 rounded-xl text-slate-400 hover:text-slate-600 cursor-pointer transition-all">
+                <X size={16} />
+              </button>
+            </div>
+            <div className="overflow-auto p-4 flex items-center justify-center bg-slate-50">
+              {/\.pdf($|\?)/i.test(proofReviewImage)
+                ? <a href={proofReviewImage} target="_blank" rel="noopener noreferrer" className="text-sm font-bold text-blue-600 underline">Open PDF in new tab</a>
+                : <img src={proofReviewImage} alt="Proof of payment" className="max-w-full max-h-[65vh] rounded-lg object-contain" />}
+            </div>
+            <div className="p-3 border-t border-slate-100">
+              <a href={proofReviewImage} target="_blank" rel="noopener noreferrer"
+                className="w-full flex items-center justify-center gap-2 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl cursor-pointer transition-all">
+                Open Original in New Tab
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Send SOA confirmation modal ── */}
       {showSendConfirm && (
         <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/50 backdrop-blur-sm px-4">
@@ -1557,6 +1904,25 @@ const Payment = () => {
               This will email a Statement of Account to every resident who currently has an outstanding balance.
               Residents who are fully settled will not receive an email. This action is logged in the audit trail.
             </p>
+
+            <div className="mb-5">
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">What should the email include?</p>
+              <div className="flex gap-2">
+                {[
+                  { key: 'outstanding', label: 'Outstanding Charges Only' },
+                  { key: 'history',     label: 'Past Payment History Only' },
+                  { key: 'both',        label: 'Both' },
+                ].map(opt => (
+                  <button key={opt.key} type="button" onClick={() => setSendSOAViewMode(opt.key)}
+                    className={`flex-1 py-2.5 px-2 rounded-xl text-xs font-bold border transition-all cursor-pointer
+                      ${sendSOAViewMode === opt.key
+                        ? 'bg-blue-600 border-blue-600 text-white shadow-sm'
+                        : 'bg-white border-slate-200 text-slate-500 hover:border-blue-300'}`}>
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
 
             {sendSOAResult && (
               <div className={`mb-4 p-3 rounded-xl text-sm font-semibold ${
@@ -1575,6 +1941,55 @@ const Payment = () => {
               <button onClick={handleSendAllSOA} disabled={sendingSOA}
                 className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-bold shadow-lg shadow-blue-600/20 cursor-pointer transition-all flex items-center justify-center gap-2 disabled:opacity-50">
                 {sendingSOA ? <><span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" /> Sending…</> : <><Mail size={15} /> Send Now</>}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Per-resident SOA print — content choice modal ── */}
+      {soaPrintTarget && (
+        <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/50 backdrop-blur-sm px-4"
+          onClick={() => setSoaPrintTarget(null)}>
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-6" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-10 h-10 rounded-xl bg-[#006837]/10 flex items-center justify-center shrink-0">
+                <Printer size={18} className="text-[#006837]" />
+              </div>
+              <div>
+                <h2 className="text-lg font-black text-slate-900">Statement of Account</h2>
+                <p className="text-xs text-slate-400">{soaPrintTarget.resident.full_name}</p>
+              </div>
+            </div>
+            <p className="text-sm text-slate-500 leading-relaxed mb-4">What should this statement show?</p>
+
+            <div className="space-y-2 mb-6">
+              {[
+                { key: 'outstanding', label: 'Outstanding Charges Only', desc: 'Unpaid dues breakdown — newest due shown first.' },
+                { key: 'history',     label: 'Past Payment History Only', desc: 'Settled dues, oldest to most recent.' },
+                { key: 'both',        label: 'Both', desc: 'Outstanding charges and past payment history together.' },
+              ].map(opt => (
+                <button key={opt.key} type="button" onClick={() => setSoaPrintChoice(opt.key)}
+                  className={`w-full text-left p-3.5 rounded-2xl border-2 transition-all cursor-pointer
+                    ${soaPrintChoice === opt.key ? 'border-[#006837] bg-emerald-50' : 'border-slate-200 hover:border-slate-300'}`}>
+                  <p className={`text-sm font-bold ${soaPrintChoice === opt.key ? 'text-[#006837]' : 'text-slate-700'}`}>{opt.label}</p>
+                  <p className="text-xs text-slate-400 mt-0.5">{opt.desc}</p>
+                </button>
+              ))}
+            </div>
+
+            <div className="flex gap-3">
+              <button onClick={() => setSoaPrintTarget(null)}
+                className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl font-bold cursor-pointer transition-all">
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  printSOA(soaPrintTarget.resident, soaPrintTarget.paidHistory, soaPrintChoice, monthlyDue, qrCodeUrl);
+                  setSoaPrintTarget(null);
+                }}
+                className="flex-1 py-3 bg-[#006837] hover:bg-[#004d29] text-white rounded-2xl font-bold shadow-lg shadow-[#006837]/20 cursor-pointer transition-all flex items-center justify-center gap-2">
+                <Printer size={15} /> Print
               </button>
             </div>
           </div>
@@ -1695,6 +2110,7 @@ const Payment = () => {
               <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
                 className="px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-600 focus:outline-none focus:ring-2 focus:ring-[#006837]/20 cursor-pointer">
                 <option value="All">All Status</option>
+                <option value="PendingVerification">Pending Verification</option>
                 <option value="Paid">Paid</option>
                 <option value="Pending">Pending</option>
                 <option value="Overdue">Overdue</option>
@@ -1765,7 +2181,12 @@ const Payment = () => {
 
                       {/* Status badge */}
                       <td className="px-5 py-4">
-                        {hasBalance ? (
+                        {r.pendingVerification ? (
+                          <span className="inline-flex items-center gap-1.5 text-[10px] font-bold px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-100">
+                            <span className="w-1.5 h-1.5 rounded-full bg-blue-400" />
+                            Pending Verification
+                          </span>
+                        ) : hasBalance ? (
                           <span className="inline-flex items-center gap-1.5 text-[10px] font-bold px-2.5 py-1 rounded-full bg-red-50 text-red-600 border border-red-100">
                             <span className="w-1.5 h-1.5 rounded-full bg-red-400" />
                             Unpaid Balance
@@ -1790,12 +2211,22 @@ const Payment = () => {
                               const paidHistory = payments
                                 .filter(p => p.user_id === r.user_id && (p.status || '').toLowerCase() === 'paid')
                                 .sort((a, b) => new Date(b.paid_at || 0) - new Date(a.paid_at || 0));
-                              printSOA(r, paidHistory);
+                              setSoaPrintChoice('outstanding');
+                              setSoaPrintTarget({ resident: r, paidHistory });
                             }}
                             className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 hover:border-[#006837] hover:text-[#006837] text-slate-500 text-xs font-bold rounded-xl transition-all cursor-pointer whitespace-nowrap"
                             title="Print Statement of Account">
                             <Printer size={12} /> SOA
                           </button>
+                          {r.pendingVerification && (
+                            <RequireRole userRole={currentUserRole} allowedRoles={['treasurer','president']}>
+                              <button
+                                onClick={() => setProofReviewPayment(r.pendingVerification)}
+                                className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl transition-all cursor-pointer whitespace-nowrap">
+                                <Eye size={12} /> Review Proof
+                              </button>
+                            </RequireRole>
+                          )}
                           {hasBalance && (
                             <RequireRole userRole={currentUserRole} allowedRoles={['treasurer']}>
                               <button
@@ -1805,8 +2236,6 @@ const Payment = () => {
                                     profiles: payments.find(x => x.id === p.id)?.profiles
                                       ?? residentsList.find(res => res.id === r.user_id) ?? null,
                                   })));
-                                  setMarkAllPaidDate(localToday());
-                                  setPayerReferenceNo('');
                                   setIsUnpaidBreakdownOpen(true);
                                 }}
                                 className="flex items-center gap-1.5 px-3 py-1.5 bg-[#006837] hover:bg-[#004d29] text-white text-xs font-bold rounded-xl transition-all cursor-pointer whitespace-nowrap">

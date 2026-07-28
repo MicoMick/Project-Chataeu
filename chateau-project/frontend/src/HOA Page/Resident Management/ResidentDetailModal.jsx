@@ -387,6 +387,9 @@ const ResidentDetailModal = ({ profile, onClose }) => {
 
   const details = [
     { icon: Users,       label: 'Resident Type', value: profile.resident_type },
+    ...(profile.resident_type === 'tenant' && profile.ownerName
+      ? [{ icon: User, label: 'Property Owner', value: profile.ownerName }]
+      : []),
     { icon: MapPin,      label: 'Full Address',  value: profile.address       },
     { icon: Home,        label: 'Block / Lot',   value: blockLot              },
     { icon: MapPin,      label: 'Street',        value: profile.street        },
@@ -457,6 +460,11 @@ const ResidentDetailModal = ({ profile, onClose }) => {
               {blockLot && (
                 <span className="text-[10px] font-bold px-3 py-1 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
                   {blockLot}
+                </span>
+              )}
+              {profile.resident_type === 'tenant' && profile.ownerName && (
+                <span className="text-[10px] font-bold px-3 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-200 flex items-center gap-1">
+                  <User size={10} /> Owner: {profile.ownerName}
                 </span>
               )}
               {profile.phone && (

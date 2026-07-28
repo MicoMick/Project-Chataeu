@@ -17,27 +17,51 @@ const TABLE_PROFILES    = 'profiles';
 const getDateRange = (filter) => {
   const now = new Date();
   const to = now.toISOString();
+
+  // Custom range — filter is an object { period: 'custom', from, to } (yyyy-mm-dd strings)
+  if (filter && typeof filter === 'object' && filter.period === 'custom') {
+    const cf = filter.from || null;
+    const ct = filter.to   || null;
+    if (!cf && !ct) return { from: null, to: null };
+    return {
+      from: cf ? new Date(cf).toISOString() : null,
+      to:   ct ? new Date(`${ct}T23:59:59.999`).toISOString() : null,
+    };
+  }
+
   switch (filter) {
-    case '7d': {
+    case '7d':
+    case 'last7d': {
       const from = new Date(now);
       from.setDate(from.getDate() - 7);
       return { from: from.toISOString(), to };
     }
-    case 'month': {
+    case 'month':
+    case 'this_month': {
       const from = new Date(now.getFullYear(), now.getMonth(), 1);
       return { from: from.toISOString(), to };
     }
-    case 'year': {
+    case 'last_month': {
+      const from = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const end  = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
+      return { from: from.toISOString(), to: end.toISOString() };
+    }
+    case 'year':
+    case 'this_year': {
       const from = new Date(now.getFullYear(), 0, 1);
       return { from: from.toISOString(), to };
     }
-    case 'prev_year': {
-      const from  = new Date(now.getFullYear() - 1, 0, 1);
-      const toEnd = new Date(now.getFullYear() - 1, 11, 31, 23, 59, 59);
+    case 'prev_year':
+    case 'last_year': {
+      const yr    = now.getFullYear() - 1;
+      const from  = new Date(yr, 0, 1);
+      const toEnd = new Date(yr, 11, 31, 23, 59, 59, 999);
       return { from: from.toISOString(), to: toEnd.toISOString() };
     }
+    case 'all':
+      return { from: null, to: null };
     default:
-      return { from: null, to };
+      return { from: null, to: null };
   }
 };
 
@@ -70,9 +94,10 @@ export const useMaintenanceStats = (filter) => {
     setLoading(true);
     setError(null);
     try {
-      const { from } = getDateRange(filter);
+      const { from, to } = getDateRange(filter);
       let q = supabase.from(TABLE_REPORTS).select('id, category, status, created_at');
       if (from) q = q.gte('created_at', from);
+      if (to)   q = q.lte('created_at', to);
       const { data: rows, error: err } = await q;
       if (err) throw err;
 
@@ -142,13 +167,14 @@ export const useReservationStats = (filter) => {
     setLoading(true);
     setError(null);
     try {
-      const { from } = getDateRange(filter);
+      const { from, to } = getDateRange(filter);
 
       // Try to join facilities + profiles; fall back gracefully if columns differ
       let q = supabase
         .from(TABLE_RESERVATION)
         .select(`id, user_id, facility_id, date, start_time, end_time, status, created_at`);
       if (from) q = q.gte('created_at', from);
+      if (to)   q = q.lte('created_at', to);
       const { data: rows, error: err } = await q;
       if (err) throw err;
 
@@ -292,11 +318,12 @@ export const usePaymentStats = (filter) => {
     setLoading(true);
     setError(null);
     try {
-      const { from }           = getDateRange(filter);
+      const { from, to }        = getDateRange(filter);
       const { from: pf, to: pt } = getDateRange('prev_year');
 
       let q = supabase.from(TABLE_PAYMENTS).select('id, amount, status, created_at, user_id');
       if (from) q = q.gte('created_at', from);
+      if (to)   q = q.lte('created_at', to);
       const { data: rows, error: err } = await q;
       if (err) throw err;
 

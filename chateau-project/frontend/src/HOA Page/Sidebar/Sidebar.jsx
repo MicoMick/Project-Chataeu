@@ -54,10 +54,11 @@ const ROLES = {
 
 const GOVERNANCE  = [ROLES.PRESIDENT, ROLES.VICE_PRESIDENT, ROLES.SECRETARY];
 const OPERATIONS  = [ROLES.PRESIDENT, ROLES.VICE_PRESIDENT, ROLES.SECRETARY];
+const RESERVATIONS = [ROLES.PRESIDENT, ROLES.VICE_PRESIDENT, ROLES.SECRETARY, ROLES.TREASURER]; // Reservations — treasurer manages payments/approvals too
 const COMM_OPS    = [ROLES.PRESIDENT, ROLES.VICE_PRESIDENT, ROLES.SECRETARY, ROLES.BOARD_MEMBER]; // Announcements + Reports
 const ELECTIONS   = ['elecom']; // Election page — Elecom only
 const PAYMENTS    = [ROLES.PRESIDENT, ROLES.TREASURER];
-const STATISTICS  = [ROLES.PRESIDENT, ROLES.VICE_PRESIDENT, ROLES.SECRETARY, ROLES.AUDITOR];
+const STATISTICS  = [ROLES.PRESIDENT, ROLES.VICE_PRESIDENT, ROLES.SECRETARY, ROLES.AUDITOR, ROLES.TREASURER];
 const AUDITOR_WS  = [ROLES.AUDITOR, ROLES.TREASURER];
 const APPROVALS      = [ROLES.PRESIDENT]; // President only
 const COURT_PERMIT   = [ROLES.BOARD_MEMBER];  // Board Member — Sports Committee
@@ -72,7 +73,7 @@ const RequireRole = ({ userRole, allowedRoles, children }) => {
 
 // ─── Sidebar ──────────────────────────────────────────────────────────────────
 const Sidebar = () => {
-  const [isCollapsed,      setIsCollapsed]      = useState(false); 
+  const [isCollapsed,      setIsCollapsed]      = useState(true);
   const [isProfileOpen,    setIsProfileOpen]    = useState(false);
   const [isLogoutModalOpen,setIsLogoutModalOpen]= useState(false);
   const [displayName,      setDisplayName]      = useState('Admin'); 
@@ -167,7 +168,7 @@ const Sidebar = () => {
       icon:  <CalendarCheck size={22} />,
       label: 'Reservations',
       path:  '/hoa/reservations',
-      allowedRoles: OPERATIONS,
+      allowedRoles: RESERVATIONS,
     },
 
     // ── Payments — president + treasurer only ─────────────────────────────────
@@ -202,7 +203,7 @@ const Sidebar = () => {
       allowedRoles: COMM_OPS,
     },
 
-    // ── Statistics — everyone except treasurer ────────────────────────────────
+    // ── Statistics ──────────────────────────────────────────────────────────
     {
       icon:  <PieChart size={22} />,
       label: 'Statistics',

@@ -10,8 +10,7 @@
 
 import { createClient } from 'npm:@supabase/supabase-js@2'
 
-const MONTHLY_DUE_AMOUNT = 150
-const DELINQUENT_THRESHOLD = MONTHLY_DUE_AMOUNT * 3 // ₱450 (3 months unpaid)
+const MONTHLY_DUE_DEFAULT = 150 // fallback if hoa_settings hasn't been created yet
 
 const BILL_LINE_ITEMS_BASE = [
   { label: 'Security Guard',  category: 'Salaries',    fixedTotal: 22000 },
@@ -25,19 +24,31 @@ const MONTHS = [
   'July', 'August', 'September', 'October', 'November', 'December',
 ]
 
-function buildLineItemBreakdown() {
+// Now takes the current monthly due amount — configurable via hoa_settings,
+// edited by Treasurer/President from Payment.jsx.
+function buildLineItemBreakdown(monthlyDueAmount: number) {
   const totalBase = BILL_LINE_ITEMS_BASE.reduce((s, i) => s + i.fixedTotal, 0)
-  return BILL_LINE_ITEMS_BASE.map((item) => ({
-    label: item.label,
-    category: item.category,
-    amount: Math.round((item.fixedTotal / totalBase) * MONTHLY_DUE_AMOUNT * 100) / 100,
-  }))
+  const items: Array<{ label: string; category: string; amount: number }> = []
+  let sumSoFar = 0
+  BILL_LINE_ITEMS_BASE.forEach((item, idx) => {
+    const amount = idx === BILL_LINE_ITEMS_BASE.length - 1
+      ? Math.round((monthlyDueAmount - sumSoFar) * 100) / 100
+      : Math.round((item.fixedTotal / totalBase) * monthlyDueAmount * 100) / 100
+    sumSoFar = Math.round((sumSoFar + amount) * 100) / 100
+    items.push({ label: item.label, category: item.category, amount })
+  })
+  return items
 }
 
-function generateRefNo(month: number, year: number) {
+// ── Reference number generator ──────────────────────────────────────────────
+// Generates a per-resident, per-month ref like SOA-202607-1F7A7D — same
+// format as the Statement of Account's own reference number (see
+// send-soa-emails/index.ts's generateSoaRef and Payment.jsx's soaRef), so all
+// three match instead of the old HOA-MMYYYY-RAND4 format.
+function generateRefNo(month: number, year: number, userId: string) {
   const mm = String(month + 1).padStart(2, '0')
-  const rand = Math.random().toString(36).substring(2, 6).toUpperCase()
-  return `HOA-${mm}${year}-${rand}`
+  const uid = (userId || 'XXXXXX').slice(0, 6).toUpperCase()
+  return `SOA-${year}${mm}-${uid}`
 }
 
 // ── Manila-time "today" ─────────────────────────────────────────────────────
@@ -82,6 +93,18 @@ Deno.serve(async (req: Request) => {
   )
 
   try {
+    // ── Read the current monthly due amount — configurable via hoa_settings,
+    // edited by Treasurer/President from Payment.jsx. Falls back to the
+    // default if the table/row doesn't exist yet.
+    let monthlyDueAmount = MONTHLY_DUE_DEFAULT
+    try {
+      const { data: settings } = await supabase.from('hoa_settings').select('monthly_due_amount').eq('id', 1).single()
+      if (settings?.monthly_due_amount != null) monthlyDueAmount = Number(settings.monthly_due_amount)
+    } catch (_e) {
+      // hoa_settings not set up yet — keep the default.
+    }
+    const delinquentThreshold = monthlyDueAmount * 3 // 3 months unpaid, at the current due amount
+
     const { year, month, date } = manilaDateParts()
     const statementDate = ymd(year, month, date)
     const monthStart = ymd(year, month, 1)
@@ -111,14 +134,14 @@ Deno.serve(async (req: Request) => {
       if (residentsErr) {
         duesResult = { success: false, error: residentsErr.message }
       } else if (residents?.length) {
-        const lineItems = buildLineItemBreakdown()
+        const lineItems = buildLineItemBreakdown(monthlyDueAmount)
         const rows = residents.map((r: { id: string }) => ({
           user_id: r.id,
-          amount: MONTHLY_DUE_AMOUNT,
+          amount: monthlyDueAmount,
           statement_date: statementDate,
           due_date: monthEnd,
           status: 'unpaid',
-          reference_no: generateRefNo(month, year),
+          reference_no: generateRefNo(month, year, r.id),
           line_items: lineItems,
         }))
 
@@ -126,11 +149,11 @@ Deno.serve(async (req: Request) => {
         if (insertErr) {
           duesResult = { success: false, error: insertErr.message }
         } else {
-          duesResult = { success: true, count: rows.length, month: MONTHS[month], year }
+          duesResult = { success: true, count: rows.length, month: MONTHS[month], year, amount: monthlyDueAmount }
           try {
             await supabase.from('system_logs').insert({
               action: 'AUTO_MONTHLY_DUE',
-              details: `Generated ₱${MONTHLY_DUE_AMOUNT} monthly dues for ${rows.length} residents — ${MONTHS[month]} ${year}. Statement: ${statementDate}, Due: ${monthEnd}.`,
+              details: `Generated ₱${monthlyDueAmount} monthly dues for ${rows.length} residents — ${MONTHS[month]} ${year}. Statement: ${statementDate}, Due: ${monthEnd}.`,
             })
           } catch (_e) {
             // Audit logging is best-effort — a schema mismatch here must not
@@ -142,7 +165,7 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // ── Task 2: delinquency check (₱450+ unpaid balance) ───────────────────
+    // ── Task 2: delinquency check (3 months unpaid, at the current due amount) ─
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let delinquencyResult: Record<string, any> = { success: true, count: 0 }
 
@@ -160,7 +183,7 @@ Deno.serve(async (req: Request) => {
       })
 
       const eligibleIds = Object.entries(balanceMap)
-        .filter(([, bal]) => bal >= DELINQUENT_THRESHOLD)
+        .filter(([, bal]) => bal >= delinquentThreshold)
         .map(([id]) => id)
 
       if (eligibleIds.length) {
@@ -190,7 +213,7 @@ Deno.serve(async (req: Request) => {
             try {
               await supabase.from('system_logs').insert({
                 action: 'AUTO_DELINQUENT',
-                details: `Marked ${idsToFlag.length} resident(s) as delinquent — unpaid balance ≥ ₱${DELINQUENT_THRESHOLD}. Residents: ${activeResidents
+                details: `Marked ${idsToFlag.length} resident(s) as delinquent — unpaid balance ≥ ₱${delinquentThreshold}. Residents: ${activeResidents
                   .map((r: { full_name: string }) => r.full_name)
                   .join(', ')}`,
               })

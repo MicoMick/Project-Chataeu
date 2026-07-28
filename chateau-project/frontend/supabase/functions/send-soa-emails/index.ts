@@ -8,7 +8,7 @@
 
 import { createClient } from 'npm:@supabase/supabase-js@2'
 
-const MONTHLY = 150
+const MONTHLY_DUE_DEFAULT = 150 // fallback used only if hoa_settings hasn't been created yet
 
 // ── CORS ──────────────────────────────────────────────────────────────────────
 const CORS = {
@@ -31,11 +31,12 @@ function phtToday() {
 }
 
 // ── Monthly Due Breakdown ─────────────────────────────────────────────────────
-// Proportionally splits ₱150 among HOA's actual monthly operating expenses.
+// Proportionally splits the current monthly due (configurable via hoa_settings)
+// among HOA's actual monthly operating expenses.
 // - Security Guard Salary and Street Sweeper Salary are FIXED costs.
 // - Electricity Bill and Water Bill are VARIABLE (based on actual monthly usage).
-// The last item absorbs any rounding difference so the total is ALWAYS exactly ₱150.
-function buildLineItemBreakdown() {
+// The last item absorbs any rounding difference so the total is ALWAYS exact.
+function buildLineItemBreakdown(monthlyDueAmount: number) {
   const base = [
     { label: 'Security Guard Salary', category: 'Salaries',    fixedTotal: 22000, type: 'Fixed'    },
     { label: 'Electricity Bill',      category: 'Utilities',   fixedTotal: 14000, type: 'Variable' },
@@ -49,10 +50,10 @@ function buildLineItemBreakdown() {
   base.forEach((item, idx) => {
     let amount: number
     if (idx === base.length - 1) {
-      // Last item = ₱150 minus what's already allocated — prevents rounding drift
-      amount = Math.round((MONTHLY - sumSoFar) * 100) / 100
+      // Last item = due amount minus what's already allocated — prevents rounding drift
+      amount = Math.round((monthlyDueAmount - sumSoFar) * 100) / 100
     } else {
-      amount = Math.round((item.fixedTotal / tot) * MONTHLY * 100) / 100
+      amount = Math.round((item.fixedTotal / tot) * monthlyDueAmount * 100) / 100
     }
     sumSoFar = Math.round((sumSoFar + amount) * 100) / 100
     items.push({ label: item.label, category: item.category, type: item.type, amount })
@@ -85,20 +86,39 @@ function buildFormalSoaHtml(
     payer_reference_no: string | null
     reference_no: string | null
   }>,
+  viewMode: 'outstanding' | 'history' | 'both' = 'both',
+  monthlyDueAmount: number = MONTHLY_DUE_DEFAULT,
+  qrCodeUrl: string | null = null,
 ): string {
+  const showOutstanding = viewMode === 'outstanding' || viewMode === 'both'
+  const showHistory     = viewMode === 'history'     || viewMode === 'both'
+
   const todayStr    = phtToday()
   const todayFmt    = fd(todayStr)
+  // Ascending (oldest → newest) — used for date-range math (earliest due date,
+  // billing period span). Kept separate from the display order below.
   const sorted      = [...unpaidList].sort(
     (a, b) => new Date(a.due_date || 0).getTime() - new Date(b.due_date || 0).getTime()
   )
+  // Descending (newest → oldest) — for display, so a freshly-generated month's
+  // due appears above older unpaid months in the emailed table.
+  const sortedDesc  = [...sorted].reverse()
   const totalDue    = sorted.reduce((s, p) => s + Number(p.amount || 0), 0)
   const isSettled   = sorted.length === 0
   const monthsOwed  = sorted.length
   const earliestDue = isSettled ? null : sorted[0]?.due_date
   const soaRef      = generateSoaRef(resident.id, todayStr)
 
+  // Payment history — chronological order (oldest → newest), capped to the
+  // most recent 12 entries (cap applied before the chronological sort so we
+  // keep the newest 12 without disturbing their display order).
+  const paidHistoryChrono = [...paidHistory]
+    .sort((a, b) => new Date(b.due_date || b.paid_at || 0).getTime() - new Date(a.due_date || a.paid_at || 0).getTime())
+    .slice(0, 12)
+    .sort((a, b) => new Date(a.due_date || a.paid_at || 0).getTime() - new Date(b.due_date || b.paid_at || 0).getTime())
+
   const lineItems = sorted.find(p => Array.isArray(p.line_items) && p.line_items!.length)?.line_items
-    || buildLineItemBreakdown()
+    || buildLineItemBreakdown(monthlyDueAmount)
 
   // ── Table row helpers ─────────────────────────────────────────────────────
   const TH = (s: string) =>
@@ -128,8 +148,8 @@ function buildFormalSoaHtml(
     </tr>`
   }).join('')
 
-  // Outstanding charges rows
-  const chargeRows = sorted.map((p, i) => {
+  // Outstanding charges rows — newest due first
+  const chargeRows = sortedDesc.map((p, i) => {
     const rowBg      = i % 2 === 0 ? '#fef2f2' : '#fff'
     const statusClr  = p.status === 'overdue' ? '#dc2626' : '#d97706'
     const statusCap  = (p.status || 'Unpaid').charAt(0).toUpperCase() + (p.status || 'Unpaid').slice(1)
@@ -147,8 +167,8 @@ function buildFormalSoaHtml(
     </tr>`
   }).join('')
 
-  // Payment history rows
-  const histRows = paidHistory.slice(0, 12).map((p, i) => {
+  // Payment history rows — chronological order, oldest of the last 12 first
+  const histRows = paidHistoryChrono.map((p, i) => {
     const rowBg = i % 2 === 0 ? '#f0fdf4' : '#fff'
     const period = p.due_date
       ? new Date(p.due_date).toLocaleDateString('en-PH', { month: 'long', year: 'numeric' })
@@ -229,7 +249,7 @@ function buildFormalSoaHtml(
           </p>
           <p style="margin:4px 0 0;font-size:10px;color:#64748b;">
             Months unpaid: <strong style="color:${monthsOwed > 0 ? '#dc2626' : '#166534'};">${monthsOwed}</strong>
-            &nbsp;·&nbsp; Monthly Due: <strong>${fc(MONTHLY)}</strong>
+            &nbsp;·&nbsp; Monthly Due: <strong>${fc(monthlyDueAmount)}</strong>
           </p>
         </td>
       </tr>
@@ -238,10 +258,10 @@ function buildFormalSoaHtml(
 
   <tr><td style="padding:20px 28px 0;">
 
-    ${!isSettled ? `
+    ${showOutstanding ? (!isSettled ? `
     <!-- ── Monthly Due Breakdown ── -->
     <p style="margin:0 0 8px;font-size:12px;font-weight:900;color:#006837;text-transform:uppercase;letter-spacing:.04em;border-bottom:2px solid #006837;padding-bottom:5px;">
-      Monthly Due Breakdown — What Your ${fc(MONTHLY)}/month Covers
+      Monthly Due Breakdown — What Your ${fc(monthlyDueAmount)}/month Covers
     </p>
     <p style="margin:0 0 8px;font-size:10px;color:#94a3b8;font-style:italic;">
       * Fixed costs are charged at the same rate every month. Variable costs are estimates based on actual utility bills.
@@ -290,6 +310,14 @@ function buildFormalSoaHtml(
           Payments may be made at the <strong>HOA Office</strong> or through your designated <strong>HOA Treasurer</strong>.<br>
           Present this Statement of Account as your billing reference (Ref. No. <strong>${soaRef}</strong>).
         </p>
+        ${qrCodeUrl ? `
+        <table width="100%" cellpadding="0" cellspacing="0" style="margin-top:12px;">
+          <tr><td align="center">
+            <img src="${qrCodeUrl}" alt="GCash QR Code" width="150" style="border:1px solid #fde68a;border-radius:8px;display:block;" />
+            <p style="margin:6px 0 0;font-size:10px;color:#92400e;font-weight:900;">Scan this QR Code to pay directly</p>
+          </td></tr>
+        </table>
+        ` : ''}
       </td></tr>
     </table>
     ` : `
@@ -301,12 +329,12 @@ function buildFormalSoaHtml(
         <p style="margin:4px 0 0;font-size:11px;color:#15803d;">No outstanding dues. Thank you for your prompt payments!</p>
       </td></tr>
     </table>
-    `}
+    `) : ''}
 
-    ${paidHistory.length > 0 ? `
-    <!-- ── Payment History ── -->
+    ${showHistory ? (paidHistoryChrono.length > 0 ? `
+    <!-- ── Payment History — chronological, oldest of the last 12 first ── -->
     <p style="margin:0 0 8px;font-size:12px;font-weight:900;color:#006837;text-transform:uppercase;letter-spacing:.04em;border-bottom:2px solid #006837;padding-bottom:5px;">
-      Recent Payment History
+      Past Recent Payment History
     </p>
     <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-size:11px;margin-bottom:20px;">
       <thead><tr>
@@ -318,7 +346,12 @@ function buildFormalSoaHtml(
       </tr></thead>
       <tbody>${histRows}</tbody>
     </table>
-    ` : ''}
+    ` : `
+    <p style="margin:0 0 8px;font-size:12px;font-weight:900;color:#006837;text-transform:uppercase;letter-spacing:.04em;border-bottom:2px solid #006837;padding-bottom:5px;">
+      Past Recent Payment History
+    </p>
+    <p style="margin:0 0 20px;font-size:11px;color:#94a3b8;font-style:italic;">No payment history on record yet.</p>
+    `) : ''}
 
   </td></tr>
 
@@ -343,6 +376,19 @@ function buildFormalSoaHtml(
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS })
 
+  // Optional content filter sent from the admin portal:
+  // { viewMode: 'outstanding' | 'history' | 'both' } — defaults to 'both' so a
+  // cron-triggered or bodyless call behaves exactly as before.
+  let viewMode: 'outstanding' | 'history' | 'both' = 'both'
+  try {
+    const body = await req.json()
+    if (body?.viewMode === 'outstanding' || body?.viewMode === 'history' || body?.viewMode === 'both') {
+      viewMode = body.viewMode
+    }
+  } catch (_e) {
+    // No JSON body provided — keep the 'both' default.
+  }
+
   const supabase = createClient(
     Deno.env.get('SUPABASE_URL')!,
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
@@ -350,6 +396,21 @@ Deno.serve(async (req: Request) => {
   const RESEND_KEY    = Deno.env.get('RESEND_API_KEY')!
   const TEST_OVERRIDE = Deno.env.get('TEST_OVERRIDE_EMAIL') || null
   const today         = phtToday()
+
+  // Current monthly due — configurable via hoa_settings, edited by
+  // Treasurer/President from Payment.jsx. Falls back to the default if the
+  // table/row doesn't exist yet. This only affects the breakdown fallback and
+  // the "Monthly Due" label — actual charge amounts always come from each
+  // payment row's stored `amount`/`line_items`, which don't change here.
+  let monthlyDueAmount = MONTHLY_DUE_DEFAULT
+  let qrCodeUrl: string | null = null
+  try {
+    const { data: settings } = await supabase.from('hoa_settings').select('monthly_due_amount, photo_url').eq('id', 1).single()
+    if (settings?.monthly_due_amount != null) monthlyDueAmount = Number(settings.monthly_due_amount)
+    if (settings?.photo_url) qrCodeUrl = settings.photo_url
+  } catch (_e) {
+    // hoa_settings not set up yet — keep the defaults.
+  }
 
   try {
     const { data: unpaidPayments, error: uErr } = await supabase
@@ -419,6 +480,9 @@ Deno.serve(async (req: Request) => {
         { full_name: resident.full_name, fullAddress, email: resident.email, id: resident.id },
         unpaidList,
         paidHistory,
+        viewMode,
+        monthlyDueAmount,
+        qrCodeUrl,
       )
       const soaRef  = generateSoaRef(resident.id, today)
       const amtStr  = `PHP ${Number(totalDue).toLocaleString('en-PH', { minimumFractionDigits: 2 })}`

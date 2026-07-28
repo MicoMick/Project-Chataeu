@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Megaphone, FileEdit, Plus, Search, MoreVertical, Pin,
   AlertTriangle, X, Paperclip, Calendar, Trash2, CheckCircle2,
-  Loader2, Eye,
+  Loader2, Eye, RefreshCw,
 } from 'lucide-react';
 import { supabase } from '../supabaseAdmin';
 import { logAudit } from '../auditLogger';
@@ -665,12 +665,18 @@ const Announcements = () => {
           </h1>
           <p className="text-sm text-slate-400 mt-0.5">Manage and publish community announcements</p>
         </div>
-        <RequireRole userRole={currentUserRole} allowedRoles={['president','vice_president','secretary','board_member']}>
-          <button onClick={() => { resetForm(); setShowModal(true); }}
-            className="flex items-center gap-2 px-5 py-2.5 bg-[#006837] hover:bg-[#004d29] text-white rounded-xl text-sm font-bold shadow-lg shadow-[#006837]/20 transition-all cursor-pointer">
-            <Plus size={16} /> New Announcement
+        <div className="flex items-center gap-2.5">
+          <button onClick={fetchAnnouncements}
+            className="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-semibold text-slate-600 hover:bg-slate-50 shadow-sm cursor-pointer transition-all">
+            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Refresh
           </button>
-        </RequireRole>
+          <RequireRole userRole={currentUserRole} allowedRoles={['president','vice_president','secretary','board_member']}>
+            <button onClick={() => { resetForm(); setShowModal(true); }}
+              className="flex items-center gap-2 px-5 py-2.5 bg-[#006837] hover:bg-[#004d29] text-white rounded-xl text-sm font-bold shadow-lg shadow-[#006837]/20 transition-all cursor-pointer">
+              <Plus size={16} /> New Announcement
+            </button>
+          </RequireRole>
+        </div>
       </div>
 
       {/* ── KPI Cards ── */}
