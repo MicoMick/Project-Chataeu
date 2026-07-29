@@ -5,7 +5,7 @@ import {
   ClipboardList, ChevronDown, ChevronUp, Check, X,
   CheckCircle2, AlertCircle, AlertTriangle, RefreshCw,
   Calendar, User, Home, FileText, Search, Filter,
-  ExternalLink, MapPin, Clock, Shield,
+  Eye, ZoomIn, ZoomOut, MapPin, Clock, Shield,
 } from 'lucide-react';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -56,12 +56,16 @@ const extractStoragePath = (value) => {
   return null;
 };
 
-// ── DocLink — opens a signed URL for a private bucket file ───────────────────
+// ── DocLink — views a signed URL for a private bucket file, in-app ───────────
 // The bucket "move-in-docs" is PRIVATE, so public URLs return 404.
-// createSignedUrl generates a short-lived (60 min) authenticated link.
-const DocLink = ({ value }) => {
-  const [loading, setLoading] = React.useState(false);
-  const [err,     setErr]     = React.useState(false);
+// createSignedUrl generates a short-lived (60 min) authenticated link, which
+// is then shown in an in-app lightbox (never a new tab) — images are
+// click-to-zoom, PDFs render inline via an iframe.
+const DocLink = ({ value, label }) => {
+  const [loading,    setLoading]    = React.useState(false);
+  const [err,        setErr]        = React.useState(false);
+  const [signedUrl,  setSignedUrl]  = React.useState(null);
+  const [zoomed,     setZoomed]     = React.useState(false);
 
   const handleOpen = async () => {
     setLoading(true);
@@ -73,7 +77,8 @@ const DocLink = ({ value }) => {
         .from('move-in-docs')
         .createSignedUrl(path, 3600); // 1-hour signed URL
       if (error || !data?.signedUrl) throw error || new Error('No URL');
-      window.open(data.signedUrl, '_blank', 'noreferrer');
+      setSignedUrl(data.signedUrl);
+      setZoomed(false);
     } catch {
       setErr(true);
     } finally {
@@ -81,17 +86,56 @@ const DocLink = ({ value }) => {
     }
   };
 
+  const close = () => { setSignedUrl(null); setZoomed(false); };
+
   if (err) return <span className="text-sm text-red-400 italic">Failed to open — check storage permissions</span>;
 
   return (
-    <button
-      onClick={handleOpen}
-      disabled={loading}
-      className="flex items-center gap-1.5 text-sm font-semibold text-[#006837] hover:underline cursor-pointer disabled:opacity-60">
-      {loading
-        ? <><span className="w-3 h-3 border-2 border-[#006837]/30 border-t-[#006837] rounded-full animate-spin" /> Opening…</>
-        : <><ExternalLink size={12} /> View Document</>}
-    </button>
+    <>
+      <button
+        onClick={handleOpen}
+        disabled={loading}
+        className="flex items-center gap-1.5 text-sm font-semibold text-[#006837] hover:underline cursor-pointer disabled:opacity-60">
+        {loading
+          ? <><span className="w-3 h-3 border-2 border-[#006837]/30 border-t-[#006837] rounded-full animate-spin" /> Opening…</>
+          : <><Eye size={12} /> View Document</>}
+      </button>
+
+      {signedUrl && (
+        <div className="fixed inset-0 z-[2100] flex items-center justify-center p-4" onClick={close}>
+          <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-sm" />
+          <div className={`relative bg-white rounded-2xl shadow-2xl overflow-hidden w-full flex flex-col transition-all duration-200
+              ${zoomed ? 'max-w-5xl max-h-[94vh]' : 'max-w-lg max-h-[85vh]'}`}
+            onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 shrink-0">
+              <p className="text-sm font-black text-slate-800 flex items-center gap-1.5">
+                <FileText size={14} className="text-[#006837]" /> {label || 'Document'}
+              </p>
+              <div className="flex items-center gap-1.5">
+                {!/\.pdf($|\?)/i.test(signedUrl) && (
+                  <button onClick={() => setZoomed(z => !z)}
+                    className="p-1.5 hover:bg-slate-100 rounded-xl text-slate-400 hover:text-slate-600 cursor-pointer transition-all"
+                    title={zoomed ? 'Zoom out' : 'Zoom in'}>
+                    {zoomed ? <ZoomOut size={16} /> : <ZoomIn size={16} />}
+                  </button>
+                )}
+                <button onClick={close}
+                  className="p-1.5 hover:bg-slate-100 rounded-xl text-slate-400 hover:text-slate-600 cursor-pointer transition-all">
+                  <X size={16} />
+                </button>
+              </div>
+            </div>
+            <div className="overflow-auto p-4 flex items-center justify-center bg-slate-50 flex-1">
+              {/\.pdf($|\?)/i.test(signedUrl)
+                ? <iframe src={signedUrl} title={label || 'Document'} className="w-full h-[70vh] rounded-lg border border-slate-200 bg-white" />
+                : <img src={signedUrl} alt={label || 'Document'} onClick={() => setZoomed(z => !z)}
+                    className={`rounded-lg object-contain transition-all duration-200 cursor-zoom-in
+                      ${zoomed ? 'max-w-none max-h-none w-auto cursor-zoom-out' : 'max-w-full max-h-[65vh]'}`} />}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 };
 
@@ -107,7 +151,7 @@ const DetailRow = ({ label, value, url }) => {
     <div className="flex items-start justify-between py-2.5 border-b border-slate-50 last:border-0">
       <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider shrink-0 w-40">{label}</span>
       {url
-        ? <DocLink value={value} />
+        ? <DocLink value={value} label={label} />
         : <span className="text-sm font-semibold text-slate-700 text-right max-w-[260px] break-words">{value}</span>
       }
     </div>
@@ -585,11 +629,7 @@ const MoveInClearance = () => {
           { label: 'Rejected', value: rejectedCount, color: 'text-red-500',     bg: 'bg-red-50',     dot: 'bg-red-400',     status: 'rejected' },
         ].map(k => (
           <div key={k.label}
-            onClick={() => setStatusFilter(prev => prev === k.status ? 'all' : k.status)}
-            className={`bg-white rounded-2xl p-5 border cursor-pointer transition-all hover:shadow-md
-              ${statusFilter === k.status
-                ? 'border-[#006837] ring-1 ring-[#006837]/20 shadow-md'
-                : 'border-slate-100 shadow-sm'}`}>
+            className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">{k.label}</p>

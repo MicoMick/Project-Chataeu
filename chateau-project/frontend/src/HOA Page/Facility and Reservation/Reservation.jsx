@@ -3,8 +3,8 @@ import {
   Calendar, Clock, CheckCircle2, XCircle, Search, Users, Trash2,
   Eye, X, Mail, User, AlertTriangle, Loader2, Filter, Package,
   DollarSign, CalendarDays, MapPin, ChevronRight, RefreshCw, RotateCcw, FileText,
+  ZoomIn, ZoomOut,
 } from 'lucide-react';
-import Facility from './Facility';
 import Borrowers from './Borrowers';
 import { supabase } from '../supabaseAdmin';
 import { logAudit } from '../auditLogger';
@@ -124,20 +124,18 @@ const PaymentStatusPill = ({ status }) => {
 const fmtPeso = (n) => (n === null || n === undefined || n === '') ? '—' : `₱${Number(n).toLocaleString('en-PH', { minimumFractionDigits: 2 })}`;
 
 // ─── KPI Card ─────────────────────────────────────────────────────────────────
-const KpiCard = ({ label, value, icon: Icon, color, bg, onClick, active }) => (
-  <button onClick={onClick}
-    className={`w-full text-left p-5 rounded-2xl border-2 transition-all cursor-pointer hover:shadow-md
-      ${active ? `${bg} border-current shadow-sm` : 'bg-white border-slate-100 hover:border-slate-200'}`}>
+const KpiCard = ({ label, value, icon: Icon, color, bg }) => (
+  <div className="w-full text-left p-5 rounded-2xl border-2 bg-white border-slate-100">
     <div className="flex items-center justify-between">
       <div>
-        <p className={`text-[10px] font-black uppercase tracking-widest mb-1 ${active ? color : 'text-slate-400'}`}>{label}</p>
-        <p className={`text-3xl font-black ${active ? color : 'text-slate-800'}`}>{value}</p>
+        <p className="text-[10px] font-black uppercase tracking-widest mb-1 text-slate-400">{label}</p>
+        <p className="text-3xl font-black text-slate-800">{value}</p>
       </div>
-      <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${active ? 'bg-white/60' : bg}`}>
-        <Icon size={18} className={active ? color : color} />
+      <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${bg}`}>
+        <Icon size={18} className={color} />
       </div>
     </div>
-  </button>
+  </div>
 );
 
 
@@ -255,7 +253,7 @@ const ReservationsTable = ({
                         className="p-2 hover:bg-blue-50 text-slate-400 hover:text-blue-600 rounded-lg transition-all cursor-pointer">
                         <Eye size={15} />
                       </button>
-                      <RequireRole userRole={currentUserRole} allowedRoles={['president','vice_president','secretary','treasurer']}>
+                      <RequireRole userRole={currentUserRole} allowedRoles={['president','vice_president','secretary','treasurer','board_member']}>
                         {res.status === 'Pending' && (
                           <>
                             <button
@@ -284,7 +282,7 @@ const ReservationsTable = ({
                       </RequireRole>
                       {/* Confirm Cash Payment — facility rentals only; items are borrowed, not rented, so no rental payment to confirm */}
                       {!isItem && (
-                        <RequireRole userRole={currentUserRole} allowedRoles={['treasurer','president']}>
+                        <RequireRole userRole={currentUserRole} allowedRoles={['treasurer','president','board_member']}>
                           {res.status === 'Approved' && (
                             <button onClick={() => updateStatus(res.id, 'Approved and Paid')} title="Confirm Cash Payment"
                               className="p-2 hover:bg-teal-50 text-slate-400 hover:text-teal-600 rounded-lg transition-all cursor-pointer">
@@ -321,9 +319,10 @@ const Reservation = () => {
   const [deleteTarget,      setDeleteTarget]       = useState(null);
   const [pageTab,           setPageTab]            = useState('reservations'); // 'reservations' | 'borrowers'
   const [borrowerSearch,    setBorrowerSearch]     = useState('');
-  const [borrowerTab,       setBorrowerTab]        = useState('current'); // 'current' | 'history'
+  const [borrowerTab,       setBorrowerTab]        = useState('pending'); // 'pending' | 'current' | 'history' | 'declined'
   const [returning,         setReturning]          = useState(null);
   const [proofPreview,      setProofPreview]       = useState(null); // proof_url currently shown in lightbox
+  const [proofZoomed,       setProofZoomed]        = useState(false); // toggled by clicking the proof image
   const [payingId,          setPayingId]           = useState(null); // reservation id currently being accepted/rejected
 
   const currentUserRole = localStorage.getItem('userRole') || 'resident';
@@ -386,7 +385,8 @@ const Reservation = () => {
 
       await fetchAll();
       if (selectedRes?.id === id) setSelectedRes(prev => ({ ...prev, status: newStatus }));
-      logAudit('Reservation ' + id + ' → ' + newStatus);
+      logAudit('RESERVATION_STATUS_UPDATE',
+        `${res?.profiles?.full_name || 'Resident'} — ${res?.facilities?.name || 'reservation'} → ${newStatus}.`);
       return true;
     } catch (e) {
       alert('Error: ' + e.message);
@@ -399,6 +399,7 @@ const Reservation = () => {
   const handlePaymentDecision = async (id, decision) => {
     setPayingId(id);
     try {
+      const res = reservations.find(r => r.id === id);
       const updates = decision === 'Paid'
         ? { payment_status: 'Paid', paid_at: new Date().toISOString(), status: 'Approved and Paid' }
         : { payment_status: 'Rejected' };
@@ -408,7 +409,8 @@ const Reservation = () => {
 
       await fetchAll();
       if (selectedRes?.id === id) setSelectedRes(prev => ({ ...prev, ...updates }));
-      logAudit(`Payment ${decision === 'Paid' ? 'accepted' : 'rejected'} for reservation ${id}`);
+      logAudit('RESERVATION_PAYMENT_DECISION',
+        `Payment ${decision === 'Paid' ? 'accepted' : 'rejected'} for ${res?.profiles?.full_name || 'resident'} — ${res?.facilities?.name || 'reservation'}.`);
     } catch (e) {
       alert('Error: ' + e.message);
     } finally {
@@ -437,18 +439,21 @@ const Reservation = () => {
 
       setReservations(prev => prev.filter(r => r.id !== deleteTarget));
       setDeleteTarget(null);
-      logAudit('Deleted reservation ' + deleteTarget);
+      logAudit('RESERVATION_DELETED',
+        `${res?.profiles?.full_name || 'Resident'} — ${res?.facilities?.name || 'reservation'} deleted.`);
     } catch (e) { alert('Error: ' + e.message); }
   };
 
-  // ── Stats ─────────────────────────────────────────────────────────────────
+  // ── Stats — Facility rentals only; borrowed items get their own stat cards
+  // in the Borrowers tab so the two don't get conflated on one dashboard.
+  const facilityReservations = reservations.filter(r => r.facilities?.category !== 'Amenity Item');
   const stats = {
-    all:              reservations.length,
-    pending:          reservations.filter(r => r.status === 'Pending').length,
-    approved:         reservations.filter(r => r.status === 'Approved').length,
-    'approved and paid': reservations.filter(r => r.status === 'Approved and Paid').length,
-    completed:        reservations.filter(r => r.status === 'Completed').length,
-    rejected:         reservations.filter(r => r.status === 'Rejected').length,
+    all:              facilityReservations.length,
+    pending:          facilityReservations.filter(r => r.status === 'Pending').length,
+    approved:         facilityReservations.filter(r => r.status === 'Approved').length,
+    'approved and paid': facilityReservations.filter(r => r.status === 'Approved and Paid').length,
+    completed:        facilityReservations.filter(r => r.status === 'Completed').length,
+    rejected:         facilityReservations.filter(r => r.status === 'Rejected').length,
   };
 
   // ── Filter ────────────────────────────────────────────────────────────────
@@ -469,7 +474,7 @@ const Reservation = () => {
     { key: 'all',              label: 'Total',           icon: Calendar,    color: 'text-slate-600',    bg: 'bg-slate-100'    },
     { key: 'pending',          label: 'Pending',         icon: Clock,       color: 'text-amber-600',    bg: 'bg-amber-50'     },
     { key: 'approved',         label: 'Approved',        icon: CheckCircle2,color: 'text-[#006837]',    bg: 'bg-emerald-50'   },
-    { key: 'approved and paid',label: 'Paid',            icon: DollarSign,  color: 'text-teal-600',     bg: 'bg-teal-50'      },
+    { key: 'approved and paid',label: 'For Payment',     icon: DollarSign,  color: 'text-teal-600',     bg: 'bg-teal-50'      },
     { key: 'completed',        label: 'Completed',       icon: CheckCircle2,color: 'text-blue-600',     bg: 'bg-blue-50'      },
     { key: 'rejected',         label: 'Rejected',        icon: XCircle,     color: 'text-red-500',      bg: 'bg-red-50'       },
   ];
@@ -502,9 +507,9 @@ const Reservation = () => {
               className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer
                 ${pageTab === 'borrowers' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
               <Package size={13} /> Borrowers
-              {reservations.filter(r => r.facilities?.category === 'Amenity Item' && r.status === 'Approved').length > 0 && (
-                <span className="bg-blue-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded-full">
-                  {reservations.filter(r => r.facilities?.category === 'Amenity Item' && r.status === 'Approved').length}
+              {reservations.filter(r => r.facilities?.category === 'Amenity Item' && r.status === 'Pending').length > 0 && (
+                <span className="bg-orange-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded-full">
+                  {reservations.filter(r => r.facilities?.category === 'Amenity Item' && r.status === 'Pending').length}
                 </span>
               )}
             </button>
@@ -524,8 +529,6 @@ const Reservation = () => {
         {kpiCards.map(k => (
           <KpiCard key={k.key} label={k.label} value={stats[k.key] || 0}
             icon={k.icon} color={k.color} bg={k.bg}
-            active={statusFilter === k.key}
-            onClick={() => setStatusFilter(statusFilter === k.key ? 'all' : k.key)}
           />
         ))}
       </div>
@@ -552,11 +555,13 @@ const Reservation = () => {
 
           {/* Status pill filter */}
           <div className="flex gap-1 bg-slate-100 p-1 rounded-xl ml-auto">
-            {['all', 'pending', 'approved', 'completed', 'rejected'].map(s => (
+            {['all', 'pending', 'approved', 'approved and paid', 'completed', 'rejected'].map(s => (
               <button key={s} onClick={() => setStatusFilter(s)}
                 className={`px-3 py-1.5 rounded-lg text-xs font-bold capitalize transition-all cursor-pointer whitespace-nowrap
                   ${statusFilter === s ? 'bg-white text-[#006837] shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
-                {s === 'all' ? `All (${stats.all})` : `${s.charAt(0).toUpperCase() + s.slice(1)} (${stats[s] || 0})`}
+                {s === 'all' ? `All (${stats.all})`
+                  : s === 'approved and paid' ? `For Payment (${stats[s] || 0})`
+                  : `${s.charAt(0).toUpperCase() + s.slice(1)} (${stats[s] || 0})`}
               </button>
             ))}
           </div>
@@ -587,6 +592,7 @@ const Reservation = () => {
           setReturning={setReturning}
           currentUserRole={currentUserRole}
           onRefresh={fetchAll}
+          updateStatus={updateStatus}
         />
       )}
 
@@ -688,7 +694,7 @@ const Reservation = () => {
                   )}
                   {selectedRes.proof_url && (
                     <div className="p-3">
-                      <button onClick={() => setProofPreview(selectedRes.proof_url)}
+                      <button onClick={() => { setProofPreview(selectedRes.proof_url); setProofZoomed(false); }}
                         className="w-full flex items-center justify-center gap-2 py-2.5 bg-white border border-slate-200 hover:border-[#006837] hover:text-[#006837] text-slate-600 text-xs font-bold rounded-xl cursor-pointer transition-all">
                         <Eye size={13} /> View Proof of Payment
                       </button>
@@ -697,7 +703,7 @@ const Reservation = () => {
                 </div>
 
                 {/* Accept / reject the submitted proof — treasurer/president only, while pending */}
-                <RequireRole userRole={currentUserRole} allowedRoles={['treasurer','president']}>
+                <RequireRole userRole={currentUserRole} allowedRoles={['treasurer','president','board_member']}>
                   {selectedRes.proof_url && (selectedRes.payment_status || '').toLowerCase() === 'pending' && (
                     <div className="flex gap-2.5 mt-3">
                       <button
@@ -720,7 +726,7 @@ const Reservation = () => {
 
             {/* Action buttons */}
             <div className="px-6 pb-6 pt-4 flex flex-col gap-2.5">
-              <RequireRole userRole={currentUserRole} allowedRoles={['president','vice_president','secretary','treasurer']}>
+              <RequireRole userRole={currentUserRole} allowedRoles={['president','vice_president','secretary','treasurer','board_member']}>
                 {selectedRes.status === 'Pending' && (
                   <div className="flex gap-2.5">
                     <button
@@ -745,7 +751,7 @@ const Reservation = () => {
               </RequireRole>
               {/* Confirm Cash Payment — facility rentals only; items are borrowed, not rented */}
               {selectedRes.facilities?.category !== 'Amenity Item' && (
-                <RequireRole userRole={currentUserRole} allowedRoles={['treasurer','president']}>
+                <RequireRole userRole={currentUserRole} allowedRoles={['treasurer','president','board_member']}>
                   {selectedRes.status === 'Approved' && (
                     <button onClick={() => updateStatus(selectedRes.id, 'Approved and Paid')}
                       className="w-full py-3 bg-teal-600 hover:bg-teal-700 text-white font-bold rounded-2xl flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-teal-600/20 transition-all">
@@ -769,33 +775,38 @@ const Reservation = () => {
 
 
 
-      {/* ── Proof of payment lightbox ──────────────────────────────────────────── */}
+      {/* ── Proof of payment lightbox — stays in-app; image is click-to-zoom ──── */}
       {proofPreview && (
         <div className="fixed inset-0 z-[2100] flex items-center justify-center p-4"
-          onClick={() => setProofPreview(null)}>
+          onClick={() => { setProofPreview(null); setProofZoomed(false); }}>
           <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-sm" />
-          <div className="relative bg-white rounded-2xl shadow-2xl overflow-hidden max-w-lg w-full max-h-[85vh] flex flex-col"
+          <div className={`relative bg-white rounded-2xl shadow-2xl overflow-hidden w-full flex flex-col transition-all duration-200
+              ${proofZoomed ? 'max-w-5xl max-h-[94vh]' : 'max-w-lg max-h-[85vh]'}`}
             onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 shrink-0">
               <p className="text-sm font-black text-slate-800 flex items-center gap-1.5">
                 <FileText size={14} className="text-[#006837]" /> Proof of Payment
               </p>
-              <button onClick={() => setProofPreview(null)}
-                className="p-1.5 hover:bg-slate-100 rounded-xl text-slate-400 hover:text-slate-600 cursor-pointer transition-all">
-                <X size={16} />
-              </button>
+              <div className="flex items-center gap-1.5">
+                {!/\.pdf($|\?)/i.test(proofPreview) && (
+                  <button onClick={() => setProofZoomed(z => !z)}
+                    className="p-1.5 hover:bg-slate-100 rounded-xl text-slate-400 hover:text-slate-600 cursor-pointer transition-all"
+                    title={proofZoomed ? 'Zoom out' : 'Zoom in'}>
+                    {proofZoomed ? <ZoomOut size={16} /> : <ZoomIn size={16} />}
+                  </button>
+                )}
+                <button onClick={() => { setProofPreview(null); setProofZoomed(false); }}
+                  className="p-1.5 hover:bg-slate-100 rounded-xl text-slate-400 hover:text-slate-600 cursor-pointer transition-all">
+                  <X size={16} />
+                </button>
+              </div>
             </div>
-            <div className="overflow-auto p-4 flex items-center justify-center bg-slate-50">
+            <div className="overflow-auto p-4 flex items-center justify-center bg-slate-50 flex-1">
               {/\.pdf($|\?)/i.test(proofPreview)
-                ? <a href={proofPreview} target="_blank" rel="noopener noreferrer"
-                    className="text-sm font-bold text-[#006837] underline">Open PDF in new tab</a>
-                : <img src={proofPreview} alt="Proof of payment" className="max-w-full max-h-[65vh] rounded-lg object-contain" />}
-            </div>
-            <div className="p-3 border-t border-slate-100">
-              <a href={proofPreview} target="_blank" rel="noopener noreferrer"
-                className="w-full flex items-center justify-center gap-2 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl cursor-pointer transition-all">
-                Open Original in New Tab
-              </a>
+                ? <iframe src={proofPreview} title="Proof of payment (PDF)" className="w-full h-[70vh] rounded-lg border border-slate-200 bg-white" />
+                : <img src={proofPreview} alt="Proof of payment" onClick={() => setProofZoomed(z => !z)}
+                    className={`rounded-lg object-contain transition-all duration-200 cursor-zoom-in
+                      ${proofZoomed ? 'max-w-none max-h-none w-auto cursor-zoom-out' : 'max-w-full max-h-[65vh]'}`} />}
             </div>
           </div>
         </div>
@@ -827,10 +838,6 @@ const Reservation = () => {
         </div>
       )}
 
-      {/* ── Facility section ──────────────────────────────────────────────────── */}
-      <div className="border-t-2 border-dashed border-slate-200 pt-8">
-        <Facility />
-      </div>
     </div>
   );
 };

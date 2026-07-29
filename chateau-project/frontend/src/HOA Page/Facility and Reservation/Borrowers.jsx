@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   Search, Package, Clock, CheckCircle2, ShieldCheck,
-  AlertTriangle, X, Wrench, Loader2,
+  AlertTriangle, X, Wrench, Loader2, XCircle,
 } from 'lucide-react';
 import { supabase } from '../supabaseAdmin';
 import { logAudit } from '../auditLogger';
@@ -81,6 +81,22 @@ const StatusPill = ({ status }) => {
   );
 };
 
+// ─── KPI Card — mirrors the Facility Reservations stat cards so the two
+// tables read as one system even though Borrowers keeps its own stats. ──────
+const KpiCard = ({ label, value, icon: Icon, color, bg }) => (
+  <div className="w-full text-left p-5 rounded-2xl border-2 bg-white border-slate-100">
+    <div className="flex items-center justify-between">
+      <div>
+        <p className="text-[10px] font-black uppercase tracking-widest mb-1 text-slate-400">{label}</p>
+        <p className="text-3xl font-black text-slate-800">{value}</p>
+      </div>
+      <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${bg}`}>
+        <Icon size={18} className={color} />
+      </div>
+    </div>
+  </div>
+);
+
 // ─── Condition badge — shown once a return has been verified ────────────────
 const ConditionBadge = ({ r }) => {
   if (!r.returned_at && !r.return_condition) return <span className="text-xs text-slate-300">—</span>;
@@ -122,27 +138,29 @@ const ConditionBadge = ({ r }) => {
  * Props:
  *  - reservations: array (already fetched + joined with facilities + profiles in Reservation.jsx)
  *  - search, setSearch: lifted search state
- *  - tab, setTab: 'current' | 'history'
+ *  - tab, setTab: 'current' | 'history' | 'declined'
  *  - returning, setReturning: id of the row currently being marked returned
  *  - currentUserRole: role string for gating the "Mark Returned" action
  *  - onRefresh: refetch callback after a status change
  */
-const Borrowers = ({ reservations, search, setSearch, tab, setTab, returning, setReturning, currentUserRole, onRefresh }) => {
+const Borrowers = ({ reservations, search, setSearch, tab, setTab, returning, setReturning, currentUserRole, onRefresh, updateStatus }) => {
   const [verifyTarget,     setVerifyTarget]     = useState(null); // reservation currently being verified
   const [verifyCondition,  setVerifyCondition]  = useState('Good'); // 'Good' | 'Damaged'
   const [verifyMissingQty, setVerifyMissingQty] = useState(0);
   const [verifyNotes,      setVerifyNotes]      = useState('');
 
   const amenityItems    = reservations.filter(r => r.facilities?.category === 'Amenity Item');
+  const pendingItems    = amenityItems.filter(r => r.status === 'Pending');
   const currentBorrowed = amenityItems.filter(r => r.status === 'Approved');
-  const history         = amenityItems.filter(r => ['Completed', 'Rejected', 'Cancelled'].includes(r.status));
+  const history         = amenityItems.filter(r => r.status === 'Completed');
+  const declined        = amenityItems.filter(r => ['Rejected', 'Cancelled'].includes(r.status));
 
   const term    = search.toLowerCase();
   const filterR = (r) =>
     (r.profiles?.full_name || '').toLowerCase().includes(term) ||
     (r.facilities?.name    || '').toLowerCase().includes(term);
 
-  const list = (tab === 'current' ? currentBorrowed : history).filter(filterR);
+  const list = (tab === 'pending' ? pendingItems : tab === 'current' ? currentBorrowed : tab === 'history' ? history : declined).filter(filterR);
   const { paginated, page, setPage, totalPages, total } = usePagination(list, 10);
 
   const openVerify = (res) => {
@@ -187,7 +205,8 @@ const Borrowers = ({ reservations, search, setSearch, tab, setTab, returning, se
         verifyCondition === 'Damaged' ? 'damaged' : 'good condition',
         missingQty > 0 ? `${missingQty} unit(s) missing` : 'nothing missing',
       ].join(', ');
-      logAudit(`Verified return of ${res.facilities?.name} from ${res.profiles?.full_name} — ${flags}. ${usableQty} unit(s) restocked.`);
+      logAudit('BORROWED_ITEM_RETURNED',
+        `Verified return of ${res.facilities?.name} from ${res.profiles?.full_name} — ${flags}. ${usableQty} unit(s) restocked.`);
       setVerifyTarget(null);
       onRefresh();
     } catch (e) { alert('Failed: ' + e.message); }
@@ -198,9 +217,23 @@ const Borrowers = ({ reservations, search, setSearch, tab, setTab, returning, se
 
   return (
     <div className="space-y-4">
+      {/* Stat cards — item borrowing stats, separate from Facility Reservations */}
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+        <KpiCard label="Total Items"        value={amenityItems.length}       icon={Package}       color="text-slate-600" bg="bg-slate-100" />
+        <KpiCard label="Pending Requests"   value={pendingItems.length}       icon={AlertTriangle} color="text-orange-600" bg="bg-orange-50" />
+        <KpiCard label="Currently Borrowed" value={currentBorrowed.length}    icon={Clock}        color="text-amber-600" bg="bg-amber-50"  />
+        <KpiCard label="Returned"           value={history.length}            icon={CheckCircle2} color="text-blue-600"  bg="bg-blue-50"   />
+        <KpiCard label="Rejected/Cancelled" value={declined.length}           icon={XCircle}      color="text-red-500"   bg="bg-red-50"    />
+      </div>
+
       {/* Sub-tab + search */}
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 flex flex-wrap items-center gap-3">
         <div className="flex bg-slate-100 p-1 rounded-xl gap-0.5">
+          <button onClick={() => setTab('pending')}
+            className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer
+              ${tab === 'pending' ? 'bg-white text-orange-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+            <AlertTriangle size={12} /> Pending ({pendingItems.length})
+          </button>
           <button onClick={() => setTab('current')}
             className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer
               ${tab === 'current' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
@@ -210,6 +243,11 @@ const Borrowers = ({ reservations, search, setSearch, tab, setTab, returning, se
             className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer
               ${tab === 'history' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
             <CheckCircle2 size={12} /> Return History ({history.length})
+          </button>
+          <button onClick={() => setTab('declined')}
+            className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer
+              ${tab === 'declined' ? 'bg-white text-red-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+            <XCircle size={12} /> Rejected/Cancelled ({declined.length})
           </button>
         </div>
         <div className="relative ml-auto">
@@ -223,16 +261,19 @@ const Borrowers = ({ reservations, search, setSearch, tab, setTab, returning, se
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
         <table className="w-full text-left">
           <thead className="bg-slate-50 border-b border-slate-100">
-            <tr>{['Resident', 'Item', 'Qty', 'Requested On', 'Date', 'Status', ...(tab === 'current' ? ['Action'] : ['Condition', 'Completed On'])].map(h => (
+            <tr>{[
+              'Resident', 'Item', 'Qty', 'Requested On', 'Date', 'Status',
+              ...(tab === 'pending' || tab === 'current' ? ['Action'] : tab === 'history' ? ['Condition', 'Completed On'] : []),
+            ].map(h => (
               <th key={h} className="px-5 py-3.5 text-[10px] font-black text-slate-400 uppercase tracking-wider whitespace-nowrap">{h}</th>
             ))}</tr>
           </thead>
           <tbody className="divide-y divide-slate-50">
             {paginated.length === 0 ? (
-              <tr><td colSpan={tab === 'current' ? 7 : 8} className="py-16 text-center">
+              <tr><td colSpan={tab === 'pending' || tab === 'current' ? 7 : tab === 'history' ? 8 : 6} className="py-16 text-center">
                 <Package size={32} className="mx-auto text-slate-200 mb-2" />
                 <p className="text-sm font-bold text-slate-400">
-                  {tab === 'current' ? 'No items currently borrowed' : 'No return history yet'}
+                  {tab === 'pending' ? 'No pending requests' : tab === 'current' ? 'No items currently borrowed' : tab === 'history' ? 'No return history yet' : 'No rejected or cancelled requests'}
                 </p>
               </td></tr>
             ) : paginated.map(r => (
@@ -255,7 +296,26 @@ const Borrowers = ({ reservations, search, setSearch, tab, setTab, returning, se
                 <td className="px-5 py-4">
                   <StatusPill status={r.status} />
                 </td>
-                {tab === 'current' ? (
+                {tab === 'pending' ? (
+                  <td className="px-5 py-4">
+                    {allowedToReturn.includes(currentUserRole) && (
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          onClick={() => updateStatus(r.id, 'Approved')}
+                          disabled={(r.facilities?.amount ?? 0) < (r.quantity || 1)}
+                          title={(r.facilities?.amount ?? 0) < (r.quantity || 1) ? 'Not enough stock to approve' : 'Approve'}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-xs font-bold rounded-xl cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap">
+                          <CheckCircle2 size={12} /> Approve
+                        </button>
+                        <button
+                          onClick={() => updateStatus(r.id, 'Rejected')}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 text-xs font-bold rounded-xl cursor-pointer whitespace-nowrap">
+                          <XCircle size={12} /> Reject
+                        </button>
+                      </div>
+                    )}
+                  </td>
+                ) : tab === 'current' ? (
                   <td className="px-5 py-4">
                     {allowedToReturn.includes(currentUserRole) && (
                       <button onClick={() => openVerify(r)} disabled={returning === r.id}
@@ -266,14 +326,14 @@ const Borrowers = ({ reservations, search, setSearch, tab, setTab, returning, se
                       </button>
                     )}
                   </td>
-                ) : (
+                ) : tab === 'history' ? (
                   <>
                     <td className="px-5 py-4"><ConditionBadge r={r} /></td>
                     <td className="px-5 py-4 text-sm text-emerald-600 font-semibold whitespace-nowrap">
                       {r.status === 'Completed' ? <span className="flex items-center gap-1"><CheckCircle2 size={12} /> {fmtDate(r.returned_at) !== 'N/A' ? fmtDate(r.returned_at) : 'Returned'}</span> : '—'}
                     </td>
                   </>
-                )}
+                ) : null}
               </tr>
             ))}
           </tbody>

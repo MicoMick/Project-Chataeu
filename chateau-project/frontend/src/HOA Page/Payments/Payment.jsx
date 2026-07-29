@@ -3,7 +3,7 @@ import {
   Search, Plus, CreditCard, AlertCircle, CheckCircle2, DollarSign,
   Edit2, Trash2, X, Filter, Loader2, Download,
   Calendar, Users, ChevronDown, LayoutList, TableProperties, Printer, Mail,
-  Eye, FileText, XCircle, QrCode, Upload, RefreshCw,
+  Eye, FileText, XCircle, QrCode, Upload, RefreshCw, ZoomIn, ZoomOut,
 } from 'lucide-react';
 import { supabase } from '../supabaseAdmin';
 import { logAudit } from '../auditLogger';
@@ -508,10 +508,16 @@ const ModalOverlay = ({ title, subtitle, isOpen, onClose, children, actionLabel,
 
 // ─── Standing Ledger View ──────────────────────────────────────────────────────
 // Mirrors the physical paper ledger: one row per resident, shows standing + last payment date
-const StandingLedger = ({ residentsList, payments }) => {
+const StandingLedger = ({ residentsList, payments, monthlyDue }) => {
   const [search,          setSearch]          = useState('');
   const [streetFilter,    setStreetFilter]    = useState('All');
   const [standingFilter,  setStandingFilter]  = useState('All');
+
+  // A payment covering more than one month's due at once (amount is a
+  // multiple of the monthly due) is an advance payment. Only counts once the
+  // Treasurer has actually approved it — i.e. status is 'paid', not still
+  // 'pending_verification'.
+  const monthsCoveredBy = (amount) => Math.max(1, Math.round(Number(amount || 0) / (monthlyDue || 1)));
 
   // Build one row per resident
   const rows = residentsList.map(r => {
@@ -529,7 +535,10 @@ const StandingLedger = ({ residentsList, payments }) => {
     let standingColor = 'bg-slate-100 text-slate-500 border-slate-200';
     if (latestDue) {
       const s = (latestDue.status || '').toLowerCase();
-      if (s === 'paid')                    { standing = 'Good';    standingColor = 'bg-emerald-50 text-emerald-700 border-emerald-100'; }
+      if (s === 'paid') {
+        if (monthsCoveredBy(latestDue.amount) > 1) { standing = 'Paid in Advance'; standingColor = 'bg-purple-50 text-purple-700 border-purple-100'; }
+        else                                       { standing = 'Good';           standingColor = 'bg-emerald-50 text-emerald-700 border-emerald-100'; }
+      }
       else if (s === 'overdue')            { standing = 'Overdue'; standingColor = 'bg-red-50 text-red-600 border-red-100';            }
       else if (s === 'pending' || s === 'unpaid') { standing = 'Pending'; standingColor = 'bg-amber-50 text-amber-700 border-amber-100'; }
     }
@@ -598,9 +607,10 @@ const StandingLedger = ({ residentsList, payments }) => {
         const idx = globalIdx++;
         const isEven = idx % 2 === 0;
         const standingColor =
-          r.standing === 'Good'    ? '#166534' :
-          r.standing === 'Overdue' ? '#dc2626' :
-          r.standing === 'Pending' ? '#92400e' : '#64748b';
+          r.standing === 'Good'           ? '#166534' :
+          r.standing === 'Paid in Advance'? '#7e22ce' :
+          r.standing === 'Overdue'        ? '#dc2626' :
+          r.standing === 'Pending'        ? '#92400e' : '#64748b';
         return `
         <tr style="background:${isEven ? '#f0fdf4' : '#ffffff'};">
           <td style="padding:5px 8px;font-size:11px;text-align:center;border:1px solid #e2e8f0;">${idx}</td>
@@ -659,6 +669,7 @@ const StandingLedger = ({ residentsList, payments }) => {
   };
 
   const goodCount    = rows.filter(r => r.standing === 'Good').length;
+  const advanceCount = rows.filter(r => r.standing === 'Paid in Advance').length;
   const overdueCount = rows.filter(r => r.standing === 'Overdue').length;
   const pendingCount = rows.filter(r => r.standing === 'Pending').length;
   const noRecord     = rows.filter(r => r.standing === 'No Record').length;
@@ -735,12 +746,13 @@ const StandingLedger = ({ residentsList, payments }) => {
         </div>
 
         {/* Mini KPI strip */}
-        <div className="grid grid-cols-4 gap-3 mb-3">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-3">
           {[
-            { label: 'Good Standing', value: goodCount,    color: 'bg-emerald-50 text-emerald-700 border-emerald-100' },
-            { label: 'Overdue',       value: overdueCount, color: 'bg-red-50 text-red-600 border-red-100'            },
-            { label: 'Pending',       value: pendingCount, color: 'bg-amber-50 text-amber-700 border-amber-100'      },
-            { label: 'No Record',     value: noRecord,     color: 'bg-slate-100 text-slate-500 border-slate-200'     },
+            { label: 'Good Standing',   value: goodCount,    color: 'bg-emerald-50 text-emerald-700 border-emerald-100' },
+            { label: 'Paid in Advance', value: advanceCount, color: 'bg-purple-50 text-purple-700 border-purple-100'    },
+            { label: 'Overdue',         value: overdueCount, color: 'bg-red-50 text-red-600 border-red-100'            },
+            { label: 'Pending',         value: pendingCount, color: 'bg-amber-50 text-amber-700 border-amber-100'      },
+            { label: 'No Record',       value: noRecord,     color: 'bg-slate-100 text-slate-500 border-slate-200'     },
           ].map(k => (
             <div key={k.label} className={`p-3 rounded-xl border text-center ${k.color}`}>
               <p className="text-xl font-black">{k.value}</p>
@@ -772,6 +784,7 @@ const StandingLedger = ({ residentsList, payments }) => {
           >
             <option value="All">All Standings</option>
             <option value="Good">Good</option>
+            <option value="Paid in Advance">Paid in Advance</option>
             <option value="Overdue">Overdue</option>
             <option value="Pending">Pending</option>
             <option value="No Record">No Record</option>
@@ -804,6 +817,7 @@ const StandingLedger = ({ residentsList, payments }) => {
                   <span className={`inline-flex items-center gap-1.5 text-[10px] font-bold px-2.5 py-1 rounded-full border ${r.standingColor}`}>
                     <span className={`w-1.5 h-1.5 rounded-full ${
                       r.standing === 'Good' ? 'bg-emerald-400' :
+                      r.standing === 'Paid in Advance' ? 'bg-purple-400' :
                       r.standing === 'Overdue' ? 'bg-red-400' :
                       r.standing === 'Pending' ? 'bg-amber-400' : 'bg-slate-300'
                     }`} />
@@ -859,7 +873,10 @@ const Payment = () => {
   // ── Proof-of-payment verification (resident-submitted, status 'pending_verification') ──
   const [proofReviewPayment, setProofReviewPayment] = useState(null); // the payment row being reviewed
   const [proofReviewImage,   setProofReviewImage]   = useState(null); // proof_url shown in lightbox
+  const [proofReviewZoomed,  setProofReviewZoomed]  = useState(false); // toggled by clicking the proof image
   const [verifyingPaymentId, setVerifyingPaymentId]  = useState(null);
+  const [isApproveConfirmOpen, setIsApproveConfirmOpen] = useState(false); // "make sure it's finalized" step, gated by a countdown
+  const [approveCountdown,     setApproveCountdown]     = useState(0);
   const [selectedPayment,       setSelectedPayment]       = useState(null);
   const [isConfirmVoidOpen,     setIsConfirmVoidOpen]     = useState(false);
   const [isUnpaidBreakdownOpen, setIsUnpaidBreakdownOpen] = useState(false);
@@ -979,9 +996,11 @@ const Payment = () => {
       if (error) throw error;
 
       const residentName = residentsList.find(r => r.id === payment.user_id)?.full_name || 'Resident';
+      const monthsCovered = monthsCoveredBy(payment.amount);
+      const advanceNote = monthsCovered > 1 ? ` (covers ${monthsCovered} months — advance payment)` : '';
       await logAudit(
         decision === 'approve' ? 'PAYMENT_VERIFIED' : 'PAYMENT_REJECTED',
-        `${decision === 'approve' ? 'Approved' : 'Rejected'} submitted proof of payment for ${residentName} — ₱${Number(payment.amount || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}, due ${payment.due_date || '—'}.`,
+        `${decision === 'approve' ? 'Approved' : 'Rejected'} submitted proof of payment for ${residentName} — ₱${Number(payment.amount || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}${advanceNote}, due ${payment.due_date || '—'}.`,
       );
 
       // ── Auto-reactivate if approving cleared the resident's last unpaid due ──
@@ -1053,6 +1072,19 @@ const Payment = () => {
 
   useEffect(() => { fetchAll(); }, []);
 
+  // ── "Make sure it's finalized" countdown for the Approve confirmation ────────
+  // Forces a short pause before Approve is clickable, so a treasurer can't
+  // reflexively double-click through the confirmation without a beat to
+  // actually re-check the proof.
+  useEffect(() => {
+    if (!isApproveConfirmOpen) return;
+    setApproveCountdown(5);
+    const interval = setInterval(() => {
+      setApproveCountdown(c => (c > 0 ? c - 1 : 0));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [isApproveConfirmOpen]);
+
   // ── Extracted: generate dues for current month ──────────────────────────────
   // Called automatically on the 1st, OR manually via the demo test button.
   // force=true skips the "already generated this month" check.
@@ -1069,21 +1101,30 @@ const Payment = () => {
     const monthEnd        = new Date(year, month + 1, 0).toISOString().split('T')[0]; // due date — end of month
     const monthStart      = new Date(year, month,     1).toISOString().split('T')[0];
 
-    if (!force) {
-      const { data: existing } = await supabase
-        .from('payments').select('id')
-        .gte('due_date', monthStart).lte('due_date', monthEnd).limit(1);
-      if (existing?.length) return { skipped: true, reason: 'Already generated for this month.' };
-    }
-
     const { data: residents } = await supabase
       .from('profiles').select('id, full_name')
       .eq('account_status', 'active').order('full_name');
     if (!residents?.length) return { skipped: true, reason: 'No active residents found.' };
 
+    // Per-resident idempotency — a resident who already has a payment row for
+    // this month (e.g. paid in advance, or back-filled as 'pending' on
+    // approval) must be skipped individually, not used to bail out of billing
+    // everyone else. This used to check "does ANY row exist this month" and
+    // skip the WHOLE batch if so, which silently left every other resident
+    // unbilled for the month whenever even one resident already had a row.
+    let residentsNeeding = residents;
+    if (!force) {
+      const { data: existingThisMonth } = await supabase
+        .from('payments').select('user_id')
+        .gte('due_date', monthStart).lte('due_date', monthEnd);
+      const alreadyBilled = new Set((existingThisMonth || []).map(p => p.user_id));
+      residentsNeeding = residents.filter(r => !alreadyBilled.has(r.id));
+      if (!residentsNeeding.length) return { skipped: true, reason: 'Already generated for this month.' };
+    }
+
     const lineItems = buildLineItemBreakdown(monthlyDue);
 
-    const rows = residents.map(r => ({
+    const rows = residentsNeeding.map(r => ({
       user_id:        r.id,
       amount:         monthlyDue,
       statement_date: statementDate,
@@ -1108,11 +1149,15 @@ const Payment = () => {
   const runDelinquencyCheck = async (graceDays = null) => {
     const DELINQUENT_THRESHOLD = monthlyDue * 3; // 3 months unpaid, at the current due amount
 
-    // Fetch all unpaid payments grouped by resident
+    // Fetch all unpaid payments grouped by resident.
+    // 'pending' is excluded — those are unverified back-filled dues on newly
+    // approved residents (see AccountApproval.jsx) and shouldn't by themselves
+    // flip a brand-new resident straight to delinquent before the Treasurer
+    // has had a chance to verify whether they were already paid.
     const { data: unpaidPayments, error: fetchErr } = await supabase
       .from('payments')
       .select('user_id, amount')
-      .in('status', ['unpaid', 'overdue', 'pending', 'pending_verification']);
+      .in('status', ['unpaid', 'overdue', 'pending_verification']);
 
     if (fetchErr || !unpaidPayments?.length) return { success: true, count: 0 };
 
@@ -1172,8 +1217,13 @@ const Payment = () => {
       if (!pData?.length) { setPayments([]); return; }
 
       // Auto-overdue check
+      // 'pending' is excluded on purpose — it's used for back-filled dues on
+      // newly-approved residents (see AccountApproval.jsx's backfillPastDues),
+      // which represent unverified history rather than a confirmed missed
+      // payment. They stay 'pending' until the Treasurer verifies/edits them,
+      // instead of silently flipping to 'overdue' once their due date passes.
       const today = new Date(); today.setHours(0, 0, 0, 0);
-      const toOverdue = pData.filter(p => p.status !== 'paid' && p.status !== 'overdue' && p.status !== 'pending_verification' && p.due_date && new Date(p.due_date) < today).map(p => p.id);
+      const toOverdue = pData.filter(p => p.status !== 'paid' && p.status !== 'overdue' && p.status !== 'pending_verification' && p.status !== 'pending' && p.due_date && new Date(p.due_date) < today).map(p => p.id);
       if (toOverdue.length) {
         await supabase.from('payments').update({ status: 'overdue' }).in('id', toOverdue);
         await logAudit('SYSTEM_AUTO_UPDATE', `Auto-updated ${toOverdue.length} payment(s) to Overdue.`);
@@ -1325,6 +1375,27 @@ const Payment = () => {
         .sort((a, b) => new Date(b.due_date || 0) - new Date(a.due_date || 0))
     : breakdownPayments;
 
+  // Summary banner must only total what's still actually owed. breakdownPayments
+  // is sometimes seeded with a settled resident's FULL history (see the "View
+  // Detail" button for settled rows) just to anchor breakdownUserId above — it
+  // is not safe to sum directly, or paid months would inflate "Total Unpaid
+  // Balance"/"Months Unpaid".
+  const breakdownUnpaidOnly = breakdownFullHistory.filter(p =>
+    ['unpaid', 'overdue', 'pending', 'pending_verification'].includes((p.status || '').toLowerCase())
+  );
+
+  // A resident can submit one proof-of-payment that covers more than one
+  // month at once (e.g. ₱300 against a ₱150 due = paying 2 months ahead in a
+  // single submission) — the row's own "amount" is what carries that, since
+  // there's no separate row per advance month. Round to the nearest whole
+  // month so tiny rounding differences in the per-category breakdown don't
+  // misclassify a normal single-month due as a "2 months" one.
+  const monthsCoveredBy = (amount) => Math.max(1, Math.round(Number(amount || 0) / (monthlyDue || 1)));
+  const breakdownMonthsUnpaid = breakdownUnpaidOnly.reduce((s, p) => s + monthsCoveredBy(p.amount), 0);
+  const breakdownAdvanceMonths = breakdownUnpaidOnly
+    .filter(p => monthsCoveredBy(p.amount) > 1)
+    .reduce((s, p) => s + monthsCoveredBy(p.amount), 0);
+
   // ── Resident-based table rows — one row per resident, always ─────────────────
   // Amount = unpaid balance (grows as months are generated, resets to ₱0 when paid).
   // Paid receipts are NOT shown as separate rows — the table is resident-centric.
@@ -1350,6 +1421,15 @@ const Payment = () => {
     // review — resident already submitted payer_reference_no + proof_url.
     const pendingVerification = unpaidList.find(p => (p.status || '').toLowerCase() === 'pending_verification') || null;
 
+    // A resident "paid in advance" if any single payment row's amount covers
+    // more than one month at once (e.g. ₱300 against a ₱150 due). Flagged
+    // separately from pendingAdvanceVerification so the filter can surface
+    // advance payers regardless of status, while the notification badge only
+    // counts ones still awaiting the Treasurer's review.
+    const hasAdvancePayment = rPayments.some(p => monthsCoveredBy(p.amount) > 1);
+    const pendingAdvanceVerification = pendingVerification && monthsCoveredBy(pendingVerification.amount) > 1
+      ? pendingVerification : null;
+
     return {
       _residentRow: true,
       user_id:      r.id,
@@ -1364,7 +1444,10 @@ const Payment = () => {
       newest,
       standing,
       unpaidList,
+      allPayments: rPayments,
       pendingVerification,
+      hasAdvancePayment,
+      pendingAdvanceVerification,
     };
   });
 
@@ -1374,14 +1457,18 @@ const Payment = () => {
     const residentMatch = residentFilter === 'All' || r.user_id === residentFilter;
     const statusMatch = statusFilter === 'All'
       || (statusFilter === 'Paid'    && r.standing === 'Settled')
-      || (statusFilter === 'Unpaid'  && r.months > 0)
-      || (statusFilter === 'Overdue' && r.months > 0)
-      || (statusFilter === 'Pending' && r.months > 0)
-      || (statusFilter === 'PendingVerification' && !!r.pendingVerification);
+      || (statusFilter === 'Unpaid'  && r.unpaidList.some(p => (p.status || '').toLowerCase() === 'unpaid'))
+      || (statusFilter === 'Overdue' && r.unpaidList.some(p => (p.status || '').toLowerCase() === 'overdue'))
+      || (statusFilter === 'Pending' && r.unpaidList.some(p => (p.status || '').toLowerCase() === 'pending'))
+      || (statusFilter === 'PendingVerification' && !!r.pendingVerification)
+      || (statusFilter === 'Advance' && r.hasAdvancePayment);
     return nameMatch && residentMatch && statusMatch;
   }).sort((a, b) => (a.months > 0 ? 0 : 1) - (b.months > 0 ? 0 : 1));
 
   const { paginated: paginatedPayments, page: transPage, setPage: setTransPage, totalPages: transTotalPages } = usePagination(consolidatedPayments, 5);
+
+  // Notification badge — advance payments still awaiting Treasurer verification.
+  const advancePendingResidents = residentRows.filter(r => r.pendingAdvanceVerification);
 
   // ── Paid tab rows — one row per resident with at least one paid due ──────────
   const paidRows = residentsList.map(r => {
@@ -1457,7 +1544,7 @@ const Payment = () => {
               {/* Header */}
               <div className="flex justify-between items-start mb-5">
                 <div>
-                  <h2 className="text-xl font-black text-slate-900">Mark as Paid</h2>
+                  <h2 className="text-xl font-black text-slate-900">Monthly Due Details</h2>
                   <p className="text-slate-400 text-sm mt-0.5">
                     {(() => {
                       const p0 = breakdownPayments[0];
@@ -1473,17 +1560,24 @@ const Payment = () => {
                 <button onClick={() => setIsUnpaidBreakdownOpen(false)} className="p-2 hover:bg-slate-100 rounded-xl text-slate-400 cursor-pointer"><X size={18} /></button>
               </div>
 
-              {/* Summary banner */}
-              <div className="bg-red-50 border border-red-100 rounded-2xl p-4 mb-5 flex items-center justify-between">
+              {/* Summary banner — green when fully settled, red when balance is owed */}
+              <div className={`border rounded-2xl p-4 mb-5 flex items-center justify-between ${
+                breakdownUnpaidOnly.length ? 'bg-red-50 border-red-100' : 'bg-emerald-50 border-emerald-100'
+              }`}>
                 <div>
-                  <p className="text-xs font-bold text-red-400 uppercase tracking-wider mb-0.5">Total Unpaid Balance</p>
-                  <p className="text-2xl font-black text-red-600">
-                    ₱{breakdownPayments.reduce((s, p) => s + Number(p.amount || 0), 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}
+                  <p className={`text-xs font-bold uppercase tracking-wider mb-0.5 ${breakdownUnpaidOnly.length ? 'text-red-400' : 'text-emerald-500'}`}>Total Unpaid Balance</p>
+                  <p className={`text-2xl font-black ${breakdownUnpaidOnly.length ? 'text-red-600' : 'text-emerald-600'}`}>
+                    ₱{breakdownUnpaidOnly.reduce((s, p) => s + Number(p.amount || 0), 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}
                   </p>
                 </div>
                 <div className="text-right">
-                  <p className="text-xs font-bold text-red-400 uppercase tracking-wider mb-0.5">Months Unpaid</p>
-                  <p className="text-2xl font-black text-red-600">{breakdownPayments.length}</p>
+                  <p className={`text-xs font-bold uppercase tracking-wider mb-0.5 ${breakdownUnpaidOnly.length ? 'text-red-400' : 'text-emerald-500'}`}>Months Unpaid</p>
+                  <p className={`text-2xl font-black ${breakdownUnpaidOnly.length ? 'text-red-600' : 'text-emerald-600'}`}>{breakdownMonthsUnpaid}</p>
+                  {breakdownAdvanceMonths > 0 && (
+                    <p className="inline-flex items-center gap-1 mt-1 text-xs font-black px-2 py-1 rounded-lg bg-purple-100 text-purple-700 border border-purple-200">
+                      {breakdownAdvanceMonths} Months Advance
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -1496,12 +1590,13 @@ const Payment = () => {
                     : st === 'pending_verification'
                     ? 'bg-blue-100 text-blue-600'
                     : 'bg-red-100 text-red-500';
+                  const rowMonths = monthsCoveredBy(p.amount);
                   return (
                   <div key={p.id} className="flex items-center justify-between px-3.5 py-2.5 bg-slate-50 border border-slate-100 rounded-xl">
                     <div className="flex items-center gap-2.5">
                       <span className={`w-5 h-5 rounded-full ${badgeColor} text-[10px] font-black flex items-center justify-center shrink-0`}>{i + 1}</span>
                       <div>
-                        <span className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
+                        <span className="text-sm font-semibold text-slate-700 flex items-center gap-1.5 flex-wrap">
                           {p.due_date ? new Date(p.due_date).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : '—'}
                           {st === 'pending_verification' && (
                             <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-100">Pending Verification</span>
@@ -1516,6 +1611,11 @@ const Payment = () => {
                             : <>Billed {p.statement_date ? new Date(p.statement_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'}
                               {' · '}Due {p.due_date ? new Date(p.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'}</>}
                         </p>
+                        {rowMonths > 1 && (
+                          <span className="inline-flex items-center gap-1 mt-1 text-xs font-black px-2 py-1 rounded-lg bg-purple-100 text-purple-700 border border-purple-300">
+                            {rowMonths} Months Advance
+                          </span>
+                        )}
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
@@ -1527,7 +1627,7 @@ const Payment = () => {
                           setIsUnpaidBreakdownOpen(false);
                           setIsEditTransactionOpen(true);
                         }}
-                        className="text-slate-300 hover:text-[#006837] p-1 hover:bg-[#006837]/10 rounded-lg transition-all cursor-pointer" title="Edit this month only">
+                        className="text-[#006837] bg-[#006837]/10 hover:bg-[#006837]/20 p-1.5 rounded-lg transition-all cursor-pointer" title="Edit this month only">
                         <Edit2 size={13} />
                       </button>
                       <button
@@ -1536,7 +1636,7 @@ const Payment = () => {
                           setIsUnpaidBreakdownOpen(false);
                           setIsConfirmVoidOpen(true);
                         }}
-                        className="text-slate-300 hover:text-red-500 p-1 hover:bg-red-50 rounded-lg transition-all cursor-pointer" title="Void this month only">
+                        className="text-red-500 bg-red-50 hover:bg-red-100 p-1.5 rounded-lg transition-all cursor-pointer" title="Void this month only">
                         <Trash2 size={13} />
                       </button>
                     </div>
@@ -1611,34 +1711,27 @@ const Payment = () => {
             <input readOnly value={(Array.isArray(selectedPayment?.profiles) ? selectedPayment?.profiles[0]?.full_name : selectedPayment?.profiles?.full_name) || 'Unknown'}
               className="w-full px-4 py-2.5 bg-slate-100 text-slate-400 border border-slate-200 rounded-xl cursor-not-allowed text-sm" />
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Amount (₱)</label>
-              <input type="number" name="amount" value={editFormData.amount} onChange={handleEditChange}
-                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#006837]/20 focus:border-[#006837] transition-all" />
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Status</label>
-              <select name="status" value={editFormData.status} onChange={handleEditChange}
-                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#006837]/20 cursor-pointer">
-                <option value="paid">Paid</option>
-                <option value="unpaid">Unpaid</option>
-                <option value="pending">Pending</option>
-                <option value="pending_verification">Pending Verification</option>
-                <option value="overdue">Overdue</option>
-              </select>
-            </div>
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Status</label>
+            <select name="status" value={editFormData.status} onChange={handleEditChange}
+              className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#006837]/20 cursor-pointer">
+              <option value="unpaid">Unpaid</option>
+              <option value="pending">Pending</option>
+              <option value="pending_verification">Pending Verification</option>
+            </select>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Due Date</label>
-              <input type="date" name="due_date" value={editFormData.due_date} onChange={handleEditChange}
-                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#006837]/20 cursor-pointer" />
+              <input type="date" name="due_date" value={editFormData.due_date} readOnly disabled
+                title="Due date is set automatically and can't be edited here"
+                className="w-full px-4 py-2.5 bg-slate-100 text-slate-400 border border-slate-200 rounded-xl text-sm cursor-not-allowed" />
             </div>
             <div>
               <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Reference No.</label>
-              <input type="text" name="reference_no" value={editFormData.reference_no} onChange={handleEditChange} placeholder="Ref Number"
-                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#006837]/20 transition-all" />
+              <input type="text" name="reference_no" value={editFormData.reference_no} readOnly disabled placeholder="Ref Number"
+                title="Reference number is set automatically and can't be edited here"
+                className="w-full px-4 py-2.5 bg-slate-100 text-slate-400 border border-slate-200 rounded-xl text-sm cursor-not-allowed" />
             </div>
           </div>
           {editFormData.status === 'paid' && (
@@ -1653,8 +1746,9 @@ const Payment = () => {
               </div>
               <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Date Paid</label>
-                <input type="date" name="paid_at" value={editFormData.paid_at} onChange={handleEditChange}
-                  className="w-full px-4 py-2.5 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 cursor-pointer" />
+                <input type="date" name="paid_at" value={editFormData.paid_at || localToday()} readOnly disabled
+                  title="Date paid is set automatically to today and can't be edited here"
+                  className="w-full px-4 py-2.5 bg-slate-100 text-slate-400 border border-slate-200 rounded-xl cursor-not-allowed" />
               </div>
             </>
           )}
@@ -1829,12 +1923,19 @@ const Payment = () => {
                 </div>
                 {proofReviewPayment.proof_url && (
                   <div className="p-3">
-                    <button onClick={() => setProofReviewImage(proofReviewPayment.proof_url)}
+                    <button onClick={() => { setProofReviewImage(proofReviewPayment.proof_url); setProofReviewZoomed(false); }}
                       className="w-full flex items-center justify-center gap-2 py-2.5 bg-white border border-slate-200 hover:border-blue-400 hover:text-blue-600 text-slate-600 text-xs font-bold rounded-xl cursor-pointer transition-all">
                       <Eye size={13} /> View Proof of Payment
                     </button>
                   </div>
                 )}
+              </div>
+
+              <div className="mb-4 p-3 bg-amber-50 border border-amber-100 rounded-2xl flex items-start gap-2.5">
+                <AlertCircle size={16} className="text-amber-500 shrink-0 mt-0.5" />
+                <p className="text-xs font-semibold text-amber-700">
+                  Make sure to check the proof of payment — click "View Proof of Payment" above to open the image before approving.
+                </p>
               </div>
 
               <div className="flex gap-2.5">
@@ -1850,7 +1951,7 @@ const Payment = () => {
                   <XCircle size={15} /> Reject
                 </button>
                 <button
-                  onClick={() => handleVerifyPayment(proofReviewPayment, 'approve')}
+                  onClick={() => setIsApproveConfirmOpen(true)}
                   disabled={verifyingPaymentId === proofReviewPayment.id}
                   className="flex-1 py-3 bg-[#006837] hover:bg-[#004d29] text-white rounded-2xl font-bold shadow-lg shadow-[#006837]/20 cursor-pointer transition-all flex items-center justify-center gap-2 disabled:opacity-50">
                   <CheckCircle2 size={15} /> {verifyingPaymentId === proofReviewPayment.id ? 'Saving…' : 'Approve'}
@@ -1861,30 +1962,72 @@ const Payment = () => {
         </div>
       )}
 
-      {/* ── Proof of payment lightbox ── */}
+      {/* ── "Make sure it's finalized" confirmation, gated by a short countdown ── */}
+      {isApproveConfirmOpen && proofReviewPayment && (
+        <div className="fixed inset-0 z-[10550] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" />
+          <div className="relative bg-white rounded-3xl shadow-2xl w-full max-w-sm z-10 overflow-hidden">
+            <div className="p-6 text-center">
+              <div className="w-14 h-14 rounded-2xl bg-emerald-50 flex items-center justify-center mx-auto mb-4">
+                <CheckCircle2 size={26} className="text-emerald-600" />
+              </div>
+              <h3 className="text-lg font-black text-slate-900 mb-1">Confirm Approval</h3>
+              <p className="text-sm text-slate-500 mb-6">
+                Make sure it's finalized — once approved, this payment is marked <span className="font-bold text-slate-700">Paid</span> and can only be changed by editing or voiding the transaction afterward.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setIsApproveConfirmOpen(false)}
+                  className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl font-bold cursor-pointer transition-all">
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    setIsApproveConfirmOpen(false);
+                    handleVerifyPayment(proofReviewPayment, 'approve');
+                  }}
+                  disabled={approveCountdown > 0 || verifyingPaymentId === proofReviewPayment.id}
+                  className="flex-1 py-3 bg-[#006837] hover:bg-[#004d29] text-white rounded-2xl font-bold shadow-lg shadow-[#006837]/20 cursor-pointer transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
+                  <CheckCircle2 size={15} /> {approveCountdown > 0 ? `Approve (${approveCountdown})` : 'Approve'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Proof of payment lightbox — stays in-app; image is click-to-zoom ──── */}
       {proofReviewImage && (
-        <div className="fixed inset-0 z-[10600] flex items-center justify-center p-4" onClick={() => setProofReviewImage(null)}>
+        <div className="fixed inset-0 z-[10600] flex items-center justify-center p-4"
+          onClick={() => { setProofReviewImage(null); setProofReviewZoomed(false); }}>
           <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-sm" />
-          <div className="relative bg-white rounded-2xl shadow-2xl overflow-hidden max-w-lg w-full max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
+          <div className={`relative bg-white rounded-2xl shadow-2xl overflow-hidden w-full flex flex-col transition-all duration-200
+              ${proofReviewZoomed ? 'max-w-5xl max-h-[94vh]' : 'max-w-lg max-h-[85vh]'}`}
+            onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 shrink-0">
               <p className="text-sm font-black text-slate-800 flex items-center gap-1.5">
                 <FileText size={14} className="text-blue-600" /> Proof of Payment
               </p>
-              <button onClick={() => setProofReviewImage(null)}
-                className="p-1.5 hover:bg-slate-100 rounded-xl text-slate-400 hover:text-slate-600 cursor-pointer transition-all">
-                <X size={16} />
-              </button>
+              <div className="flex items-center gap-1.5">
+                {!/\.pdf($|\?)/i.test(proofReviewImage) && (
+                  <button onClick={() => setProofReviewZoomed(z => !z)}
+                    className="p-1.5 hover:bg-slate-100 rounded-xl text-slate-400 hover:text-slate-600 cursor-pointer transition-all"
+                    title={proofReviewZoomed ? 'Zoom out' : 'Zoom in'}>
+                    {proofReviewZoomed ? <ZoomOut size={16} /> : <ZoomIn size={16} />}
+                  </button>
+                )}
+                <button onClick={() => { setProofReviewImage(null); setProofReviewZoomed(false); }}
+                  className="p-1.5 hover:bg-slate-100 rounded-xl text-slate-400 hover:text-slate-600 cursor-pointer transition-all">
+                  <X size={16} />
+                </button>
+              </div>
             </div>
-            <div className="overflow-auto p-4 flex items-center justify-center bg-slate-50">
+            <div className="overflow-auto p-4 flex items-center justify-center bg-slate-50 flex-1">
               {/\.pdf($|\?)/i.test(proofReviewImage)
-                ? <a href={proofReviewImage} target="_blank" rel="noopener noreferrer" className="text-sm font-bold text-blue-600 underline">Open PDF in new tab</a>
-                : <img src={proofReviewImage} alt="Proof of payment" className="max-w-full max-h-[65vh] rounded-lg object-contain" />}
-            </div>
-            <div className="p-3 border-t border-slate-100">
-              <a href={proofReviewImage} target="_blank" rel="noopener noreferrer"
-                className="w-full flex items-center justify-center gap-2 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl cursor-pointer transition-all">
-                Open Original in New Tab
-              </a>
+                ? <iframe src={proofReviewImage} title="Proof of payment (PDF)" className="w-full h-[70vh] rounded-lg border border-slate-200 bg-white" />
+                : <img src={proofReviewImage} alt="Proof of payment" onClick={() => setProofReviewZoomed(z => !z)}
+                    className={`rounded-lg object-contain transition-all duration-200 cursor-zoom-in
+                      ${proofReviewZoomed ? 'max-w-none max-h-none w-auto cursor-zoom-out' : 'max-w-full max-h-[65vh]'}`} />}
             </div>
           </div>
         </div>
@@ -2006,7 +2149,7 @@ const Payment = () => {
 
       {/* ── Standing Ledger view ── */}
       {activeView === 'standing' && (
-        <StandingLedger residentsList={residentsList} payments={payments} />
+        <StandingLedger residentsList={residentsList} payments={payments} monthlyDue={monthlyDue} />
       )}
 
       {/* ── Paid view — one row per resident who has at least one paid due ── */}
@@ -2110,15 +2253,32 @@ const Payment = () => {
               <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
                 className="px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-600 focus:outline-none focus:ring-2 focus:ring-[#006837]/20 cursor-pointer">
                 <option value="All">All Status</option>
-                <option value="PendingVerification">Pending Verification</option>
+                <RequireRole userRole={currentUserRole} allowedRoles={['treasurer']}>
+                  <option value="PendingVerification">Pending Verification</option>
+                </RequireRole>
+                <option value="Pending">On Pending</option>
                 <option value="Paid">Paid</option>
-                <option value="Pending">Pending</option>
                 <option value="Overdue">Overdue</option>
                 <option value="Unpaid">Unpaid</option>
+                <RequireRole userRole={currentUserRole} allowedRoles={['treasurer']}>
+                  <option value="Advance">Paid in Advance</option>
+                </RequireRole>
               </select>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
-
+              {advancePendingResidents.length > 0 && (
+                <RequireRole userRole={currentUserRole} allowedRoles={['treasurer']}>
+                  <button
+                    onClick={() => setProofReviewPayment(advancePendingResidents[0].pendingAdvanceVerification)}
+                    className="relative flex items-center gap-1.5 px-3 py-2 bg-purple-50 hover:bg-purple-100 border border-purple-200 text-purple-700 text-xs font-bold rounded-xl transition-all cursor-pointer">
+                    <AlertCircle size={13} />
+                    Advance Payment{advancePendingResidents.length !== 1 ? 's' : ''} to Verify
+                    <span className="flex items-center justify-center min-w-[18px] h-[18px] px-1 bg-purple-600 text-white text-[10px] font-black rounded-full">
+                      {advancePendingResidents.length}
+                    </span>
+                  </button>
+                </RequireRole>
+              )}
             </div>
           </div>
 
@@ -2219,7 +2379,7 @@ const Payment = () => {
                             <Printer size={12} /> SOA
                           </button>
                           {r.pendingVerification && (
-                            <RequireRole userRole={currentUserRole} allowedRoles={['treasurer','president']}>
+                            <RequireRole userRole={currentUserRole} allowedRoles={['treasurer']}>
                               <button
                                 onClick={() => setProofReviewPayment(r.pendingVerification)}
                                 className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl transition-all cursor-pointer whitespace-nowrap">
@@ -2227,19 +2387,24 @@ const Payment = () => {
                               </button>
                             </RequireRole>
                           )}
-                          {hasBalance && (
+                          {(hasBalance || r.standing === 'Settled') && (
                             <RequireRole userRole={currentUserRole} allowedRoles={['treasurer']}>
                               <button
                                 onClick={() => {
-                                  setBreakdownPayments(r.unpaidList.map(p => ({
+                                  const anchorList = r.unpaidList.length ? r.unpaidList : r.allPayments;
+                                  setBreakdownPayments(anchorList.map(p => ({
                                     ...p,
                                     profiles: payments.find(x => x.id === p.id)?.profiles
                                       ?? residentsList.find(res => res.id === r.user_id) ?? null,
                                   })));
                                   setIsUnpaidBreakdownOpen(true);
                                 }}
-                                className="flex items-center gap-1.5 px-3 py-1.5 bg-[#006837] hover:bg-[#004d29] text-white text-xs font-bold rounded-xl transition-all cursor-pointer whitespace-nowrap">
-                                <Edit2 size={12} /> Pay / Edit
+                                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl transition-all cursor-pointer whitespace-nowrap ${
+                                  hasBalance
+                                    ? 'bg-[#006837] hover:bg-[#004d29] text-white'
+                                    : 'bg-white border border-slate-200 hover:border-[#006837] hover:text-[#006837] text-slate-500'
+                                }`}>
+                                <Eye size={12} /> View Detail
                               </button>
                             </RequireRole>
                           )}

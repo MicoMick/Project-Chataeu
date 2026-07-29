@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, ChevronLeft, ChevronRight, User, Eye } from 'lucide-react';
+import { X, ChevronLeft, ChevronRight, User, Eye, Package, MapPin } from 'lucide-react';
 
 const CalendarReserve = ({ isOpen, onClose, reservations, setSelectedReservation }) => {
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -122,29 +122,42 @@ const CalendarReserve = ({ isOpen, onClose, reservations, setSelectedReservation
             </div>
             
             <div className="p-6 md:p-8 space-y-4 flex-1 overflow-y-auto custom-scrollbar">
-              {selectedDateDetails.items.map((item) => (
+              {selectedDateDetails.items.map((item) => {
+                const isBorrower = item.facilities?.category === 'Amenity Item';
+                return (
                 <div key={item.id} className="p-4 md:p-6 bg-slate-50 rounded-3xl border border-slate-100 flex items-center justify-between">
                   <div className="flex items-center gap-4">
-                    <div className="w-10 h-10 md:w-12 md:h-12 bg-white rounded-2xl flex items-center justify-center text-indigo-600 shadow-sm shrink-0">
+                    <div className={`w-10 h-10 md:w-12 md:h-12 bg-white rounded-2xl flex items-center justify-center shadow-sm shrink-0 ${isBorrower ? 'text-blue-600' : 'text-indigo-600'}`}>
                       <User size={20} />
                     </div>
                     <div>
-                      <h4 className="font-bold text-slate-900 text-sm md:text-base">{item.profiles?.full_name}</h4>
-                      <p className="text-xs font-medium text-slate-500">{item.facilities?.name || 'Unknown Facility'} • {item.start_time}</p>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h4 className="font-bold text-slate-900 text-sm md:text-base">{item.profiles?.full_name}</h4>
+                        <span className={`inline-flex items-center gap-1 text-[9px] font-black px-2 py-0.5 rounded-full border uppercase tracking-wide
+                          ${isBorrower ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-[#006837]/10 text-[#006837] border-[#006837]/20'}`}>
+                          {isBorrower ? <Package size={9} /> : <MapPin size={9} />}
+                          {isBorrower ? 'Borrower' : 'Facility'}
+                        </span>
+                      </div>
+                      <p className="text-xs font-medium text-slate-500">
+                        {item.facilities?.name || 'Unknown Facility'}
+                        {isBorrower ? ` • ${item.quantity || 1} unit(s)` : ` • ${item.start_time}`}
+                      </p>
                     </div>
                   </div>
-                  <button 
-                    onClick={() => { 
-                      setSelectedReservation(item); 
-                      setSelectedDateDetails(null); 
-                      onClose(); 
-                    }} 
+                  <button
+                    onClick={() => {
+                      setSelectedReservation(item);
+                      setSelectedDateDetails(null);
+                      onClose();
+                    }}
                     className="p-2 bg-white border border-slate-200 rounded-xl hover:bg-indigo-50 transition-all cursor-pointer shrink-0"
                   >
                     <Eye size={18} />
                   </button>
                 </div>
-              ))}
+                );
+              })}
             </div>
             
             <div className="p-6 md:p-8 border-t border-slate-100 shrink-0">

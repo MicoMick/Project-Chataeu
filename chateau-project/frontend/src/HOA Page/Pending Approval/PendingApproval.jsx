@@ -323,11 +323,7 @@ const PendingApproval = () => {
           { label: 'Rejected', value: rejectedCount, color: 'text-red-500',     bg: 'bg-red-50',     dot: 'bg-red-400'     },
         ].map(k => (
           <div key={k.label}
-            onClick={() => setStatusFilter(k.label.toUpperCase())}
-            className={`bg-white rounded-2xl p-5 border cursor-pointer transition-all hover:shadow-md
-              ${statusFilter === k.label.toUpperCase()
-                ? 'border-[#006837] ring-1 ring-[#006837]/20 shadow-md'
-                : 'border-slate-100 shadow-sm'}`}>
+            className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">{k.label}</p>

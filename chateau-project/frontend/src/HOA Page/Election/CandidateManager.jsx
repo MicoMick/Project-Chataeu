@@ -57,47 +57,85 @@ const DeleteModal = ({ show, candidateName, onCancel, onConfirm }) => {
 };
 
 // ─── Photo Viewer Modal ───────────────────────────────────────────────────────
-const PhotoViewer = ({ candidate, onClose }) => {
+const PhotoViewer = ({ candidate, canManage, onClose, onEdit }) => {
+  const [zoomed, setZoomed] = useState(false);
   if (!candidate) return null;
   const posColor = POSITION_COLORS[candidate.position] || POSITION_COLORS["Board Member"];
+  const closeAll = () => { setZoomed(false); onClose(); };
   return (
-    <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-in fade-in"
-      onClick={onClose}>
-      <div className="bg-white rounded-3xl overflow-hidden w-full max-w-md shadow-2xl animate-in zoom-in-95 duration-200"
-        onClick={e => e.stopPropagation()}>
-        {/* Full photo */}
-        <div className="relative h-72 bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center overflow-hidden">
-          {candidate.photo_url
-            ? <img src={candidate.photo_url} alt={candidate.full_name} className="w-full h-full object-cover" />
-            : <div className="w-24 h-24 rounded-3xl bg-[#006837]/10 flex items-center justify-center"><User size={40} className="text-[#006837]" /></div>}
-          <button onClick={onClose}
-            className="absolute top-4 right-4 w-9 h-9 bg-black/40 hover:bg-black/60 text-white rounded-xl flex items-center justify-center cursor-pointer transition-all">
-            <X size={16} />
-          </button>
-        </div>
-        {/* Info */}
-        <div className="p-6">
-          <div className="flex items-start justify-between mb-3">
-            <div>
-              <h2 className="text-xl font-black text-slate-900">{candidate.full_name}</h2>
-              <span className={`inline-flex text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full border mt-1 ${posColor}`}>
+    <>
+      <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-in fade-in"
+        onClick={closeAll}>
+        <div className="bg-white rounded-3xl overflow-hidden w-full max-w-md shadow-2xl animate-in zoom-in-95 duration-200"
+          onClick={e => e.stopPropagation()}>
+          {/* Header — small rounded avatar instead of a full-bleed photo (matches
+              the icon-style header used in CandidatesPage.jsx's own candidate
+              profile modal, rather than stretching the photo edge-to-edge) */}
+          <div className="relative bg-gradient-to-br from-[#006837] to-[#004d29] pt-8 pb-6 px-6 text-center">
+            <div className="absolute top-4 right-4 flex items-center gap-2">
+              {canManage && (
+                <button onClick={() => onEdit(candidate)}
+                  className="w-8 h-8 bg-white/20 hover:bg-white/30 text-white rounded-xl flex items-center justify-center cursor-pointer transition-all"
+                  title="Edit">
+                  <Pencil size={14} />
+                </button>
+              )}
+              <button onClick={closeAll}
+                className="w-8 h-8 bg-white/20 hover:bg-white/30 text-white rounded-xl flex items-center justify-center cursor-pointer transition-all"
+                title="Close">
+                <X size={15} />
+              </button>
+            </div>
+            {/* Click to view full-size — opens the in-app lightbox below, not a new tab */}
+            <button type="button" onClick={() => candidate.photo_url && setZoomed(true)}
+              className="group relative w-24 h-24 rounded-2xl overflow-hidden border-4 border-white/30 shadow-xl mx-auto mb-3 bg-white/10 flex items-center justify-center cursor-pointer"
+              title={candidate.photo_url ? 'View full photo' : undefined}>
+              {candidate.photo_url ? (
+                <>
+                  <img src={candidate.photo_url} alt={candidate.full_name} className="w-full h-full object-cover" />
+                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all flex items-center justify-center">
+                    <ZoomIn size={18} className="text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </div>
+                </>
+              ) : <User size={32} className="text-white/40" />}
+            </button>
+            <h2 className="text-xl font-black text-white leading-tight">{candidate.full_name}</h2>
+          </div>
+          {/* Info */}
+          <div className="p-6">
+            <div className="flex items-center justify-center mb-3">
+              <span className={`inline-flex text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full border ${posColor}`}>
                 {candidate.position}
               </span>
             </div>
+            {candidate.manifesto && (
+              <div className="mt-4 p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2">Manifesto</p>
+                <p className="text-sm text-slate-600 leading-relaxed italic">"{candidate.manifesto}"</p>
+              </div>
+            )}
+            <button onClick={closeAll}
+              className="w-full mt-5 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl font-bold cursor-pointer">
+              Close
+            </button>
           </div>
-          {candidate.manifesto && (
-            <div className="mt-4 p-4 bg-slate-50 rounded-2xl border border-slate-100">
-              <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2">Manifesto</p>
-              <p className="text-sm text-slate-600 leading-relaxed italic">"{candidate.manifesto}"</p>
-            </div>
-          )}
-          <button onClick={onClose}
-            className="w-full mt-5 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl font-bold cursor-pointer">
-            Close
-          </button>
         </div>
       </div>
-    </div>
+
+      {/* Full-size photo lightbox — stays in-app, never a new tab */}
+      {zoomed && candidate.photo_url && (
+        <div className="fixed inset-0 z-[350] flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm animate-in fade-in"
+          onClick={() => setZoomed(false)}>
+          <img src={candidate.photo_url} alt={candidate.full_name}
+            className="max-w-full max-h-[85vh] rounded-2xl object-contain shadow-2xl" />
+          <button onClick={() => setZoomed(false)}
+            className="absolute top-6 right-6 w-10 h-10 bg-white/20 hover:bg-white/30 text-white rounded-xl flex items-center justify-center cursor-pointer transition-all"
+            title="Close">
+            <X size={18} />
+          </button>
+        </div>
+      )}
+    </>
   );
 };
 
@@ -418,7 +456,10 @@ const CandidateManager = ({ electionId }) => {
       <DeleteModal show={deleteConfirm.show} candidateName={deleteConfirm.name}
         onCancel={() => setDeleteConfirm({ show: false, id: null, name: '' })}
         onConfirm={handleDeleteCandidate} />
-      <PhotoViewer candidate={viewCandidate} onClose={() => setViewCandidate(null)} />
+      <PhotoViewer candidate={viewCandidate} canManage={canManage}
+        onClose={() => setViewCandidate(null)}
+        onEdit={c => { setViewCandidate(null); openEdit(c); }}
+      />
       <CandidateFormPanel
         isOpen={showForm} isEditing={isEditing} onClose={() => setShowForm(false)}
         form={form} setForm={setForm} onSubmit={handleSubmit}

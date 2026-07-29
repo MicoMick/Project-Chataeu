@@ -5,7 +5,7 @@ import {
   DollarSign, TrendingUp, TrendingDown, FileText, Printer,
   CheckCircle2, AlertCircle, Clock, Search, RefreshCw,
   Plus, X, Calendar, ChevronDown, Shield, CreditCard,
-  Building2, Receipt, BarChart3, AlertTriangle,
+  Building2, Receipt, BarChart3, AlertTriangle, Zap,
   Package, PackageX, RotateCcw, Edit3, ClipboardList,
 } from 'lucide-react';
 
@@ -251,7 +251,7 @@ const AddExpenseModal = ({ onClose, onSave }) => {
 // Income (Monthly Dues, Court Rental) → Total Income
 // Expenses (Salary Wages, Maintenance, Utility/Bills) → Total Expenses
 // Summary (Net Income, Beginning Balance, Ending Balance)
-const printFinancialReport = ({ duesIncome, courtIncome, expenses, unpaid, period }) => {
+const printFinancialReport = ({ duesIncome, courtIncome, expenses, unpaid, advancePayments, monthlyDue, period }) => {
   const today = new Date().toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' });
   const isAnnual = period && (period.toLowerCase().includes('year') || period.toLowerCase().includes('annual'));
   const docTitle = isAnnual ? 'Annual Financial Report' : 'Financial Statement';
@@ -310,6 +310,20 @@ const printFinancialReport = ({ duesIncome, courtIncome, expenses, unpaid, perio
       <td style="text-align:center;">${r.count} month${r.count!==1?'s':''}</td>
       <td>${fmtDt(r.last_paid)}</td>
       <td style="text-align:right;font-weight:bold;">${fmtCur(r.total)}</td>
+    </tr>`).join('');
+
+  // ── Advance payments — dues already approved by the Treasurer whose amount
+  // covers more than one month at once ───────────────────────────────────────
+  const monthsCoveredBy = (amount) => Math.max(1, Math.round(Number(amount || 0) / (monthlyDue || 1)));
+  const advanceRecords  = (advancePayments?.records || []).slice()
+    .sort((a, b) => new Date(b.paid_at || 0) - new Date(a.paid_at || 0));
+  const advanceRows = advanceRecords.map((p, i) => `
+    <tr style="background:${i%2===0?'#faf5ff':'#fff'}">
+      <td>${p.profiles?.full_name || '—'}</td>
+      <td style="text-align:center;">${monthsCoveredBy(p.amount)} months</td>
+      <td>${fmtDt(p.paid_at)}</td>
+      <td>${p.reference_no || p.payer_reference_no || '—'}</td>
+      <td style="text-align:right;font-weight:bold;">${fmtCur(p.amount)}</td>
     </tr>`).join('');
 
   const courtRows = (courtIncome.records || []).map((r, i) => `
@@ -465,6 +479,18 @@ const printFinancialReport = ({ duesIncome, courtIncome, expenses, unpaid, perio
     </tr></tfoot>
   </table>
 
+  ${advanceRecords.length > 0 ? `
+  <!-- ── Advance Payments — included in Dues Collected above, broken out here ── -->
+  <h2>Paid in Advance — ${advanceRecords.length} Payment${advanceRecords.length!==1?'s':''} (Treasurer-approved)</h2>
+  <table>
+    <thead>${TH(['Resident','Months Covered','Date Paid','Reference #','Amount'])}</thead>
+    <tbody>${advanceRows}</tbody>
+    <tfoot><tr>
+      <td colspan="4" style="text-align:right;">Total Paid in Advance:</td>
+      <td style="text-align:right;color:#7e22ce;font-weight:900;">${fmtCur(advancePayments?.total)}</td>
+    </tr></tfoot>
+  </table>` : ''}
+
   <!-- ── Court / Facility Rental ── -->
   <h2>Court &amp; Facility Rental Income (${(courtIncome.records||[]).length} reservation${(courtIncome.records||[]).length!==1?'s':''})</h2>
   <table>
@@ -561,6 +587,7 @@ const AuditorDashboard = () => {
   const [courtIncome,  setCourtIncome]  = useState({ records: [], total: 0 });
   const [expenses,     setExpenses]     = useState({ records: [], total: 0 });
   const [unpaid,       setUnpaid]       = useState({ records: [], total: 0 });
+  const [monthlyDue,   setMonthlyDue]   = useState(150); // used to detect advance payments (amount > 1x due)
 
   const showToast = (message, type = 'success') => {
     setToast({ show: true, message, type });
@@ -570,6 +597,14 @@ const AuditorDashboard = () => {
   const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
+      // 0. Current monthly due amount — used to detect advance payments
+      // (a paid due whose amount is a multiple of this). Best-effort: falls
+      // back to the existing default if hoa_settings isn't set up yet.
+      try {
+        const { data: settings } = await supabase.from('hoa_settings').select('monthly_due_amount').eq('id', 1).single();
+        if (settings?.monthly_due_amount != null) setMonthlyDue(Number(settings.monthly_due_amount));
+      } catch (_e) { /* keep default */ }
+
       // 1. Monthly dues — paid
       const { data: paidDues } = await supabase
         .from('payments')
@@ -835,16 +870,25 @@ const AuditorDashboard = () => {
     const filteredCourt   = filterForReport(courtIncome.records, 'date');
     const filteredExpense = filterForReport(expenses.records,    'expense_date');
     const filteredUnpaid  = filterForReport(unpaid.records,      'due_date');
+    const filteredAdvance = filteredDues.filter(p => Math.max(1, Math.round(Number(p.amount || 0) / (monthlyDue || 1))) > 1);
 
     printFinancialReport({
       duesIncome:  { records: filteredDues,    total: filteredDues.reduce((s, p) => s + Number(p.amount || 0), 0) },
       courtIncome: { records: filteredCourt,   total: filteredCourt.reduce((s, r) => s + Number(r.amount || 0), 0) },
       expenses:    { records: filteredExpense, total: filteredExpense.reduce((s, e) => s + Number(e.amount || 0), 0) },
       unpaid:      { records: filteredUnpaid,  total: filteredUnpaid.reduce((s, p) => s + Number(p.amount || 0), 0) },
+      advancePayments: { records: filteredAdvance, total: filteredAdvance.reduce((s, p) => s + Number(p.amount || 0), 0) },
+      monthlyDue,
       period: getPeriodLabel(),
     });
   };
 
+
+  // A paid due whose amount is a multiple of the current monthly due (e.g.
+  // ₱300 against a ₱150 due) covers more than one month, submitted/approved
+  // as a single advance payment. Mirrors the same detection used on the
+  // Payments page's Standing Ledger.
+  const monthsCoveredBy = (amount) => Math.max(1, Math.round(Number(amount || 0) / (monthlyDue || 1)));
 
   // ── Consolidated dues: one row per resident, total paid ─────────────────
   // Groups all individual paid due receipts → single row per resident
@@ -863,6 +907,8 @@ const AuditorDashboard = () => {
           last_paid:    p.paid_at,
           audited:      true,
           isDelinquent: p.profiles?.account_status === 'delinquent',
+          hasAdvance:   false,
+          advanceAmount: 0,
         };
       }
       map[p.user_id].total  += Number(p.amount || 0);
@@ -870,9 +916,13 @@ const AuditorDashboard = () => {
       if (!map[p.user_id].last_paid || (p.paid_at && p.paid_at > map[p.user_id].last_paid))
         map[p.user_id].last_paid = p.paid_at;
       if (!p.audited) map[p.user_id].audited = false;
+      if (monthsCoveredBy(p.amount) > 1) {
+        map[p.user_id].hasAdvance = true;
+        map[p.user_id].advanceAmount += Number(p.amount || 0);
+      }
     });
     return Object.values(map).sort((a, b) => a.full_name.localeCompare(b.full_name));
-  }, [duesIncome.records, search]);
+  }, [duesIncome.records, search, monthlyDue]);
 
   // ── Auto-verify clean residents ──────────────────────────────────────────
   // Any resident with NO red flags (not delinquent) gets their pending paid
@@ -948,6 +998,12 @@ const AuditorDashboard = () => {
   // ── Net balance ──────────────────────────────────────────────────────────
   const totalIncome  = duesIncome.total + courtIncome.total;
   const netBalance       = totalIncome - expenses.total;
+
+  // ── Advance payments — residents who paid more than one month's due at once,
+  // already approved by the Treasurer (these are drawn from duesIncome, which
+  // only ever contains status === 'paid' rows) ──────────────────────────────
+  const advanceResidentCount = consolidatedDues.filter(r => r.hasAdvance).length;
+  const advanceTotal = consolidatedDues.reduce((s, r) => s + r.advanceAmount, 0);
   const MONTHLY_EXPENSE  = 37600;  // ₱22k security + ₱14k electricity + ₱1.2k sweepers + ₱0.4k water
   const MONTHLY_INCOME   = 280 * 150; // 280 residents × ₱150
 
@@ -1106,8 +1162,9 @@ const AuditorDashboard = () => {
       </div>
 
       {/* ── KPI Cards ── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         <KpiCard label="Dues Collected"   value={fmtCurrency(duesIncome.total)}  icon={TrendingUp}   bg="bg-[#006837]/10" color="text-[#006837]"  sub={`${duesIncome.records.length} payments`}   />
+        <KpiCard label="Paid in Advance"  value={fmtCurrency(advanceTotal)}      icon={Zap}          bg="bg-purple-50"    color="text-purple-600" sub={`${advanceResidentCount} resident${advanceResidentCount !== 1 ? 's' : ''}`} />
         <KpiCard label="Court Income"     value={fmtCurrency(courtIncome.total)} icon={Building2}    bg="bg-teal-50"      color="text-teal-600"   sub={`${courtIncome.records.length} reservations`} />
         <KpiCard label="Total Expenses"   value={fmtCurrency(expenses.total)}    icon={TrendingDown} bg="bg-red-50"       color="text-red-500"    sub={`${expenses.records.length} entries`}      />
         <KpiCard
@@ -1426,7 +1483,14 @@ const AuditorDashboard = () => {
                     <tbody className="divide-y divide-slate-50">
                       {duesPag.paginated.map(r => (
                         <tr key={r.user_id} className="hover:bg-slate-50/80 transition-colors">
-                          <td className="px-5 py-4 text-sm font-bold text-slate-800">{r.full_name}</td>
+                          <td className="px-5 py-4">
+                            <p className="text-sm font-bold text-slate-800">{r.full_name}</p>
+                            {r.hasAdvance && (
+                              <span className="inline-flex items-center gap-1 mt-1 text-[9px] font-black px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 border border-purple-200">
+                                <Zap size={9} /> Paid in Advance ({fmtCurrency(r.advanceAmount)})
+                              </span>
+                            )}
+                          </td>
                           <td className="px-5 py-4 text-sm text-slate-600">{r.count} month{r.count !== 1 ? 's' : ''}</td>
                           <td className="px-5 py-4 text-sm font-black text-[#006837]">{fmtCurrency(r.total)}</td>
                           <td className="px-5 py-4 text-sm text-slate-500 whitespace-nowrap">{fmtDate(r.last_paid)}</td>
