@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react'; 
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { 
+import {
   LayoutDashboard, Users, CalendarCheck, CreditCard, Vote, Megaphone,
-  ScrollText,
+  ScrollText, Building2,
   BarChart3, ChevronLeft, Menu, ChevronDown, ShieldCheck, UserCircle,
   LogOut, ClipboardCheck, PieChart, UserCheck, ListChecks, ClipboardList,
 } from 'lucide-react';
@@ -54,7 +54,8 @@ const ROLES = {
 
 const GOVERNANCE  = [ROLES.PRESIDENT, ROLES.VICE_PRESIDENT, ROLES.SECRETARY];
 const OPERATIONS  = [ROLES.PRESIDENT, ROLES.VICE_PRESIDENT, ROLES.SECRETARY];
-const RESERVATIONS = [ROLES.PRESIDENT, ROLES.VICE_PRESIDENT, ROLES.SECRETARY, ROLES.TREASURER]; // Reservations — treasurer manages payments/approvals too
+const RESERVATIONS = [ROLES.PRESIDENT, ROLES.VICE_PRESIDENT, ROLES.SECRETARY, ROLES.TREASURER, ROLES.BOARD_MEMBER]; // Reservations — treasurer manages payments/approvals too; board_member has full access
+const FACILITY_MANAGEMENT = [ROLES.PRESIDENT, ROLES.VICE_PRESIDENT, ROLES.SECRETARY]; // Facility Management — split out of Reservations; treasurer & board_member not included
 const COMM_OPS    = [ROLES.PRESIDENT, ROLES.VICE_PRESIDENT, ROLES.SECRETARY, ROLES.BOARD_MEMBER]; // Announcements + Reports
 const ELECTIONS   = ['elecom']; // Election page — Elecom only
 const PAYMENTS    = [ROLES.PRESIDENT, ROLES.TREASURER];
@@ -169,6 +170,14 @@ const Sidebar = () => {
       label: 'Reservations',
       path:  '/hoa/reservations',
       allowedRoles: RESERVATIONS,
+    },
+
+    // ── Facility Management — split out of Reservations ─────────────────────
+    {
+      icon:  <Building2 size={22} />,
+      label: 'Facility Management',
+      path:  '/hoa/facility-management',
+      allowedRoles: FACILITY_MANAGEMENT,
     },
 
     // ── Payments — president + treasurer only ─────────────────────────────────

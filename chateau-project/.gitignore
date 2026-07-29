@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Claude Code session lock file (local/machine-specific, regenerates automatically)
+.claude/scheduled_tasks.lock

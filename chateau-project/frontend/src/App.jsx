@@ -12,6 +12,7 @@ import Sidebar from './HOA Page/Sidebar/Sidebar.jsx';
 import HoaDashboard from './HOA Page/Dashboard/HoaDashboard.jsx';
 import ResidentManage from './HOA Page/Resident Management/ResidentManage.jsx';
 import Reservation from './HOA Page/Facility and Reservation/Reservation.jsx';
+import FacilityManagement from './HOA Page/Facility and Reservation/FacilityManagement.jsx';
 import Payment from './HOA Page/Payments/Payment.jsx';
 import ElectionPage from './HOA Page/Election/ElectionPage.jsx';
 import Results from './HOA Page/Election/Results.jsx';
@@ -53,7 +54,13 @@ const ACCESS = {
   OPERATIONS:  [ROLES.PRESIDENT, ROLES.VICE_PRESIDENT, ROLES.SECRETARY],
 
   // Reservations — operational roles + treasurer (confirms payments, manages bookings)
-  RESERVATIONS: [ROLES.PRESIDENT, ROLES.VICE_PRESIDENT, ROLES.SECRETARY, ROLES.TREASURER],
+  // + board_member, who gets full access to this page (approve/reject/delete/confirm payment)
+  RESERVATIONS: [ROLES.PRESIDENT, ROLES.VICE_PRESIDENT, ROLES.SECRETARY, ROLES.TREASURER, ROLES.BOARD_MEMBER],
+
+  // Facility Management — split out of the Reservations page into its own route.
+  // treasurer removed — they could already only view (never add/edit/delete)
+  // facilities inside Facility.jsx itself, so they no longer get the page at all.
+  FACILITY_MANAGEMENT: [ROLES.PRESIDENT, ROLES.VICE_PRESIDENT, ROLES.SECRETARY],
 
   // Announcements + Reports — board_member can manage these
   COMM_OPS:    [ROLES.PRESIDENT, ROLES.VICE_PRESIDENT, ROLES.SECRETARY, ROLES.BOARD_MEMBER],
@@ -219,6 +226,13 @@ function App() {
           <Route path="reservations" element={
             <RoleBasedRoute allowedRoles={ACCESS.RESERVATIONS}>
               <Reservation />
+            </RoleBasedRoute>
+          } />
+
+          {/* ── Facility Management — split out of Reservations ── */}
+          <Route path="facility-management" element={
+            <RoleBasedRoute allowedRoles={ACCESS.FACILITY_MANAGEMENT}>
+              <FacilityManagement />
             </RoleBasedRoute>
           } />
 

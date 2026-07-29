@@ -527,7 +527,9 @@ const ElectionPage = () => {
 
   // ── Filtered list ─────────────────────────────────────────────────────────
   const filtered = elections
-    .filter(e => activeTab === 'results' ? e.status === 'closed' : true)
+    .filter(e => activeTab === 'results' ? e.status === 'closed'
+      : activeTab === 'ongoing' ? e.status === 'active'
+      : true)
     .filter(e => electionFilter === 'all' || e.id === electionFilter);
   const activeElection = elections.find(e => e.status === 'active');
   const totalVotes     = elections.reduce((s, e) => s + (e.votes_count || 0), 0);
@@ -584,8 +586,10 @@ const ElectionPage = () => {
         ))}
       </div>
 
-      {/* ── Active election banner ── */}
-      {activeElection ? (
+      {/* ── Active election banner — only on the "All Elections" tab; it was
+          previously rendered unconditionally above every tab, including
+          "Completed", making the active election look like it belonged there ── */}
+      {activeTab === 'all' && (activeElection ? (
         <div className="bg-gradient-to-r from-[#006837] to-[#34a853] rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 relative overflow-hidden">
           <div className="absolute top-0 right-0 w-48 h-48 bg-white/5 rounded-full -translate-y-24 translate-x-24 pointer-events-none" />
           <div className="flex items-center gap-4 relative">
@@ -633,7 +637,7 @@ const ElectionPage = () => {
             </button>
           )}
         </div>
-      )}
+      ))}
 
       {/* ── Tab filter + grid ── */}
       {elections.length > 0 && (
@@ -641,6 +645,7 @@ const ElectionPage = () => {
           <div className="flex gap-1 bg-slate-100 p-1 rounded-xl w-fit">
             {[
               { key: 'all',       label: 'All Elections' },
+              { key: 'ongoing',   label: 'Ongoing'       },
               { key: 'results',   label: 'Completed'     },
               { key: 'candidates',label: 'Candidates'    },
             ].map(t => (
@@ -674,12 +679,16 @@ const ElectionPage = () => {
         <div className="flex flex-col items-center justify-center py-16 bg-white border-2 border-dashed border-slate-200 rounded-3xl">
           <SearchX size={40} className="text-slate-300 mb-4" />
           <h3 className="text-lg font-black text-slate-700 mb-1">
-            {activeTab === 'results' ? 'No Completed Elections' : 'No Elections Yet'}
+            {activeTab === 'results' ? 'No Completed Elections'
+              : activeTab === 'ongoing' ? 'No Ongoing Elections'
+              : 'No Elections Yet'}
           </h3>
           <p className="text-sm text-slate-400 mb-5">
-            {activeTab === 'results' ? 'Closed elections will appear here.' : 'Create your first election to get started.'}
+            {activeTab === 'results' ? 'Closed elections will appear here.'
+              : activeTab === 'ongoing' ? 'Elections currently open for voting will appear here.'
+              : 'Create your first election to get started.'}
           </p>
-          {canManage && activeTab !== 'results' && (
+          {canManage && activeTab !== 'results' && activeTab !== 'ongoing' && (
             <button onClick={() => setIsModalOpen(true)}
               className="flex items-center gap-2 bg-[#006837]/10 hover:bg-[#006837]/20 text-[#006837] px-5 py-2.5 rounded-xl text-sm font-bold cursor-pointer transition-all">
               <Plus size={16} /> Create Election

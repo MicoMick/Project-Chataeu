@@ -32,12 +32,9 @@ const STATUS_PILL = {
 
 // ─── Sub-components ────────────────────────────────────────────
 
-const KpiCard = ({ title, value, icon: Icon, iconBg, iconColor, trend, onClick }) => (
+const KpiCard = ({ title, value, icon: Icon, iconBg, iconColor, trend }) => (
   <div
-    onClick={onClick}
-    className={`bg-white rounded-2xl p-5 border border-slate-100 shadow-sm flex flex-col gap-3
-      transition-all duration-200 hover:shadow-md hover:-translate-y-0.5 flex-1 min-w-[180px]
-      ${onClick ? 'cursor-pointer' : ''}`}
+    className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm flex flex-col gap-3 flex-1 min-w-[180px]"
   >
     <div className="flex items-start justify-between">
       <div className={`p-2.5 rounded-xl ${iconBg}`}>
@@ -95,6 +92,7 @@ const HoaDashboard = () => {
   const [liveElections,      setLiveElections]      = useState([]);
   const [liveReservations,   setLiveReservations]   = useState([]);
   const [totalResidents,     setTotalResidents]     = useState(0);
+  const [totalReports,       setTotalReports]       = useState(0);
   const [livePayments,       setLivePayments]       = useState([]);
   const [overdueCount,       setOverdueCount]       = useState(0);
   const [isLoading,          setIsLoading]          = useState(true);
@@ -108,7 +106,7 @@ const HoaDashboard = () => {
       setIsLoading(true);
       await Promise.all([
         fetchLiveReports(), fetchLiveAnnouncements(), fetchLiveElections(),
-        fetchLiveReservations(), fetchTotalResidents(), fetchLivePayments(), fetchOverdueCount()
+        fetchLiveReservations(), fetchTotalResidents(), fetchTotalReports(), fetchLivePayments(), fetchOverdueCount()
       ]);
       setIsLoading(false);
     };
@@ -140,6 +138,10 @@ const HoaDashboard = () => {
   const fetchTotalResidents = async () => {
     const { count } = await supabase.from('profiles').select('*', { count: 'exact', head: true });
     setTotalResidents(count || 0);
+  };
+  const fetchTotalReports = async () => {
+    const { count } = await supabase.from('reports').select('*', { count: 'exact', head: true });
+    setTotalReports(count || 0);
   };
   const fetchOverdueCount = async () => {
     const { count } = await supabase.from('payments').select('*', { count: 'exact', head: true }).ilike('status', 'overdue');
@@ -192,19 +194,19 @@ const HoaDashboard = () => {
       <div className="flex flex-wrap gap-4">
         <RequireRole userRole={currentUserRole} allowedRoles={['president','vice_president','secretary','auditor']}>
           <KpiCard title="Reservations" value={liveReservations.length} icon={Calendar}
-            iconBg="bg-blue-50" iconColor="text-blue-600" onClick={() => go('reservations')} />
+            iconBg="bg-blue-50" iconColor="text-blue-600" />
         </RequireRole>
         <RequireRole userRole={currentUserRole} allowedRoles={['president','treasurer','auditor']}>
           <KpiCard title="Overdue Payments" value={overdueCount} icon={CreditCard}
-            iconBg="bg-red-50" iconColor="text-red-500" onClick={() => go('payments')} />
+            iconBg="bg-red-50" iconColor="text-red-500" />
         </RequireRole>
         <RequireRole userRole={currentUserRole} allowedRoles={['president','vice_president','secretary','auditor']}>
-          <KpiCard title="Active Elections" value={liveElections.length} icon={Vote}
-            iconBg="bg-amber-50" iconColor="text-amber-600" onClick={() => go('elections')} />
+          <KpiCard title="Total Resident Reports" value={totalReports} icon={AlertCircle}
+            iconBg="bg-orange-50" iconColor="text-orange-500" />
         </RequireRole>
         <RequireRole userRole={currentUserRole} allowedRoles={['president','vice_president','secretary','auditor']}>
           <KpiCard title="Total Residents" value={totalResidents} icon={Users}
-            iconBg="bg-purple-50" iconColor="text-purple-600" onClick={() => go('residents')} />
+            iconBg="bg-purple-50" iconColor="text-purple-600" />
         </RequireRole>
       </div>
 

@@ -111,68 +111,86 @@ Deno.serve(async (req: Request) => {
     const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate()
     const monthEnd = ymd(year, month, lastDay)
 
-    // ── Task 1: generate this month's dues (idempotent) ───────────────────
+    // ── Task 1: generate this month's dues (idempotent, per-resident) ──────
+    // Per-resident idempotency — a resident who already has a payment row for
+    // this month (paid in advance, back-filled as 'pending' on approval,
+    // etc.) is skipped individually rather than using their existing row to
+    // bail out of billing everyone else. This used to check "does ANY row
+    // exist this month" and skip the WHOLE batch if so, which silently left
+    // every other resident unbilled whenever even one resident already had a
+    // row for the month.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let duesResult: Record<string, any> = { skipped: true, reason: 'Already generated for this month.' }
 
-    const { data: existing, error: existingErr } = await supabase
-      .from('payments')
-      .select('id')
-      .gte('due_date', monthStart)
-      .lte('due_date', monthEnd)
-      .limit(1)
+    const { data: residents, error: residentsErr } = await supabase
+      .from('profiles')
+      .select('id, full_name')
+      .eq('account_status', 'active')
+      .order('full_name')
 
-    if (existingErr) {
-      duesResult = { success: false, error: existingErr.message }
-    } else if (!existing?.length) {
-      const { data: residents, error: residentsErr } = await supabase
-        .from('profiles')
-        .select('id, full_name')
-        .eq('account_status', 'active')
-        .order('full_name')
+    if (residentsErr) {
+      duesResult = { success: false, error: residentsErr.message }
+    } else if (residents?.length) {
+      const { data: existingThisMonth, error: existingErr } = await supabase
+        .from('payments')
+        .select('user_id')
+        .gte('due_date', monthStart)
+        .lte('due_date', monthEnd)
 
-      if (residentsErr) {
-        duesResult = { success: false, error: residentsErr.message }
-      } else if (residents?.length) {
-        const lineItems = buildLineItemBreakdown(monthlyDueAmount)
-        const rows = residents.map((r: { id: string }) => ({
-          user_id: r.id,
-          amount: monthlyDueAmount,
-          statement_date: statementDate,
-          due_date: monthEnd,
-          status: 'unpaid',
-          reference_no: generateRefNo(month, year, r.id),
-          line_items: lineItems,
-        }))
+      if (existingErr) {
+        duesResult = { success: false, error: existingErr.message }
+      } else {
+        const alreadyBilled = new Set((existingThisMonth || []).map((p: { user_id: string }) => p.user_id))
+        const residentsNeeding = residents.filter((r: { id: string }) => !alreadyBilled.has(r.id))
 
-        const { error: insertErr } = await supabase.from('payments').insert(rows)
-        if (insertErr) {
-          duesResult = { success: false, error: insertErr.message }
+        if (!residentsNeeding.length) {
+          duesResult = { skipped: true, reason: 'Already generated for this month.' }
         } else {
-          duesResult = { success: true, count: rows.length, month: MONTHS[month], year, amount: monthlyDueAmount }
-          try {
-            await supabase.from('system_logs').insert({
-              action: 'AUTO_MONTHLY_DUE',
-              details: `Generated ₱${monthlyDueAmount} monthly dues for ${rows.length} residents — ${MONTHS[month]} ${year}. Statement: ${statementDate}, Due: ${monthEnd}.`,
-            })
-          } catch (_e) {
-            // Audit logging is best-effort — a schema mismatch here must not
-            // block the actual dues generation above.
+          const lineItems = buildLineItemBreakdown(monthlyDueAmount)
+          const rows = residentsNeeding.map((r: { id: string }) => ({
+            user_id: r.id,
+            amount: monthlyDueAmount,
+            statement_date: statementDate,
+            due_date: monthEnd,
+            status: 'unpaid',
+            reference_no: generateRefNo(month, year, r.id),
+            line_items: lineItems,
+          }))
+
+          const { error: insertErr } = await supabase.from('payments').insert(rows)
+          if (insertErr) {
+            duesResult = { success: false, error: insertErr.message }
+          } else {
+            duesResult = { success: true, count: rows.length, month: MONTHS[month], year, amount: monthlyDueAmount }
+            try {
+              await supabase.from('system_logs').insert({
+                action: 'AUTO_MONTHLY_DUE',
+                details: `Generated ₱${monthlyDueAmount} monthly dues for ${rows.length} residents — ${MONTHS[month]} ${year}. Statement: ${statementDate}, Due: ${monthEnd}.`,
+              })
+            } catch (_e) {
+              // Audit logging is best-effort — a schema mismatch here must not
+              // block the actual dues generation above.
+            }
           }
         }
-      } else {
-        duesResult = { skipped: true, reason: 'No active residents found.' }
       }
+    } else {
+      duesResult = { skipped: true, reason: 'No active residents found.' }
     }
 
     // ── Task 2: delinquency check (3 months unpaid, at the current due amount) ─
+    // 'pending' is excluded on purpose — it's used for back-filled dues on
+    // newly-approved residents (see Payment.jsx / AccountApproval.jsx's
+    // backfillPastDues), which are unverified history, not a confirmed missed
+    // payment. They must not by themselves flip a brand-new resident straight
+    // to delinquent before the Treasurer has verified them.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let delinquencyResult: Record<string, any> = { success: true, count: 0 }
 
     const { data: unpaidPayments, error: unpaidErr } = await supabase
       .from('payments')
       .select('user_id, amount')
-      .in('status', ['unpaid', 'overdue', 'pending'])
+      .in('status', ['unpaid', 'overdue'])
 
     if (unpaidErr) {
       delinquencyResult = { success: false, error: unpaidErr.message }
