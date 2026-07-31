@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   ArrowLeft, Mail, Phone, Home, MapPin, Users, ShieldCheck, Clock,
   CreditCard, CheckCircle2, AlertCircle, AlertTriangle, Loader2, Package,
-  User, Settings, ChevronLeft, ChevronRight,
+  User, Settings, ChevronLeft, ChevronRight, X,
 } from 'lucide-react';
 import { supabase } from '../supabaseAdmin';
 
@@ -130,24 +130,47 @@ const ResidentTypeRow = ({ value }) => {
 
 // ─── Dues Standing Section ────────────────────────────────────────────────────
 const DuesStanding = ({ userId }) => {
-  const [dues,    setDues]    = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [dues,       setDues]       = useState([]);
+  const [monthlyDue, setMonthlyDue] = useState(150);
+  const [loading,    setLoading]    = useState(true);
 
   useEffect(() => {
     if (!userId) return;
     const fetch = async () => {
       setLoading(true);
-      const { data } = await supabase
-        .from('payments')
-        .select('id, amount, status, due_date, paid_at, reference_no')
-        .eq('user_id', userId)
-        .order('due_date', { ascending: false })
-        .limit(12); // cap at 12 months — 2 pages of 6
+      const [{ data }, { data: settings }] = await Promise.all([
+        supabase
+          .from('payments')
+          .select('id, amount, status, due_date, paid_at, reference_no')
+          .eq('user_id', userId)
+          .order('due_date', { ascending: false })
+          .limit(12), // cap at 12 months — 2 pages of 6
+        supabase.from('hoa_settings').select('monthly_due_amount').eq('id', 1).single(),
+      ]);
+      if (settings?.monthly_due_amount) setMonthlyDue(Number(settings.monthly_due_amount));
       setDues(data || []);
       setLoading(false);
     };
     fetch();
   }, [userId]);
+
+  // A row whose amount is a multiple of the monthly due (e.g. ₱300 when the
+  // due is ₱150) is a single advance payment covering more than one month —
+  // there's no separate row per covered month, so the row's own due_date is
+  // the LAST month it covers. Label it as a range (e.g. "Aug to Sep 2026")
+  // instead of just the last month, matching the labeling already used in
+  // the Payments page's Monthly Due Details view.
+  const monthsCoveredBy = (amount) => Math.max(1, Math.round(Number(amount || 0) / (monthlyDue || 1)));
+
+  const formatMonthCoverage = (dueDate, months) => {
+    if (!dueDate) return '—';
+    if (months <= 1) return fmtMonth(dueDate);
+    const end = new Date(dueDate);
+    const start = new Date(end.getFullYear(), end.getMonth() - (months - 1), 1);
+    const sameYear = start.getFullYear() === end.getFullYear();
+    const startLabel = start.toLocaleDateString('en-US', sameYear ? { month: 'short' } : { month: 'short', year: 'numeric' });
+    return `${startLabel} to ${fmtMonth(end)}`;
+  };
 
   // Summary counts
   const totalUnpaid = dues.filter(d => ['unpaid','overdue','pending'].includes((d.status||'').toLowerCase())).length;
@@ -225,20 +248,26 @@ const DuesStanding = ({ userId }) => {
       {!loading && dues.length > 0 && (
         <div className="space-y-2">
           {paginated.map(d => {
-            const s   = statusStyle(d.status);
-            const isPaid = d.status?.toLowerCase() === 'paid';
+            const s       = statusStyle(d.status);
+            const isPaid  = d.status?.toLowerCase() === 'paid';
+            const months  = monthsCoveredBy(d.amount);
             return (
               <div key={d.id}
                 className={`flex items-center justify-between px-4 py-3 rounded-xl border ${s.bg} ${s.border}`}>
                 <div className="flex items-center gap-2.5 min-w-0">
                   {s.icon}
                   <div className="min-w-0">
-                    <p className="text-xs font-bold text-slate-700">Due: {fmtMonth(d.due_date)}</p>
+                    <p className="text-xs font-bold text-slate-700">Due: {formatMonthCoverage(d.due_date, months)}</p>
                     <p className="text-[10px] text-slate-400">
                       {isPaid
                         ? `Paid on ${fmtDate(d.paid_at)}`
                         : `Due by ${fmtDate(d.due_date)}`}
                     </p>
+                    {months > 1 && (
+                      <span className="inline-flex items-center gap-1 mt-1 text-[9px] font-black px-1.5 py-0.5 rounded-lg bg-purple-100 text-purple-700 border border-purple-300">
+                        {months} Months Advance
+                      </span>
+                    )}
                   </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
@@ -377,6 +406,7 @@ const TABS = [
 // ─── Main Component ───────────────────────────────────────────────────────────
 const ResidentDetailModal = ({ profile, onClose }) => {
   const [activeTab, setActiveTab] = useState('profile');
+  const [showImage, setShowImage] = useState(false);
 
   if (!profile) return null;
 
@@ -384,11 +414,15 @@ const ResidentDetailModal = ({ profile, onClose }) => {
   const cfg = STATUS_CFG[st] || STATUS_CFG.active;
 
   const blockLot = buildBlockLot(profile.block, profile.lot);
+  const tenantNames = (profile.tenantNames || []).filter(Boolean);
 
   const details = [
     { icon: Users,       label: 'Resident Type', value: profile.resident_type },
     ...(profile.resident_type === 'tenant' && profile.ownerName
       ? [{ icon: User, label: 'Property Owner', value: profile.ownerName }]
+      : []),
+    ...(tenantNames.length
+      ? [{ icon: Users, label: tenantNames.length > 1 ? 'Tenants' : 'Tenant', value: tenantNames.join(', ') }]
       : []),
     { icon: MapPin,      label: 'Full Address',  value: profile.address       },
     { icon: Home,        label: 'Block / Lot',   value: blockLot              },
@@ -424,7 +458,10 @@ const ResidentDetailModal = ({ profile, onClose }) => {
           {/* ── Profile summary card — sits fully below the banner, NO overlap ── */}
           <div className="px-6 pt-5">
             <div className="flex items-start gap-4">
-              <div className="w-16 h-16 rounded-2xl bg-slate-100 overflow-hidden shrink-0 flex items-center justify-center text-slate-400 text-xl font-black uppercase border border-slate-200">
+              <div
+                onClick={() => profile.avatar_url && setShowImage(true)}
+                className={`w-16 h-16 rounded-2xl bg-slate-100 overflow-hidden shrink-0 flex items-center justify-center text-slate-400 text-xl font-black uppercase border border-slate-200 ${profile.avatar_url ? 'cursor-pointer hover:opacity-90 transition-opacity' : ''}`}
+              >
                 {profile.avatar_url
                   ? <img src={profile.avatar_url} alt="" className="w-full h-full object-cover" />
                   : (profile.first_name?.charAt(0) || profile.username?.charAt(0) || '?')}
@@ -467,6 +504,11 @@ const ResidentDetailModal = ({ profile, onClose }) => {
                   <User size={10} /> Owner: {profile.ownerName}
                 </span>
               )}
+              {tenantNames.length > 0 && (
+                <span className="text-[10px] font-bold px-3 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-200 flex items-center gap-1">
+                  <Users size={10} /> {tenantNames.length > 1 ? 'Tenants' : 'Tenant'}: {tenantNames.join(', ')}
+                </span>
+              )}
               {profile.phone && (
                 <span className="text-[10px] font-bold px-3 py-1 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
                   {profile.phone}
@@ -505,6 +547,27 @@ const ResidentDetailModal = ({ profile, onClose }) => {
 
         </div>
       </div>
+
+      {/* ── Avatar lightbox ── */}
+      {showImage && profile.avatar_url && (
+        <div
+          className="fixed inset-0 z-[300] flex items-center justify-center bg-black/80 backdrop-blur-sm p-6 animate-in fade-in duration-150"
+          onClick={(e) => { e.stopPropagation(); setShowImage(false); }}
+        >
+          <button
+            onClick={(e) => { e.stopPropagation(); setShowImage(false); }}
+            className="absolute top-5 right-5 w-10 h-10 flex items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20 cursor-pointer transition-colors"
+          >
+            <X size={20} />
+          </button>
+          <img
+            src={profile.avatar_url}
+            alt={fullName(profile)}
+            className="max-w-full max-h-full rounded-2xl shadow-2xl object-contain animate-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
     </div>
   );
 };
