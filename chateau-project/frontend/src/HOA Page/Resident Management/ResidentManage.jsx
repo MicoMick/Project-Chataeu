@@ -410,7 +410,11 @@ const ResidentManage = () => {
                                 const ownerName = r.owner_id
                                   ? (residents.find(x => x.id === r.owner_id)?.full_name || null)
                                   : null;
-                                setViewProfile({ ...r, ownerName });
+                                const tenantNames = residents
+                                  .filter(x => x.owner_id === r.id)
+                                  .map(x => x.full_name || x.username)
+                                  .filter(Boolean);
+                                setViewProfile({ ...r, ownerName, tenantNames });
                               }}
                               title="View" className="p-2 hover:bg-blue-50 text-slate-400 hover:text-blue-600 rounded-lg cursor-pointer"><Eye size={15} /></button>
 

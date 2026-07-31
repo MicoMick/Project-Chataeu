@@ -981,6 +981,14 @@ const Payment = () => {
           status: 'paid',
           paid_at: payment.submitted_at || new Date().toISOString(),
         };
+        // Advance payments submitted from the mobile app land here without a
+        // HOA reference number — only the per-month generator normally
+        // assigns one. Backfill it now so the SOA / payment history always
+        // shows a HOA REF # instead of "—".
+        if (!payment.reference_no) {
+          const { month, year } = getMonthYear(payment.due_date || new Date());
+          updates.reference_no = generateRefNo(month, year, payment.user_id);
+        }
       } else {
         // Reject — revert to unpaid/overdue (based on due date) and clear the
         // submission so the resident can resubmit a corrected proof.
@@ -1391,6 +1399,19 @@ const Payment = () => {
   // month so tiny rounding differences in the per-category breakdown don't
   // misclassify a normal single-month due as a "2 months" one.
   const monthsCoveredBy = (amount) => Math.max(1, Math.round(Number(amount || 0) / (monthlyDue || 1)));
+  // A row's due_date is the LAST month it covers — an advance payment of N
+  // months rolls the (N-1) preceding months into this same row instead of
+  // getting rows of their own, so the label needs to span back from due_date.
+  const formatMonthCoverage = (dueDate, months) => {
+    if (!dueDate) return '—';
+    const end = new Date(dueDate);
+    if (months <= 1) return end.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    const start = new Date(end.getFullYear(), end.getMonth() - (months - 1), 1);
+    const sameYear = start.getFullYear() === end.getFullYear();
+    const startLabel = start.toLocaleDateString('en-US', sameYear ? { month: 'short' } : { month: 'short', year: 'numeric' });
+    const endLabel = end.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+    return `${startLabel} to ${endLabel}`;
+  };
   const breakdownMonthsUnpaid = breakdownUnpaidOnly.reduce((s, p) => s + monthsCoveredBy(p.amount), 0);
   const breakdownAdvanceMonths = breakdownUnpaidOnly
     .filter(p => monthsCoveredBy(p.amount) > 1)
@@ -1597,7 +1618,7 @@ const Payment = () => {
                       <span className={`w-5 h-5 rounded-full ${badgeColor} text-[10px] font-black flex items-center justify-center shrink-0`}>{i + 1}</span>
                       <div>
                         <span className="text-sm font-semibold text-slate-700 flex items-center gap-1.5 flex-wrap">
-                          {p.due_date ? new Date(p.due_date).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : '—'}
+                          {formatMonthCoverage(p.due_date, rowMonths)}
                           {st === 'pending_verification' && (
                             <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-100">Pending Verification</span>
                           )}
@@ -1733,6 +1754,20 @@ const Payment = () => {
                 title="Reference number is set automatically and can't be edited here"
                 className="w-full px-4 py-2.5 bg-slate-100 text-slate-400 border border-slate-200 rounded-xl text-sm cursor-not-allowed" />
             </div>
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">View of Proof of Payment</label>
+            {selectedPayment?.proof_url ? (
+              <button type="button"
+                onClick={() => { setProofReviewImage(selectedPayment.proof_url); setProofReviewZoomed(false); }}
+                className="w-full flex items-center justify-center gap-2 py-2.5 bg-white border border-slate-200 hover:border-blue-400 hover:text-blue-600 text-slate-600 text-xs font-bold rounded-xl cursor-pointer transition-all">
+                <Eye size={13} /> View Proof of Payment
+              </button>
+            ) : (
+              <div className="w-full px-4 py-2.5 bg-slate-100 text-slate-400 border border-slate-200 rounded-xl text-sm text-center cursor-not-allowed">
+                No proof submitted
+              </div>
+            )}
           </div>
           {editFormData.status === 'paid' && (
             <>
