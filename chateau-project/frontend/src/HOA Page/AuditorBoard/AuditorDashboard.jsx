@@ -912,7 +912,7 @@ const AuditorDashboard = () => {
         };
       }
       map[p.user_id].total  += Number(p.amount || 0);
-      map[p.user_id].count  += 1;
+      map[p.user_id].count  += monthsCoveredBy(p.amount);
       if (!map[p.user_id].last_paid || (p.paid_at && p.paid_at > map[p.user_id].last_paid))
         map[p.user_id].last_paid = p.paid_at;
       if (!p.audited) map[p.user_id].audited = false;
@@ -1319,6 +1319,112 @@ const AuditorDashboard = () => {
         </div>
       </div>
 
+      {/* ── Facilities report button — standalone, outside the tab/table card ── */}
+      {activeTab === 'facilities' && (
+        <div className="flex justify-end">
+          <div className="relative">
+            <button onClick={() => setShowFacilFilter(p => !p)}
+              className="flex items-center gap-1.5 px-4 py-2 bg-slate-600 hover:bg-slate-700 text-white text-xs font-bold rounded-xl shadow-sm cursor-pointer whitespace-nowrap">
+              <Printer size={13} /> Print Report
+            </button>
+
+            {showFacilFilter && (
+              <div className="absolute top-full right-0 mt-2 w-72 bg-white rounded-2xl shadow-2xl border border-slate-200 p-5 z-[200]">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-sm font-black text-slate-800">Select Report Period</p>
+                  <button onClick={() => setShowFacilFilter(false)} className="p-1 hover:bg-slate-100 rounded-lg cursor-pointer">
+                    <X size={14} className="text-slate-400" />
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 gap-1.5 mb-3">
+                  {[
+                    { key: 'all',        label: 'All Records'  },
+                    { key: 'last7d',     label: 'Last 7 Days'  },
+                    { key: 'this_month', label: 'This Month'   },
+                    { key: 'last_month', label: 'Last Month'   },
+                    { key: 'this_year',  label: 'This Year'    },
+                    { key: 'last_year',  label: 'Last Year'    },
+                    { key: 'custom',     label: 'Custom Range' },
+                  ].map(p => (
+                    <button key={p.key} onClick={() => { setReportPeriod(p.key); if (p.key !== 'custom') { setReportFrom(''); setReportTo(''); } }}
+                      className={`py-2 px-3 rounded-xl text-xs font-bold border-2 cursor-pointer transition-all text-left
+                        ${reportPeriod === p.key ? 'bg-slate-700 border-slate-700 text-white' : 'bg-slate-50 border-slate-200 text-slate-500 hover:border-slate-400 hover:text-slate-700'}
+                        ${p.key === 'custom' ? 'col-span-2' : ''}`}>
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+                {reportPeriod === 'custom' && (
+                  <div className="grid grid-cols-2 gap-2 mb-3">
+                    <div>
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">From</label>
+                      <input type="date" value={reportFrom} onChange={e => setReportFrom(e.target.value)}
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-slate-300" />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">To</label>
+                      <input type="date" value={reportTo} onChange={e => setReportTo(e.target.value)}
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-slate-300" />
+                    </div>
+                  </div>
+                )}
+                <div className="flex gap-2">
+                  <button onClick={() => setShowFacilFilter(false)}
+                    className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl cursor-pointer">
+                    Cancel
+                  </button>
+                  <button onClick={() => {
+                    const { from, to } = getPeriodRange();
+                    const period = getPeriodLabel();
+                    const today = new Date().toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' });
+                    const filtered = amenityRes.filter(r => {
+                      const d = r.created_at?.split('T')[0] || '';
+                      if (from && d && d < from) return false;
+                      if (to   && d && d > to)   return false;
+                      return true;
+                    });
+                    const curr = filtered.filter(r => r.status === 'Approved');
+                    const hist = filtered.filter(r => r.status === 'Completed');
+                    const fd_ = (d) => d ? new Date(d).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
+                    const TH_ = (cols) => `<tr>${cols.map(col => `<th style="background:#006837;color:#FFF200;padding:6px 8px;text-align:left;font-weight:bold;font-size:11px;">${col}</th>`).join('')}</tr>`;
+                    const html = `<!DOCTYPE html><html><head><title>Facilities & Amenities Report</title>
+                      <style>body{font-family:Arial,sans-serif;margin:20px;}
+                      h1{text-align:center;font-size:15px;text-transform:uppercase;margin-bottom:3px;}
+                      h2{font-size:12px;color:#006837;margin:18px 0 6px;border-bottom:2px solid #006837;padding-bottom:3px;text-transform:uppercase;}
+                      p.sub{text-align:center;font-size:11px;color:#666;margin-bottom:16px;}
+                      table{width:100%;border-collapse:collapse;font-size:11px;margin-bottom:10px;}
+                      td{padding:5px 8px;border-bottom:1px solid #e2e8f0;}
+                      @media print{@page{margin:10mm;}}</style></head><body>
+                      <h1>Facilities &amp; Amenities Report</h1>
+                      <p class="sub">Chateau Real Executive Village Homeowners Association Inc. (CREVHAI)<br>Generated: ${today}${period ? ' · Period: ' + period : ''}</p>
+                      <h2>Currently Borrowed (${curr.length})</h2>
+                      <table><thead>${TH_(['Resident','Item','Qty','Requested On'])}</thead><tbody>
+                      ${curr.map((r,i)=>`<tr style="background:${i%2===0?'#eff6ff':'#fff'}">
+                        <td>${r.profiles?.full_name||'—'}</td><td>${r.facilities?.name||'—'}</td>
+                        <td style="text-align:center;">${r.quantity||'—'}</td><td>${fd_(r.created_at)}</td></tr>`).join('')||'<tr><td colspan="4" style="text-align:center;color:#999">None currently borrowed</td></tr>'}
+                      </tbody></table>
+                      <h2>Return History (${hist.length})</h2>
+                      <table><thead>${TH_(['Resident','Item','Qty','Borrowed Date','Status'])}</thead><tbody>
+                      ${hist.map((r,i)=>`<tr style="background:${i%2===0?'#f0fdf4':'#fff'}">
+                        <td>${r.profiles?.full_name||'—'}</td><td>${r.facilities?.name||'—'}</td>
+                        <td style="text-align:center;">${r.quantity||'—'}</td><td>${fd_(r.created_at)}</td>
+                        <td style="color:#166534;font-weight:bold;">Returned</td></tr>`).join('')||'<tr><td colspan="5" style="text-align:center;color:#999">No return history yet</td></tr>'}
+                      </tbody></table>
+                      </body></html>`;
+                    const w = window.open('','_blank','width=1100,height=800');
+                    w.document.write(html); w.document.close(); w.onload = () => w.print();
+                    setShowFacilFilter(false);
+                  }}
+                    className="flex-1 py-2.5 bg-slate-600 hover:bg-slate-700 text-white text-xs font-bold rounded-xl cursor-pointer flex items-center justify-center gap-1.5">
+                    <Printer size={12} /> Print
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* ── Tab navigation + search ── */}
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
         <div className="px-5 py-4 border-b border-slate-100 flex flex-wrap items-center gap-3">
@@ -1339,110 +1445,6 @@ const AuditorDashboard = () => {
 
           {/* Search + action button */}
           <div className="flex items-center gap-2 ml-auto">
-            
-            {activeTab === 'facilities' && (
-              <div className="relative">
-                <button onClick={() => setShowFacilFilter(p => !p)}
-                  className="flex items-center gap-1.5 px-4 py-2 bg-slate-600 hover:bg-slate-700 text-white text-xs font-bold rounded-xl shadow-sm cursor-pointer whitespace-nowrap">
-                  <Printer size={13} /> Print Report
-                </button>
-
-                {showFacilFilter && (
-                  <div className="absolute top-full right-0 mt-2 w-72 bg-white rounded-2xl shadow-2xl border border-slate-200 p-5 z-[200]">
-                    <div className="flex items-center justify-between mb-3">
-                      <p className="text-sm font-black text-slate-800">Select Report Period</p>
-                      <button onClick={() => setShowFacilFilter(false)} className="p-1 hover:bg-slate-100 rounded-lg cursor-pointer">
-                        <X size={14} className="text-slate-400" />
-                      </button>
-                    </div>
-                    <div className="grid grid-cols-2 gap-1.5 mb-3">
-                      {[
-                        { key: 'all',        label: 'All Records'  },
-                        { key: 'last7d',     label: 'Last 7 Days'  },
-                        { key: 'this_month', label: 'This Month'   },
-                        { key: 'last_month', label: 'Last Month'   },
-                        { key: 'this_year',  label: 'This Year'    },
-                        { key: 'last_year',  label: 'Last Year'    },
-                        { key: 'custom',     label: 'Custom Range' },
-                      ].map(p => (
-                        <button key={p.key} onClick={() => { setReportPeriod(p.key); if (p.key !== 'custom') { setReportFrom(''); setReportTo(''); } }}
-                          className={`py-2 px-3 rounded-xl text-xs font-bold border-2 cursor-pointer transition-all text-left
-                            ${reportPeriod === p.key ? 'bg-slate-700 border-slate-700 text-white' : 'bg-slate-50 border-slate-200 text-slate-500 hover:border-slate-400 hover:text-slate-700'}
-                            ${p.key === 'custom' ? 'col-span-2' : ''}`}>
-                          {p.label}
-                        </button>
-                      ))}
-                    </div>
-                    {reportPeriod === 'custom' && (
-                      <div className="grid grid-cols-2 gap-2 mb-3">
-                        <div>
-                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">From</label>
-                          <input type="date" value={reportFrom} onChange={e => setReportFrom(e.target.value)}
-                            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-slate-300" />
-                        </div>
-                        <div>
-                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">To</label>
-                          <input type="date" value={reportTo} onChange={e => setReportTo(e.target.value)}
-                            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-slate-300" />
-                        </div>
-                      </div>
-                    )}
-                    <div className="flex gap-2">
-                      <button onClick={() => setShowFacilFilter(false)}
-                        className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl cursor-pointer">
-                        Cancel
-                      </button>
-                      <button onClick={() => {
-                        const { from, to } = getPeriodRange();
-                        const period = getPeriodLabel();
-                        const today = new Date().toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' });
-                        const filtered = amenityRes.filter(r => {
-                          const d = r.created_at?.split('T')[0] || '';
-                          if (from && d && d < from) return false;
-                          if (to   && d && d > to)   return false;
-                          return true;
-                        });
-                        const curr = filtered.filter(r => r.status === 'Approved');
-                        const hist = filtered.filter(r => r.status === 'Completed');
-                        const fd_ = (d) => d ? new Date(d).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
-                        const TH_ = (cols) => `<tr>${cols.map(col => `<th style="background:#006837;color:#FFF200;padding:6px 8px;text-align:left;font-weight:bold;font-size:11px;">${col}</th>`).join('')}</tr>`;
-                        const html = `<!DOCTYPE html><html><head><title>Facilities & Amenities Report</title>
-                          <style>body{font-family:Arial,sans-serif;margin:20px;}
-                          h1{text-align:center;font-size:15px;text-transform:uppercase;margin-bottom:3px;}
-                          h2{font-size:12px;color:#006837;margin:18px 0 6px;border-bottom:2px solid #006837;padding-bottom:3px;text-transform:uppercase;}
-                          p.sub{text-align:center;font-size:11px;color:#666;margin-bottom:16px;}
-                          table{width:100%;border-collapse:collapse;font-size:11px;margin-bottom:10px;}
-                          td{padding:5px 8px;border-bottom:1px solid #e2e8f0;}
-                          @media print{@page{margin:10mm;}}</style></head><body>
-                          <h1>Facilities &amp; Amenities Report</h1>
-                          <p class="sub">Chateau Real Executive Village Homeowners Association Inc. (CREVHAI)<br>Generated: ${today}${period ? ' · Period: ' + period : ''}</p>
-                          <h2>Currently Borrowed (${curr.length})</h2>
-                          <table><thead>${TH_(['Resident','Item','Qty','Requested On'])}</thead><tbody>
-                          ${curr.map((r,i)=>`<tr style="background:${i%2===0?'#eff6ff':'#fff'}">
-                            <td>${r.profiles?.full_name||'—'}</td><td>${r.facilities?.name||'—'}</td>
-                            <td style="text-align:center;">${r.quantity||'—'}</td><td>${fd_(r.created_at)}</td></tr>`).join('')||'<tr><td colspan="4" style="text-align:center;color:#999">None currently borrowed</td></tr>'}
-                          </tbody></table>
-                          <h2>Return History (${hist.length})</h2>
-                          <table><thead>${TH_(['Resident','Item','Qty','Borrowed Date','Status'])}</thead><tbody>
-                          ${hist.map((r,i)=>`<tr style="background:${i%2===0?'#f0fdf4':'#fff'}">
-                            <td>${r.profiles?.full_name||'—'}</td><td>${r.facilities?.name||'—'}</td>
-                            <td style="text-align:center;">${r.quantity||'—'}</td><td>${fd_(r.created_at)}</td>
-                            <td style="color:#166534;font-weight:bold;">Returned</td></tr>`).join('')||'<tr><td colspan="5" style="text-align:center;color:#999">No return history yet</td></tr>'}
-                          </tbody></table>
-                          </body></html>`;
-                        const w = window.open('','_blank','width=1100,height=800');
-                        w.document.write(html); w.document.close(); w.onload = () => w.print();
-                        setShowFacilFilter(false);
-                      }}
-                        className="flex-1 py-2.5 bg-slate-600 hover:bg-slate-700 text-white text-xs font-bold rounded-xl cursor-pointer flex items-center justify-center gap-1.5">
-                        <Printer size={12} /> Print
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
             <div className="relative sm:w-56 w-full">
               <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
               <input type="text" placeholder="Search…" value={search} onChange={e => setSearch(e.target.value)}

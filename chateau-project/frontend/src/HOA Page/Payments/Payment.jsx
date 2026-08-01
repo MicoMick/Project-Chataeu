@@ -160,6 +160,22 @@ const printSOA = (resident, paidHistory = [], viewMode = 'both', monthlyDueAmoun
   const fmtDate  = (d) => d ? new Date(d).toLocaleDateString('en-PH', { month: 'short',  day: 'numeric', year: 'numeric' }) : '—';
   const fmtDateL = (d) => d ? new Date(d).toLocaleDateString('en-PH', { month: 'long',   day: 'numeric', year: 'numeric' }) : '—';
   const fmtMonth = (d) => d ? new Date(d).toLocaleDateString('en-PH', { month: 'long',   year: 'numeric' }) : '—';
+  const fmtMonthAbbr = (d) => d ? new Date(d).toLocaleDateString('en-PH', { month: 'short' }) : '—';
+  // A single payment can cover more than one month's due (paid in advance).
+  // In that case, show the period as a range ending on the payment's due_date
+  // rather than labeling it with just the due month.
+  const fmtPaidPeriod = (p) => {
+    const months = monthlyDueAmount > 0 ? Math.round(Number(p.amount || 0) / monthlyDueAmount) : 1;
+    if (months > 1 && p.due_date) {
+      const end = new Date(p.due_date);
+      const start = new Date(end);
+      start.setMonth(start.getMonth() - (months - 1));
+      return start.getFullYear() === end.getFullYear()
+        ? `${fmtMonthAbbr(start)} to ${fmtMonthAbbr(end)} ${end.getFullYear()}`
+        : `${fmtMonthAbbr(start)} ${start.getFullYear()} to ${fmtMonthAbbr(end)} ${end.getFullYear()}`;
+    }
+    return fmtMonth(p.due_date);
+  };
 
   const showOutstanding = viewMode === 'outstanding' || viewMode === 'both';
   const showHistory     = viewMode === 'history'     || viewMode === 'both';
@@ -229,7 +245,7 @@ const printSOA = (resident, paidHistory = [], viewMode = 'both', monthlyDueAmoun
 
   const paidRows = paidHistoryChrono.map((p, i) => `
     <tr style="background:${i % 2 === 0 ? '#f0fdf4' : '#fff'}">
-      <td style="padding:7px 9px;border-bottom:1px solid #f1f5f9;">${fmtMonth(p.due_date)}</td>
+      <td style="padding:7px 9px;border-bottom:1px solid #f1f5f9;">${fmtPaidPeriod(p)}</td>
       <td style="padding:7px 9px;border-bottom:1px solid #f1f5f9;">${fmtDate(p.paid_at)}</td>
       <td style="padding:7px 9px;border-bottom:1px solid #f1f5f9;font-size:10px;">${p.payer_reference_no || '—'}</td>
       <td style="padding:7px 9px;border-bottom:1px solid #f1f5f9;font-size:10px;">${p.reference_no || '—'}</td>
@@ -1122,10 +1138,25 @@ const Payment = () => {
     // unbilled for the month whenever even one resident already had a row.
     let residentsNeeding = residents;
     if (!force) {
-      const { data: existingThisMonth } = await supabase
-        .from('payments').select('user_id')
-        .gte('due_date', monthStart).lte('due_date', monthEnd);
-      const alreadyBilled = new Set((existingThisMonth || []).map(p => p.user_id));
+      // Lower bound only — a row's due_date is the LAST month an advance
+      // payment covers (see monthsCoveredBy/formatMonthCoverage further down
+      // this component), so a resident who prepaid Aug+Sep in July has ONE
+      // row with due_date = Sep 30. Adding an upper bound of monthEnd would
+      // put that row outside August's window and wrongly bill them again for
+      // a month they already paid for.
+      const { data: existingFromThisMonthOn } = await supabase
+        .from('payments').select('user_id, amount, due_date')
+        .gte('due_date', monthStart);
+      const currentIdx = year * 12 + month;
+      const alreadyBilled = new Set();
+      (existingFromThisMonthOn || []).forEach(p => {
+        if (!p.due_date) return;
+        const d = new Date(p.due_date);
+        const dueIdx = d.getFullYear() * 12 + d.getMonth();
+        const covered = monthsCoveredBy(p.amount);
+        const startIdx = dueIdx - (covered - 1);
+        if (startIdx <= currentIdx && currentIdx <= dueIdx) alreadyBilled.add(p.user_id);
+      });
       residentsNeeding = residents.filter(r => !alreadyBilled.has(r.id));
       if (!residentsNeeding.length) return { skipped: true, reason: 'Already generated for this month.' };
     }
@@ -1501,15 +1532,21 @@ const Payment = () => {
     const stillUnpaid = rPayments.filter(p =>
       ['unpaid','overdue','pending','pending_verification'].includes((p.status || '').toLowerCase())
     ).length;
+    // A single paid row's amount can cover more than one month at once (an
+    // advance payment), so the real month count is the sum of months each
+    // row covers, not the number of rows.
+    const paidMonths = paidList.reduce((s, p) => s + monthsCoveredBy(p.amount), 0);
+    const hasAdvancePayment = paidList.some(p => monthsCoveredBy(p.amount) > 1);
     return {
       user_id:    r.id,
       full_name:  r.full_name || '—',
       street:     r.street || 'N/A',
       fullAddress: buildFullAddress(r.block, r.lot, r.street),
       totalPaid,
-      paidMonths: paidList.length,
+      paidMonths,
       lastPaid,
       stillUnpaid,
+      hasAdvancePayment,
     };
   }).filter(r => r.paidMonths > 0);
 
@@ -2242,15 +2279,22 @@ const Payment = () => {
                       {r.lastPaid ? new Date(r.lastPaid).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
                     </td>
                     <td className="px-5 py-4">
-                      {r.stillUnpaid === 0 ? (
-                        <span className="inline-flex items-center gap-1.5 text-[10px] font-bold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> Fully Settled
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1.5 text-[10px] font-bold px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-100">
-                          <span className="w-1.5 h-1.5 rounded-full bg-amber-400" /> Has Unpaid
-                        </span>
-                      )}
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {r.stillUnpaid === 0 ? (
+                          <span className="inline-flex items-center gap-1.5 text-[10px] font-bold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> Fully Settled
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 text-[10px] font-bold px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-100">
+                            <span className="w-1.5 h-1.5 rounded-full bg-amber-400" /> Has Unpaid
+                          </span>
+                        )}
+                        {r.hasAdvancePayment && (
+                          <span className="inline-flex items-center gap-1.5 text-[10px] font-bold px-2.5 py-1 rounded-full bg-purple-50 text-purple-700 border border-purple-100">
+                            <span className="w-1.5 h-1.5 rounded-full bg-purple-400" /> Paid in Advance
+                          </span>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
