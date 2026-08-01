@@ -24,6 +24,8 @@ const fd  = (d: string | null) =>
   d ? new Date(d).toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' }) : '—'
 const fdShort = (d: string | null) =>
   d ? new Date(d).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'
+const fmShort = (d: string | Date) =>
+  new Date(d).toLocaleDateString('en-PH', { month: 'short' })
 
 function phtToday() {
   const s = new Date(Date.now() + 8 * 60 * 60 * 1000)
@@ -167,12 +169,26 @@ function buildFormalSoaHtml(
     </tr>`
   }).join('')
 
-  // Payment history rows — chronological order, oldest of the last 12 first
+  // Payment history rows — chronological order, oldest of the last 12 first.
+  // A single payment can cover more than one month's due (paid in advance),
+  // in which case show the period as a range ending on the due_date rather
+  // than labeling it with just the due month.
   const histRows = paidHistoryChrono.map((p, i) => {
     const rowBg = i % 2 === 0 ? '#f0fdf4' : '#fff'
-    const period = p.due_date
-      ? new Date(p.due_date).toLocaleDateString('en-PH', { month: 'long', year: 'numeric' })
-      : '—'
+    const months = monthlyDueAmount > 0 ? Math.round(Number(p.amount || 0) / monthlyDueAmount) : 1
+    let period = '—'
+    if (p.due_date) {
+      if (months > 1) {
+        const end = new Date(p.due_date)
+        const start = new Date(end)
+        start.setMonth(start.getMonth() - (months - 1))
+        period = start.getFullYear() === end.getFullYear()
+          ? `${fmShort(start)} to ${fmShort(end)} ${end.getFullYear()}`
+          : `${fmShort(start)} ${start.getFullYear()} to ${fmShort(end)} ${end.getFullYear()}`
+      } else {
+        period = new Date(p.due_date).toLocaleDateString('en-PH', { month: 'long', year: 'numeric' })
+      }
+    }
     return `<tr>
       <td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;background:${rowBg};">${period}</td>
       <td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;background:${rowBg};">${fdShort(p.paid_at)}</td>
@@ -443,12 +459,12 @@ Deno.serve(async (req: Request) => {
     if (pErr) { console.error('Fetch paid:', pErr.message); throw new Error(pErr.message) }
 
     const unpaidMap: Record<string, typeof unpaidPayments> = {}
-    unpaidPayments.forEach((p: { user_id: string }) => {
+    unpaidPayments.forEach((p) => {
       if (!unpaidMap[p.user_id]) unpaidMap[p.user_id] = []
       unpaidMap[p.user_id].push(p)
     })
     const paidMap: Record<string, typeof paidPayments> = {}
-    ;(paidPayments || []).forEach((p: { user_id: string }) => {
+    ;(paidPayments || []).forEach((p) => {
       if (!paidMap[p.user_id]) paidMap[p.user_id] = []
       if (paidMap[p.user_id].length < 12) paidMap[p.user_id].push(p)
     })

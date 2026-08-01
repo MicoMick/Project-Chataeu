@@ -71,6 +71,24 @@ function ymd(year: number, month: number, date: number) {
   return `${year}-${mm}-${dd}`
 }
 
+// ── Advance-payment coverage ────────────────────────────────────────────────
+// A row's due_date is the LAST month it covers, not the only one — an advance
+// payment of N months rolls the (N-1) preceding months into that same row
+// instead of getting rows of their own (mirrors Payment.jsx's monthsCoveredBy
+// / formatMonthCoverage). So "does resident X already have a row covering
+// this month" can't just check due_date falling inside this month's range —
+// a resident who prepaid Aug+Sep back in July has ONE row with due_date =
+// Sep 30, which sits outside August's [monthStart, monthEnd] window and was
+// being missed, generating a duplicate/overlapping August due on top of an
+// already-covered month.
+function monthIndex(year: number, month: number) {
+  return year * 12 + month
+}
+
+function monthsCoveredBy(amount: number, monthlyDueAmount: number) {
+  return Math.max(1, Math.round(Number(amount || 0) / (monthlyDueAmount || 1)))
+}
+
 Deno.serve(async (req: Request) => {
   // ── Auth: this function is called by pg_cron, which has no user session.
   // Supabase's platform-level JWT check inspects the "Authorization" header
@@ -131,16 +149,28 @@ Deno.serve(async (req: Request) => {
     if (residentsErr) {
       duesResult = { success: false, error: residentsErr.message }
     } else if (residents?.length) {
-      const { data: existingThisMonth, error: existingErr } = await supabase
+      // Only a lower bound on due_date — an advance-payment row's due_date can
+      // sit months ahead of "now" while still covering the current month, so
+      // an upper bound of monthEnd would wrongly exclude it (see comment on
+      // monthsCoveredBy above).
+      const { data: existingFromThisMonthOn, error: existingErr } = await supabase
         .from('payments')
-        .select('user_id')
+        .select('user_id, amount, due_date')
         .gte('due_date', monthStart)
-        .lte('due_date', monthEnd)
 
       if (existingErr) {
         duesResult = { success: false, error: existingErr.message }
       } else {
-        const alreadyBilled = new Set((existingThisMonth || []).map((p: { user_id: string }) => p.user_id))
+        const currentIdx = monthIndex(year, month)
+        const alreadyBilled = new Set<string>()
+        ;(existingFromThisMonthOn || []).forEach((p: { user_id: string; amount: number; due_date: string }) => {
+          if (!p.due_date) return
+          const d = new Date(p.due_date)
+          const dueIdx = monthIndex(d.getUTCFullYear(), d.getUTCMonth())
+          const covered = monthsCoveredBy(p.amount, monthlyDueAmount)
+          const startIdx = dueIdx - (covered - 1)
+          if (startIdx <= currentIdx && currentIdx <= dueIdx) alreadyBilled.add(p.user_id)
+        })
         const residentsNeeding = residents.filter((r: { id: string }) => !alreadyBilled.has(r.id))
 
         if (!residentsNeeding.length) {
