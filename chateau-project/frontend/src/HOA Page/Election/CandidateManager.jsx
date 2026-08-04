@@ -5,7 +5,7 @@ import {
   CheckCircle, AlertCircle, Loader2, Vote,
   Plus, Search, Pencil, Eye, ZoomIn,
 } from "lucide-react";
-import logger from '../auditlogger';
+import logger from '../auditLogger';
 
 
 // ─── Constants ────────────────────────────────────────────────────────────────
