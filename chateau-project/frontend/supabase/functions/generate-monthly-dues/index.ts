@@ -140,11 +140,15 @@ Deno.serve(async (req: Request) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let duesResult: Record<string, any> = { skipped: true, reason: 'Already generated for this month.' }
 
-    const { data: residents, error: residentsErr } = await supabase
+    const { data: residentsRaw, error: residentsErr } = await supabase
       .from('profiles')
-      .select('id, full_name')
+      .select('id, full_name, resident_type')
       .eq('account_status', 'active')
       .order('full_name')
+
+    // Tenants aren't billed for HOA dues — only owners/residents are (mirrors
+    // Payment.jsx's fetchResidentsList / runGenerateDues).
+    const residents = (residentsRaw || []).filter((r: { resident_type?: string }) => (r.resident_type || '').toLowerCase() !== 'tenant')
 
     if (residentsErr) {
       duesResult = { success: false, error: residentsErr.message }
