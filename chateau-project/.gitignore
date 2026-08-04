@@ -25,3 +25,10 @@ dist-ssr
 
 # Claude Code session lock file (local/machine-specific, regenerates automatically)
 .claude/scheduled_tasks.lock
+
+# Environment variables (contains Supabase keys — never commit)
+.env
+.env.local
+
+# Vite cache
+.vite

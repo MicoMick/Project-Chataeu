@@ -5,7 +5,7 @@ import {
   Medal, Star, TrendingUp, Vote,
   Crown, Award,
 } from "lucide-react";
-import logger from '../auditlogger';
+import logger from '../auditLogger';
 
 const POSITION_COLORS = {
   "President":      { bg: "bg-[#006837]",   light: "bg-[#006837]/10 text-[#006837]",   bar: "bg-[#006837]"   },
