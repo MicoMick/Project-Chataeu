@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { supabase, supabaseAdminAuth } from '../../supabaseAdmin';
+import { supabase } from '../../supabaseAdmin';
 import { logAudit } from '../../auditLogger';
 import {
   Users, Search, RefreshCw, Key, CheckCircle2,
@@ -77,10 +77,11 @@ const PasswordModal = ({ resident, onClose, onSuccess }) => {
     if (strength.score < 60)             { setError('Password is too weak. Aim for at least Fair strength.'); return; }
     setLoading(true);
     try {
-      const { error: pwErr } = await supabaseAdminAuth.auth.admin.updateUserById(
-        resident.id, { password: newPassword }
-      );
-      if (pwErr) throw pwErr;
+      const { data, error: fnError } = await supabase.functions.invoke('reset-resident-password', {
+        body: { residentId: resident.id, newPassword },
+      });
+      if (fnError) throw fnError;
+      if (data?.error) throw new Error(data.error);
       await logAudit('RESET_RESIDENT_PASSWORD', `Super Admin reset password for resident: ${fullName(resident)} (${resident.email})`, 'info');
       onSuccess(`Password reset successfully for ${fullName(resident)}.`);
       onClose();

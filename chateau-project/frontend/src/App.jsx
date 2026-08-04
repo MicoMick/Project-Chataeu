@@ -25,7 +25,7 @@ import SuperAdProfile from './HOA Page/SuperAdmin/Super Admin Profile/SuperAdPro
 import AdminControl from './HOA Page/SuperAdmin/Admin Profiles/AdminControl.jsx'; 
 import Residents from './HOA Page/SuperAdmin/Profiles Residents/Residents.jsx'; 
 import SystemLogs from './HOA Page/SuperAdmin/System AuditLogs/SystemLogs.jsx';
-import PendingApproval from './HOA Page/Pending Approval/PendingApproval.jsx'; // ✅ Moved to HOA admin side — president only
+import PendingApproval from './HOA Page/Pending Approval/PendingApproval.jsx';
 import AuditorDashboard from './HOA Page/AuditorBoard/AuditorDashboard.jsx'; 
 import Statistics from './HOA Page/Statistics/Statistics.jsx';
 import MoveInClearance from './HOA Page/Move In and Out Clearance/MoveInClearance.jsx';
@@ -33,8 +33,7 @@ import CourtPermit from './HOA Page/Court Permit/CourtPermit.jsx';
 import { supabase } from './HOA Page/supabaseAdmin'; 
 import ProtectedRoute from './HOA Page/Protect Route/ProtectedRoute';
 
-// ─── Role constants — single source of truth ──────────────────────────────────
-// Edit ONLY here if you ever add/remove roles.
+// ─── Role constants ─────────────────────────────────────────────────────────
 
 const ROLES = {
   PRESIDENT:      'president',
@@ -45,49 +44,46 @@ const ROLES = {
   BOARD_MEMBER:   'board_member',
 };
 
-// Who can access each page
+// Page access per role
 const ACCESS = {
-  // Full governance (everything except financial detail)
+  // Governance
   GOVERNANCE:  [ROLES.PRESIDENT, ROLES.VICE_PRESIDENT, ROLES.SECRETARY],
 
-  // Resident/operational management
+  // Operations
   OPERATIONS:  [ROLES.PRESIDENT, ROLES.VICE_PRESIDENT, ROLES.SECRETARY],
 
-  // Reservations — operational roles + treasurer (confirms payments, manages bookings)
-  // + board_member, who gets full access to this page (approve/reject/delete/confirm payment)
+  // Reservations
   RESERVATIONS: [ROLES.PRESIDENT, ROLES.VICE_PRESIDENT, ROLES.SECRETARY, ROLES.TREASURER, ROLES.BOARD_MEMBER],
 
-  // Facility Management — split out of the Reservations page into its own route.
-  // treasurer removed — they could already only view (never add/edit/delete)
-  // facilities inside Facility.jsx itself, so they no longer get the page at all.
+  // Facility Management
   FACILITY_MANAGEMENT: [ROLES.PRESIDENT, ROLES.VICE_PRESIDENT, ROLES.SECRETARY],
 
-  // Announcements + Reports — board_member can manage these
+  // Announcements + Reports
   COMM_OPS:    [ROLES.PRESIDENT, ROLES.VICE_PRESIDENT, ROLES.SECRETARY, ROLES.BOARD_MEMBER],
 
-  // Election management — only Elecom role can manage; no other HOA role has access
+  // Elections
   ELECTIONS:   ['elecom'],
 
-  // Financial — only president and treasurer can add/void payments
+  // Payments
   PAYMENTS:    [ROLES.PRESIDENT, ROLES.TREASURER],
 
-  // Move In/Out Clearances — president + treasurer manage these
+  // Move In/Out Clearances
   CLEARANCES:  [ROLES.PRESIDENT, ROLES.TREASURER],
 
   // Statistics
   STATISTICS:  [ROLES.PRESIDENT, ROLES.VICE_PRESIDENT, ROLES.SECRETARY, ROLES.AUDITOR, ROLES.TREASURER],
 
-  // Auditor workspace — auditor + treasurer (treasurer needs full financial view)
+  // Auditor workspace
   AUDITOR:     [ROLES.AUDITOR, ROLES.TREASURER],
 
-  // Court Permit — board_member only (Sports Committee)
+  // Court Permit
   COURT_PERMIT: [ROLES.BOARD_MEMBER],
 
-  // Profile — everyone
+  // Profile
   PROFILE:     [ROLES.PRESIDENT, ROLES.VICE_PRESIDENT, ROLES.SECRETARY, ROLES.TREASURER, ROLES.AUDITOR, ROLES.BOARD_MEMBER, 'elecom'],
 };
 
-// ─── Auth + role helpers ──────────────────────────────────────────────────────
+// ─── Auth + role helpers ────────────────────────────────────────────────────
 
 const AuthRoute = ({ children }) => {
   const [session, setSession] = useState(null);
@@ -120,7 +116,7 @@ const RoleBasedRoute = ({ allowedRoles, children }) => {
   );
 };
 
-// ─── Layout components ────────────────────────────────────────────────────────
+// ─── Layout components ──────────────────────────────────────────────────────
 
 const LandingPage = () => (
   <div className="bg-slate-900 min-h-screen scroll-smooth">
@@ -145,23 +141,23 @@ const AdminLayout = () => (
   </div>
 );
 
-// ─── Dashboard redirect — each role lands on their home page ──────────────────
+// ─── Dashboard redirect ─────────────────────────────────────────────────────
 const DashboardRedirect = () => {
   const role = (localStorage.getItem('userRole') || 'resident').trim().toLowerCase();
 
-  // Treasurer lands directly on Payments — that's their whole scope
+  // Treasurer → Payments
   if (role === ROLES.TREASURER) return <Navigate to="/hoa/payments" replace />;
 
-  // Auditor lands on their dedicated workspace
+  // Auditor → Auditor workspace
   if (role === ROLES.AUDITOR) return <Navigate to="/hoa/auditor-workspace" replace />;
 
-  // Elecom lands directly on Elections — that's their only page
+  // Elecom → Elections
   if (role === 'elecom') return <Navigate to="/hoa/elections" replace />;
 
-  // Board Member lands on Announcements — Dashboard is not in their access
+  // Board Member → Announcements
   if (role === ROLES.BOARD_MEMBER) return <Navigate to="/hoa/announcements" replace />;
 
-  // Everyone else: president, vice_president, secretary, board_member → Dashboard
+  // Default → Dashboard
   return (
     <RoleBasedRoute allowedRoles={[...ACCESS.GOVERNANCE, 'super_admin']}>
       <HoaDashboard />
@@ -169,7 +165,7 @@ const DashboardRedirect = () => {
   );
 };
 
-// ─── App ──────────────────────────────────────────────────────────────────────
+// ─── App ────────────────────────────────────────────────────────────────────
 
 function App() {
   return (
@@ -180,7 +176,7 @@ function App() {
         <Route path="/" element={<LandingPage />} />
         <Route path="/admin" element={<LoginPage />} />
 
-        {/* Super Admin (bypasses all role checks — handled by supabase auth) */}
+        {/* Super Admin */}
         <Route path="/super-admin/dashboard"         element={<AuthRoute><SuperAdminLayout><SuperAdminDB /></SuperAdminLayout></AuthRoute>} />
         <Route path="/super-admin/profile"           element={<AuthRoute><SuperAdminLayout><SuperAdProfile /></SuperAdminLayout></AuthRoute>} />
         <Route path="/super-admin/admins"            element={<AuthRoute><SuperAdminLayout><AdminControl /></SuperAdminLayout></AuthRoute>} />
@@ -229,21 +225,21 @@ function App() {
             </RoleBasedRoute>
           } />
 
-          {/* ── Facility Management — split out of Reservations ── */}
+          {/* ── Facility Management ── */}
           <Route path="facility-management" element={
             <RoleBasedRoute allowedRoles={ACCESS.FACILITY_MANAGEMENT}>
               <FacilityManagement />
             </RoleBasedRoute>
           } />
 
-          {/* ── Payments — president + treasurer only ── */}
+          {/* ── Payments ── */}
           <Route path="payments" element={
             <RoleBasedRoute allowedRoles={ACCESS.PAYMENTS}>
               <Payment />
             </RoleBasedRoute>
           } />
 
-          {/* ── Elections — president, VP, secretary (board members observe only via results) ── */}
+          {/* ── Elections ── */}
           <Route path="elections" element={
             <RoleBasedRoute allowedRoles={ACCESS.ELECTIONS}>
               <ElectionPage />
@@ -277,7 +273,7 @@ function App() {
             </RoleBasedRoute>
           } />
 
-          {/* ── Court Permit — board_member (Sports Committee) only ── */}
+          {/* ── Court Permit ── */}
           <Route path="court-permit" element={
             <RoleBasedRoute allowedRoles={ACCESS.COURT_PERMIT}>
               <CourtPermit />
@@ -291,7 +287,7 @@ function App() {
             </RoleBasedRoute>
           } />
 
-          {/* ── System logs — super_admin only (handled by ProtectedRoute) ── */}
+          {/* ── System Logs ── */}
           <Route path="logs" element={
             <RoleBasedRoute allowedRoles={['super_admin']}>
               <SystemLogs />

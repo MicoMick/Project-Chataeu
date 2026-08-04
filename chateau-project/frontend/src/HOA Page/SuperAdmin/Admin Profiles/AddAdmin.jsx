@@ -1,12 +1,11 @@
 import React, { useState } from 'react';
-import { supabase } from '../../supabaseAdmin'; 
+import { supabase } from '../../supabaseAdmin';
 import { X, Eye, EyeOff } from 'lucide-react';
 import zxcvbn from 'zxcvbn';
 
 const AddAdmin = ({ isOpen, onClose, onAdminAdded }) => {
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
-  // --- FIXED: Changed 'Admin' to 'president' so it exactly matches the dropdown's first option ---
   const [role, setRole] = useState('president'); 
   const [password, setPassword] = useState('');
   
@@ -35,57 +34,21 @@ const AddAdmin = ({ isOpen, onClose, onAdminAdded }) => {
     setIsSubmitting(true);
 
     try {
-      // --- FIXED: Reverted back to signUp to fix the 401 Unauthorized Error. ---
-      // To bypass email confirmation, you must turn OFF "Confirm email" in your Supabase Dashboard (Authentication -> Providers -> Email).
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: email,
-        password: password, 
-        options: { 
-          data: { 
-            full_name: displayName, 
-            role: role 
-          } 
-        }
+      // Admin creation runs server-side in the 'create-admin' Edge Function, which
+      // holds the service role key. It also re-checks that the caller is a
+      // super_admin before doing anything privileged. supabase-js automatically
+      // attaches the current session's token, so this stays authenticated as
+      // the logged-in Super Admin throughout.
+      const { data, error: fnError } = await supabase.functions.invoke('create-admin', {
+        body: { displayName, email, password, role },
       });
 
-      if (authError) throw authError;
-
-      const { error: dbError } = await supabase
-        .from('admins')
-        .insert([
-          {
-            id: authData.user?.id, 
-            display_name: displayName,
-            email: email,
-            role: role,
-            created_at: new Date().toISOString(),
-          }
-        ]);
-
-      // --- FIXED: Intercepts the RLS 403 Error to prevent app crash and guides you to the backend fix ---
-      if (dbError) {
-        if (dbError.code === '42501' || dbError.message?.includes('row-level security')) {
-          throw new Error("Admin created in Auth, but Supabase RLS blocked the table insert. Solution: Go to Supabase Dashboard -> Authentication -> Policies -> 'admins' table -> Create a policy to 'Enable insert for anon users'.");
-        }
-        throw dbError;
-      }
-
-      // --- ADDED: Clean up the mistakenly created profile ---
-      // Your database has a trigger that automatically creates a 'profiles' row on signup.
-      // This deletes that auto-generated resident profile so they ONLY exist in 'admins'.
-      const { error: profileDeleteError } = await supabase
-        .from('profiles')
-        .delete()
-        .eq('id', authData.user?.id);
-        
-      if (profileDeleteError) {
-         console.warn("Note: Could not automatically delete the auto-generated profile due to RLS policies. You may need to delete it manually.", profileDeleteError);
-      }
+      if (fnError) throw fnError;
+      if (data?.error) throw new Error(data.error);
 
       setDisplayName('');
       setEmail('');
       setPassword('');
-      // --- FIXED: Reset the role to 'president' instead of 'Admin' to prevent the bug on the next entry ---
       setRole('president');
       onAdminAdded(); 
       onClose();      

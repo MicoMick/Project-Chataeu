@@ -8,17 +8,10 @@ import { supabase } from '../supabaseAdmin';
 import { logAudit } from '../auditLogger';
 
 // ─── Formatted content renderer ──────────────────────────────────────────────
-// Plain text announcements often come in as one dense block with no real line
-// breaks (e.g. pasted from a template). This splits on sentence boundaries
-// when no paragraph breaks exist, and turns lines starting with -, *, or a
-// number into proper bullet/numbered lists — so long announcements are
-// readable instead of one wall of text.
 const FormattedContent = ({ text }) => {
   if (!text) return null;
 
-  // Normalize: if the admin already used real line breaks, respect them.
-  // If not (single huge line), split on ". " followed by a capital letter
-  // or a period that starts a new sentence-like thought, so we get paragraphs.
+  // Respect existing line breaks; otherwise split into sentences
   let raw = text.trim();
   const hasLineBreaks = raw.includes('\n');
 
@@ -26,12 +19,11 @@ const FormattedContent = ({ text }) => {
   if (hasLineBreaks) {
     blocks = raw.split(/\n+/).map(b => b.trim()).filter(Boolean);
   } else {
-    // No line breaks at all — break into readable chunks at sentence ends
-    // that are followed by a capital letter (heuristic paragraphing).
+    // Sentence-boundary split
     blocks = raw
       .split(/(?<=[.!?])\s+(?=[A-Z])/)
       .reduce((acc, sentence, i) => {
-        // Group ~2 sentences per paragraph so it's not too choppy
+        // ~2 sentences per paragraph
         if (i % 2 === 0) acc.push(sentence);
         else acc[acc.length - 1] += ' ' + sentence;
         return acc;
@@ -83,7 +75,7 @@ const FormattedContent = ({ text }) => {
 const usePagination = (items, rowsPerPage = 10) => {
   const [page, setPage] = React.useState(1);
   const totalPages = Math.max(1, Math.ceil(items.length / rowsPerPage));
-  // Reset to page 1 whenever the list changes (filter/search)
+  // Reset on filter change
   React.useEffect(() => { setPage(1); }, [items.length]);
   const paginated = items.slice((page - 1) * rowsPerPage, page * rowsPerPage);
   return { paginated, page, setPage, totalPages, total: items.length };
@@ -162,8 +154,7 @@ const Toast = ({ toast }) => {
 const inputCls = "w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#006837]/20 focus:border-[#006837] transition-all";
 const labelCls = "block text-xs font-bold text-slate-600 mb-1.5";
 
-// ─── Fixed-position dropdown — never clipped by overflow:hidden ───────────────
-// Measures the trigger button's screen rect and renders at a fixed position.
+// ─── Fixed-position dropdown (avoids overflow:hidden clipping) ──────────────
 const PortalMenu = ({ anchorRef, open, onClose, children }) => {
   const [pos, setPos] = useState({ top: 0, right: 0 });
 
@@ -180,7 +171,7 @@ const PortalMenu = ({ anchorRef, open, onClose, children }) => {
 
   return (
     <>
-      {/* invisible backdrop catches outside clicks */}
+      {/* Backdrop */}
       <div className="fixed inset-0 z-[500]" onClick={onClose} />
       <div
         style={{ position: 'fixed', top: pos.top, right: pos.right, zIndex: 501 }}
@@ -236,7 +227,7 @@ const RowMenu = ({ ann, currentUserRole, onEdit, onPin, onDelete }) => {
   );
 };
 
-// ─── ModalForm outside parent (prevents remount on keystroke) ─────────────────
+// ─── ModalForm (kept outside parent — avoids remount on keystroke) ──────────
 const ModalForm = ({
   isEdit, onClose, onSaveDraft, onPublish,
   newTitle, setNewTitle, newContent, setNewContent,
@@ -390,9 +381,7 @@ const Announcements = () => {
 
   useEffect(() => { fetchAnnouncements(); }, []);
 
-  // ── Auto-post Monthly Dues announcement on the 1st of each month ──────────
-  // Runs once on mount. If today is the 1st AND no Monthly Dues announcement
-  // has been published today, it silently creates and publishes one.
+  // ── Auto-post Monthly Dues announcement (1st of each month) ──────────────
   useEffect(() => {
     const runMonthlyAnnouncement = async () => {
       const today = new Date();
@@ -409,7 +398,7 @@ const Announcements = () => {
 
       const annTitle = `Monthly HOA Dues — ${MONTH_NAMES[month]} ${year}`;
 
-      // Check if this announcement was already posted today
+      // Already posted today?
       const { data: existing } = await supabase
         .from('announcements')
         .select('id')
@@ -417,7 +406,7 @@ const Announcements = () => {
         .gte('created_at', todayStr + 'T00:00:00')
         .limit(1);
 
-      if (existing?.length) return; // Already posted today
+      if (existing?.length) return;
 
       const lastDay   = new Date(year, month + 1, 0).toISOString().split('T')[0];
       const content   = `This is your monthly reminder that HOA dues of ₱150 are now due for ${MONTH_NAMES[month]} ${year}. ` +
@@ -456,7 +445,7 @@ const Announcements = () => {
         created_at: new Date().toISOString(),
       }]);
 
-      // Refresh list so the new announcement shows immediately
+      // Refresh list
       fetchAnnouncements();
     };
 

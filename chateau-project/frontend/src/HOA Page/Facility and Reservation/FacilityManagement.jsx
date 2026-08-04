@@ -1,6 +1,5 @@
 import React from 'react';
 import Facility from './Facility';
-
 // ─── Facility Management page ──────────────────────────────────────────────
 // Thin page wrapper around Facility.jsx (the amenity/facility CRUD component).
 // Split out of Reservation.jsx into its own route so managing the facilities
