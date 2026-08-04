@@ -5,7 +5,7 @@ import {
   RefreshCw, Calendar, Clock, Users, Eye, MapPin,
 } from 'lucide-react';
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// ─── Helpers ────
 const fmtDate = (d) => {
   if (!d) return '—';
   return new Date(d).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
@@ -40,7 +40,7 @@ const StatusBadge = ({ status }) => {
   );
 };
 
-// ─── Toast ────────────────────────────────────────────────────────────────────
+// ─── Toast ───
 const Toast = ({ toast }) => {
   if (!toast.show) return null;
   return (
@@ -52,7 +52,7 @@ const Toast = ({ toast }) => {
   );
 };
 
-// ─── Permit Details Modal ─────────────────────────────────────────────────────
+// ─── Permit Details Modal ─────
 const ViewPermitModal = ({ permit, onClose }) => {
   if (!permit) return null;
 
@@ -115,7 +115,7 @@ const ViewPermitModal = ({ permit, onClose }) => {
   );
 };
 
-// ─── Main Page ────────────────────────────────────────────────────────────────
+// ─── Main Page ───
 const CourtPermit = () => {
   const [reservations,  setReservations]  = useState([]);
   const [loading,       setLoading]       = useState(true);
@@ -129,7 +129,7 @@ const CourtPermit = () => {
     setTimeout(() => setToast({ show: false, message: '', type: 'success' }), 3500);
   };
 
-  // ── Fetch — only Covered Court reservations ───────────────────────────────
+  // ── Fetch — only Covered Court reservations ───
   const fetchReservations = useCallback(async () => {
     setLoading(true);
     try {
@@ -167,7 +167,7 @@ const CourtPermit = () => {
 
   useEffect(() => { fetchReservations(); }, [fetchReservations]);
 
-  // ── Filter ────────────────────────────────────────────────────────────────
+  // ── Filter ────
   const filtered = reservations.filter(r => {
     const name  = (r.profiles?.full_name || '').toLowerCase();
     const fname = (r.facilities?.name    || '').toLowerCase();

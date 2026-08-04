@@ -97,16 +97,10 @@ const SectionHeader = ({ icon: Icon, title, subtitle, action }) => (
   </div>
 );
 
-
-
 const CONDITIONS = ['Good', 'Fair', 'Needs Repair'];
 const UNITS      = ['piece', 'set', 'panel', 'roll', 'box'];
 const todayStr   = () => new Date().toISOString().split('T')[0];
-// isOverdue removed — borrowing tracked via reservations status
-
 // ─── Damage Report Modal ─────────────────────────────────────────────────────
-// Created when a borrowed item is returned in Fair or Needs Repair condition.
-// Logs to the `reports` table so it shows up in the maintenance reports feed.
 const DamageReportModal = ({ target, onClose, onSave }) => {
   const inputCls_ = "w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-300/30 focus:border-red-400";
   const [form, setForm] = useState({
@@ -246,11 +240,7 @@ const AddExpenseModal = ({ onClose, onSave }) => {
   );
 };
 
-// ─── Print Summary ────────────────────────────────────────────────────────────
-// Mirrors the physical "FINANCIAL STATEMENT" ledger sheet used by the HOA:
-// Income (Monthly Dues, Court Rental) → Total Income
-// Expenses (Salary Wages, Maintenance, Utility/Bills) → Total Expenses
-// Summary (Net Income, Beginning Balance, Ending Balance)
+// ─── Print Summary (mirrors the physical FINANCIAL STATEMENT ledger) ────────
 const printFinancialReport = ({ duesIncome, courtIncome, expenses, unpaid, advancePayments, monthlyDue, period }) => {
   const today = new Date().toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' });
   const isAnnual = period && (period.toLowerCase().includes('year') || period.toLowerCase().includes('annual'));
@@ -259,8 +249,7 @@ const printFinancialReport = ({ duesIncome, courtIncome, expenses, unpaid, advan
   // ── Income ────────────────────────────────────────────────────────────────
   const totalIncome = duesIncome.total + courtIncome.total;
 
-  // ── Expenses — ALL categories, bucketed for the summary statement ─────────
-  // Using ALL categories ensures the summary total matches the itemized total.
+  // ── Expenses (all categories, bucketed) ─────────────────────────────────
   const sumByCat = (cats) => (expenses.records || [])
     .filter(e => cats.includes(e.category))
     .reduce((s, e) => s + Number(e.amount || 0), 0);
@@ -270,7 +259,6 @@ const printFinancialReport = ({ duesIncome, courtIncome, expenses, unpaid, advan
   const utilityBills      = sumByCat(['Utilities']);
   const otherExpenses     = sumByCat(['Supplies', 'Events', 'Projects', 'Legal', 'Insurance', 'Other']);
   const totalExpense      = salaryWages + maintenanceRepair + utilityBills + otherExpenses;
-  // totalExpense now equals expenses.total — no more accounting discrepancy
 
   // ── Summary ────────────────────────────────────────────────────────────────
   const netIncome = totalIncome - totalExpense;
@@ -312,8 +300,7 @@ const printFinancialReport = ({ duesIncome, courtIncome, expenses, unpaid, advan
       <td style="text-align:right;font-weight:bold;">${fmtCur(r.total)}</td>
     </tr>`).join('');
 
-  // ── Advance payments — dues already approved by the Treasurer whose amount
-  // covers more than one month at once ───────────────────────────────────────
+  // ── Advance payments (multi-month dues, Treasurer-approved) ─────────────
   const monthsCoveredBy = (amount) => Math.max(1, Math.round(Number(amount || 0) / (monthlyDue || 1)));
   const advanceRecords  = (advancePayments?.records || []).slice()
     .sort((a, b) => new Date(b.paid_at || 0) - new Date(a.paid_at || 0));
@@ -566,9 +553,7 @@ const AuditorDashboard = () => {
   const [search,       setSearch]       = useState('');
   const [toast,        setToast]        = useState({ show: false, message: '', type: 'success' });
 
-  // ── Report filter — applies to the printed report only ──────────────────
-  // Lets the auditor narrow the report by date range and/or resident name
-  // before printing, instead of always printing every record on file.
+  // ── Report filter (print report only) ────────────────────────────────────
   const [reportFrom,    setReportFrom]    = useState('');
   const [reportTo,      setReportTo]      = useState('');
   const [reportPeriod,  setReportPeriod]  = useState('all'); // all|last7d|this_month|last_month|this_year|last_year|custom
@@ -597,15 +582,13 @@ const AuditorDashboard = () => {
   const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
-      // 0. Current monthly due amount — used to detect advance payments
-      // (a paid due whose amount is a multiple of this). Best-effort: falls
-      // back to the existing default if hoa_settings isn't set up yet.
+      // 0. Current monthly due amount (for advance payment detection)
       try {
         const { data: settings } = await supabase.from('hoa_settings').select('monthly_due_amount').eq('id', 1).single();
         if (settings?.monthly_due_amount != null) setMonthlyDue(Number(settings.monthly_due_amount));
       } catch (_e) { /* keep default */ }
 
-      // 1. Monthly dues — paid
+      // 1. Monthly dues (paid)
       const { data: paidDues } = await supabase
         .from('payments')
         .select('*, profiles(full_name, account_status)')
@@ -615,7 +598,7 @@ const AuditorDashboard = () => {
       const duesTotal = (paidDues || []).reduce((s, p) => s + Number(p.amount || 0), 0);
       setDuesIncome({ records: paidDues || [], total: duesTotal });
 
-      // 2. Court rental income — completed reservations (only court facilities)
+      // 2. Court rental income (completed court reservations)
       const { data: courtFacilities } = await supabase
         .from('facilities')
         .select('id, name')
@@ -634,7 +617,7 @@ const AuditorDashboard = () => {
         courtRes = data || [];
       }
 
-      // Parse rate from facility (e.g. "₱500" → 500)
+      // Parse rate string (e.g. "₱500" → 500)
       courtRes = courtRes.map(r => ({
         ...r,
         amount: parseFloat((r.facilities?.rate || '0').toString().replace(/[^0-9.]/g, '')) || 0,
@@ -679,7 +662,6 @@ const AuditorDashboard = () => {
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
   // ── Verify all payments for a resident ──────────────────────────────────
-  // Sets audited=true on every paid payment for this user_id
   const [verifyingId, setVerifyingId] = useState(null);
   const handleVerifyResident = async (userId, fullName) => {
     setVerifyingId(userId);
@@ -760,7 +742,7 @@ const AuditorDashboard = () => {
   };
   const filteredRecords = getFiltered();
 
-  // Expenses tab: apply both date filter (expPeriod) and text search
+  // Expenses tab date + text filter
   const getExpPeriodLabel = () => {
     const now = new Date();
     switch (expPeriod) {
@@ -807,11 +789,7 @@ const AuditorDashboard = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [expenses.records, expPeriod, expFrom, expTo, search]);
 
-  // ── Filter records for the printable report (date range + search) ────────
-  // The report can be narrowed independently of the on-screen tab filters,
-  // so the auditor can e.g. print "June only" or "just Kurt Manipis" without
-  // changing what they're currently viewing on screen.
-  // ── Compute from/to dates based on selected period ──────────────────────────
+  // ── Print report filter (independent of on-screen tab filters) ───────────
   const getPeriodRange = () => {
     const now = new Date();
     const pad = (n) => String(n).padStart(2, '0');
@@ -854,8 +832,7 @@ const AuditorDashboard = () => {
     }
   };
 
-  // ── Dues / Court / Unpaid date filter ────────────────────────────────────────
-  // ── Expenses tab date filter (separate from the print report filter) ─────────
+  // ── Print report date filter ───
   const filterForReport = (records, dateKey) => {
     const { from, to } = getPeriodRange();
     return (records || []).filter(r => {
@@ -884,14 +861,10 @@ const AuditorDashboard = () => {
   };
 
 
-  // A paid due whose amount is a multiple of the current monthly due (e.g.
-  // ₱300 against a ₱150 due) covers more than one month, submitted/approved
-  // as a single advance payment. Mirrors the same detection used on the
-  // Payments page's Standing Ledger.
+  // Advance payment detection (amount is a multiple of monthlyDue)
   const monthsCoveredBy = (amount) => Math.max(1, Math.round(Number(amount || 0) / (monthlyDue || 1)));
 
-  // ── Consolidated dues: one row per resident, total paid ─────────────────
-  // Groups all individual paid due receipts → single row per resident
+  // ── Consolidated dues: one row per resident ──────────────────────────────
   const consolidatedDues = React.useMemo(() => {
     const map = {};
     const term = search.toLowerCase();
@@ -924,10 +897,7 @@ const AuditorDashboard = () => {
     return Object.values(map).sort((a, b) => a.full_name.localeCompare(b.full_name));
   }, [duesIncome.records, search, monthlyDue]);
 
-  // ── Auto-verify clean residents ──────────────────────────────────────────
-  // Any resident with NO red flags (not delinquent) gets their pending paid
-  // dues auto-marked audited=true. Delinquent residents are skipped — those
-  // still need a manual "Verify" click since they're a higher-risk case.
+  // ── Auto-verify clean (non-delinquent) residents' paid dues ──────────────
   const [autoVerifying, setAutoVerifying] = useState(false);
   useEffect(() => {
     if (!duesIncome.records?.length || autoVerifying) return;
@@ -954,7 +924,7 @@ const AuditorDashboard = () => {
           `System auto-verified ${idsToAutoVerify.length} payment(s) for ${namesAffected.length} resident(s) with no red flags: ${namesAffected.join(', ')}.`);
         fetchAll();
       } catch (e) {
-        // Silent fail — manual Verify button on delinquent rows still works as fallback
+        // Silent fail — manual Verify still works
       } finally {
         setAutoVerifying(false);
       }
@@ -999,9 +969,7 @@ const AuditorDashboard = () => {
   const totalIncome  = duesIncome.total + courtIncome.total;
   const netBalance       = totalIncome - expenses.total;
 
-  // ── Advance payments — residents who paid more than one month's due at once,
-  // already approved by the Treasurer (these are drawn from duesIncome, which
-  // only ever contains status === 'paid' rows) ──────────────────────────────
+  // ── Advance payments (multi-month dues) ──────────────────────────────────
   const advanceResidentCount = consolidatedDues.filter(r => r.hasAdvance).length;
   const advanceTotal = consolidatedDues.reduce((s, r) => s + r.advanceAmount, 0);
   const MONTHLY_EXPENSE  = 37600;  // ₱22k security + ₱14k electricity + ₱1.2k sweepers + ₱0.4k water
@@ -1046,7 +1014,7 @@ const AuditorDashboard = () => {
 
 
 
-      {/* ── Floating unpaid/overdue alert — dismissible, resets on refresh ── */}
+      {/* ── Floating unpaid/overdue alert ── */}
       {unpaid.records.length > 0 && showUnpaidAlert && (
         <div className="fixed top-6 left-6 z-[250] max-w-sm w-full animate-in slide-in-from-bottom-4 duration-300">
           <div className="bg-white rounded-2xl shadow-2xl border-2 border-amber-200 overflow-hidden">
@@ -1176,8 +1144,6 @@ const AuditorDashboard = () => {
           sub={`Total income: ${fmtCurrency(totalIncome)}`}
         />
       </div>
-
-
 
       {/* ── Action toolbar (replaces statcards) ── */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -1309,7 +1275,7 @@ const AuditorDashboard = () => {
             </div>
           )}
 
-          {/* ── Record New Expenses — only on expenses tab ── */}
+          {/* ── Record New Expenses ── */}
           {activeTab === 'expenses' && (
             <button onClick={() => setShowExpModal(true)}
               className="flex items-center gap-1.5 px-4 py-2 bg-[#006837] hover:bg-[#004d29] text-white text-sm font-bold rounded-xl shadow-sm cursor-pointer transition-all whitespace-nowrap">
@@ -1319,7 +1285,7 @@ const AuditorDashboard = () => {
         </div>
       </div>
 
-      {/* ── Facilities report button — standalone, outside the tab/table card ── */}
+      {/* ── Facilities report button ── */}
       {activeTab === 'facilities' && (
         <div className="flex justify-end">
           <div className="relative">

@@ -12,7 +12,7 @@ import ResidentFilterSelect from '../Resident Management/ResidentFilterSelect';
 const usePagination = (items, rowsPerPage = 10) => {
   const [page, setPage] = React.useState(1);
   const totalPages = Math.max(1, Math.ceil(items.length / rowsPerPage));
-  // Reset to page 1 whenever the list changes (filter/search)
+  // Reset on filter change
   React.useEffect(() => { setPage(1); }, [items.length]);
   const paginated = items.slice((page - 1) * rowsPerPage, page * rowsPerPage);
   return { paginated, page, setPage, totalPages, total: items.length };
@@ -55,11 +55,7 @@ const PaginationBar = ({ page, totalPages, setPage, total, rowsPerPage }) => {
   );
 };
 
-
-// ─── Monthly due breakdown (mirrors Payment.jsx / generate-monthly-dues) ──────
-// Duplicated here (not imported) because these are meant to be edited in
-// Payment.jsx by Treasurer/President — this file only needs a read-only copy
-// to build the same per-category breakdown on back-filled dues below.
+// ─── Monthly due breakdown (mirrors Payment.jsx) ─────
 const MONTHLY_DUE_DEFAULT = 150;
 const BILL_LINE_ITEMS_BASE = [
   { label: 'Security Guard Salary', category: 'Salaries',    fixedTotal: 22000, type: 'Fixed'    },
@@ -150,9 +146,7 @@ const ConfirmDialog = ({ data, onConfirm, onCancel, loading }) => {
   );
 };
 
-// ── Main ──────────────────────────────────────────────────────────────────────
-// embedded=true  → no page wrapper, no standalone header (used as a tab in ResidentManage)
-// embedded=false → standalone page with full padding + header
+// ── Main ─── // embedded=true → tab in ResidentManage, no page wrapper
 const AccountApproval = ({ embedded = false, onDataChange }) => {
   const [profiles,        setProfiles]        = useState([]);
   const [filtered,        setFiltered]        = useState([]);
@@ -207,17 +201,7 @@ const AccountApproval = ({ embedded = false, onDataChange }) => {
   }, {});
   const { paginated: paginatedFiltered, page: accPage, setPage: setAccPage, totalPages: accTotalPages } = usePagination(filtered, 10);
 
-  // ─── Back-fill past dues for newly-approved residents ───────────────────────
-  // generate-monthly-dues (the cron edge function) only bills profiles that
-  // are already 'active' at the moment it runs — a resident approved mid-year
-  // would otherwise never get billed for the months before they joined. This
-  // creates one payment row per month from January through the current month
-  // so the Treasurer can verify whether any of them were already settled
-  // before the account existed in the system. Status is 'pending' (not
-  // 'unpaid'/'overdue') since these are unverified, not confirmed-missed dues.
-  // Only called from handleApprove (pending → active, first time joining) —
-  // NOT from handleReactivate, since a reactivated resident already has a
-  // full payment history.
+  // ─── Back-fill past dues (new approvals only)
   const backfillPastDues = async (profile) => {
     try {
       const { data: settings } = await supabase.from('hoa_settings').select('monthly_due_amount').eq('id', 1).single();
@@ -226,7 +210,7 @@ const AccountApproval = ({ embedded = false, onDataChange }) => {
 
       const now = new Date();
       const year = now.getFullYear();
-      const currentMonth = now.getMonth(); // 0-indexed — back-fill Jan (0) through this month
+      const currentMonth = now.getMonth(); 
 
       const { data: existing } = await supabase.from('payments').select('due_date').eq('user_id', profile.id);
       const existingMonths = new Set((existing || []).map(p => (p.due_date || '').slice(0, 7)));

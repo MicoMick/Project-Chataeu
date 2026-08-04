@@ -26,7 +26,7 @@ const Footer = () => {
 
           {/* Brand */}
           <div className="flex flex-col gap-4 reveal reveal-left">
-            <img src={ChateauLogo} alt="Chateau Real" className="h-16 w-auto object-contain" />
+            <img src={ChateauLogo} alt="Chateau Real" className="h-25 w-auto object-contain" />
             <p className="text-white/50 text-xs tracking-[0.2em] uppercase font-bold pl-1">
               Metropolis Greens
             </p>
