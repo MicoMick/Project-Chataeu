@@ -1125,9 +1125,11 @@ const Payment = () => {
     const monthEnd        = new Date(year, month + 1, 0).toISOString().split('T')[0]; // due date — end of month
     const monthStart      = new Date(year, month,     1).toISOString().split('T')[0];
 
-    const { data: residents } = await supabase
-      .from('profiles').select('id, full_name')
+    const { data: residentsRaw } = await supabase
+      .from('profiles').select('id, full_name, resident_type')
       .eq('account_status', 'active').order('full_name');
+    // Tenants aren't billed for HOA dues — only owners/residents are (see fetchResidentsList above).
+    const residents = (residentsRaw || []).filter(r => (r.resident_type || '').toLowerCase() !== 'tenant');
     if (!residents?.length) return { skipped: true, reason: 'No active residents found.' };
 
     // Per-resident idempotency — a resident who already has a payment row for
