@@ -5,7 +5,7 @@ import {
   Loader2, X, Users, Vote, ChevronRight,
   Award, Filter,
 } from "lucide-react";
-import logger from '../auditlogger';
+import logger from '../auditLogger';
 import ResidentFilterSelect from '../Resident Management/ResidentFilterSelect';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
