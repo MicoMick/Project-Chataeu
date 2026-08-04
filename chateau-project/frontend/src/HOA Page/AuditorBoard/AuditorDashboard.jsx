@@ -1025,7 +1025,7 @@ const AuditorDashboard = () => {
                 </div>
                 <div>
                   <p className="text-sm font-black text-amber-900">
-                    {unpaid.records.length} account{unpaid.records.length !== 1 ? 's' : ''} with unpaid dues
+                    {consolidatedUnpaid.length} account{consolidatedUnpaid.length !== 1 ? 's' : ''} with unpaid dues
                   </p>
                   <p className="text-xs text-amber-700 mt-0.5">
                     Total uncollected: <span className="font-black">{fmtCurrency(unpaid.total)}</span>
