@@ -507,7 +507,7 @@ Deno.serve(async (req: Request) => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${RESEND_KEY}` },
         body: JSON.stringify({
-          from:    'CREVHAI Billing <billing@chateaureals.online>',
+          from:    'CREVHAI Billing <billing@chateaureals.com>',
           to:      [recipient],
           subject: `[${soaRef}] HOA Statement of Account — ${resident.full_name} | ${amtStr} Outstanding`,
           html:    htmlBody,
