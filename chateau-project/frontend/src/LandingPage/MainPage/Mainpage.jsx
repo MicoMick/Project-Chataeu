@@ -102,20 +102,20 @@ const Mainpage = () => {
         {/* Subtitle */}
         <p className={`hero-fade-up ${visible ? 'visible' : ''} max-w-2xl text-white/75 text-base md:text-lg leading-relaxed mb-10`}
           style={{ transitionDelay: '300ms' }}>
-          Your trusted homeowners association dedicated to maintaining property values,
-          fostering community spirit, and ensuring a safe, beautiful neighborhood for all residents.
+          "A modern HOA management system that simplifies operations and strengthens community trust."
+          "Handle dues, service requests, and community announcements in one trusted platform, built for Chateau Real Executive Village."
         </p>
 
         {/* CTAs */}
         <div className={`hero-fade-up ${visible ? 'visible' : ''} flex flex-col sm:flex-row items-center gap-4`}
           style={{ transitionDelay: '450ms' }}>
-          <a href="#download">
+          <a href="#download" onClick={(e) => { e.preventDefault(); document.getElementById('download')?.scrollIntoView({ behavior: 'smooth' }); }}>
             <button className="flex items-center gap-3 px-8 py-4 bg-[#006837] hover:bg-[#004d29] text-white font-bold rounded-2xl transition-all duration-200 shadow-2xl shadow-[#006837]/40 hover:-translate-y-1 hover:shadow-[#006837]/60 cursor-pointer">
               <Download size={18} />
               Download Mobile App
             </button>
           </a>
-          <a href="#about">
+          <a href="#about" onClick={(e) => { e.preventDefault(); document.getElementById('about')?.scrollIntoView({ behavior: 'smooth' }); }}>
             <button className="flex items-center gap-3 px-8 py-4 bg-white/10 hover:bg-white/20 backdrop-blur-md border border-white/20 text-white font-bold rounded-2xl transition-all duration-200 hover:-translate-y-1 cursor-pointer">
               Learn More
             </button>

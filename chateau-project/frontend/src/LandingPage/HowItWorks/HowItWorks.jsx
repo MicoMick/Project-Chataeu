@@ -67,7 +67,7 @@ const HowItWorks = () => {
             How It <span className="text-[#006837]">Works</span>
           </h2>
           <p className="max-w-2xl mx-auto text-slate-400 text-lg leading-relaxed">
-            Four simple steps to a smarter, more connected neighborhood. Designed for residents, by people who love easy living.
+            "Four simple steps to a seamless, more connected neighborhood. Designed for residents, practical, and built for everyday convenience."
           </p>
         </div>
 

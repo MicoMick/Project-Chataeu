@@ -6,11 +6,16 @@ const Footer = () => {
   const scrollToTop = () => window.scrollTo({ top: 0, behavior: 'smooth' });
 
   const links = [
-    { label: 'Our Team',    href: '#team'         },
-    { label: 'How It Works',href: '#how-it-works' },
-    { label: 'About Us',    href: '#about'        },
-    { label: 'Download App',href: '#download'     },
+    { label: 'Our Team',    id: 'team'         },
+    { label: 'How It Works',id: 'how-it-works' },
+    { label: 'About Us',    id: 'about'        },
+    { label: 'Download App',id: 'download'     },
   ];
+
+  const scrollToSection = (id) => (e) => {
+    e.preventDefault();
+    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' });
+  };
 
   return (
     <footer className="bg-[#006837] text-white relative overflow-hidden">
@@ -31,7 +36,7 @@ const Footer = () => {
               Metropolis Greens
             </p>
             <p className="text-white/60 text-sm leading-relaxed max-w-xs">
-              Your trusted homeowners association — making community living smarter, safer, and more connected.
+              "Your trusted homeowners association building a safer, more connected way of community living."
             </p>
           </div>
 
@@ -41,7 +46,7 @@ const Footer = () => {
             <ul className="space-y-3">
               {links.map(l => (
                 <li key={l.label}>
-                  <a href={l.href}
+                  <a href={`#${l.id}`} onClick={scrollToSection(l.id)}
                     className="text-white/70 hover:text-[#FFF200] transition-colors duration-200 text-sm font-medium flex items-center gap-2 group">
                     <span className="w-0 group-hover:w-3 h-px bg-[#FFF200] transition-all duration-200 rounded" />
                     {l.label}
@@ -76,7 +81,7 @@ const Footer = () => {
 
         {/* Bottom bar */}
         <div className="border-t border-white/10 pt-8 flex reveal reveal-delay-3 flex-col sm:flex-row items-center justify-between gap-4">
-          <p className="text-white/40 text-sm">© 2026 CHATEAU. All rights reserved.</p>
+          <p className="text-white/40 text-sm">© 2026 CHATEAU REAL. All rights reserved.</p>
           <button onClick={scrollToTop}
             className="group flex items-center gap-2 text-white/50 hover:text-[#FFF200] transition-all duration-300 cursor-pointer">
             <span className="text-xs font-bold uppercase tracking-widest">Back to top</span>

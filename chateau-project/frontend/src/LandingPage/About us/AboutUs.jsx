@@ -57,15 +57,16 @@ const AboutUs = () => {
 
             <div className="space-y-4 text-slate-600 leading-relaxed">
               <p>
-                Chateau isn't just a place to live — it's a premier community designed for those who value
-                security, comfort, and connection. Nestled in modern architecture and lush greenery,
-                our subdivision offers a sanctuary away from the hustle, without compromising on convenience.
+                Chateau isn't just a place to live, it's a premier community designed for those who value security, comfort, and connection. 
+                Nestled in modern architecture and lush greenery, our subdivision offers a sanctuary away from the hustle, without compromising on convenience. 
+                Here, quiet mornings on tree-lined streets and friendly chats with neighbors are simply part of everyday life. Familiar faces, shared spaces, and a genuine sense of belonging make every day feel a little more like home. 
+                With reliable security and well-kept surroundings, Chateau offers the comfort and peace of mind every resident deserves. It's more than a subdivision, it's the place where you call it home.
               </p>
               <p className="font-semibold text-slate-800">
                 Why wait in line at the HOA office when you can manage your home from your fingertips?
               </p>
               <p>
-                The CHATEAU App is your key to a seamless lifestyle — instant access to facility bookings,
+                The CHATEAU App is your key to a seamless lifestyle, instant access to facility bookings,
                 real-time community updates, and a direct line to your HOA board.
               </p>
             </div>

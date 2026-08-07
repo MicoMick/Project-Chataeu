@@ -71,7 +71,7 @@ const Team = () => {
           <p className="max-w-2xl mx-auto text-slate-500 text-lg leading-relaxed">
             The Board of Directors is here to serve{' '}
             <span className="text-[#006837] font-semibold">Chateau Real</span>,
-            working to make your neighborhood experience simple, smart, and secure.
+            dedicated to delivering a simple, trusted, and secure neighborhood experience.
           </p>
         </div>
 

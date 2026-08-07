@@ -47,7 +47,7 @@ const Downloadpage = () => {
             </h2>
 
             <p className="text-slate-400 text-lg leading-relaxed mb-10 max-w-xl">
-              Scan the QR code or click the download button to get the CHATEAU mobile app and manage your home from anywhere.
+              "Everything about your community, one tap away. Scan the QR code or click down below to download the CHATEAU app and take charge of your community life today."
             </p>
 
             {/* Feature list */}

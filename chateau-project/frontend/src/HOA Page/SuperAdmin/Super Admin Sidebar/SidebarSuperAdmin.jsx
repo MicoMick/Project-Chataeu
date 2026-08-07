@@ -14,9 +14,11 @@ import ChateauLogo from '../../../assets/ChataueLogo.png';
 import { supabase } from '../../supabaseAdmin'; 
 
 const SidebarSuperAdmin = () => {
-  // --- FIXED: Initialize state from localStorage so it remembers if it was closed across page loads ---
+  // --- FIXED: Initialize state from localStorage so it remembers if it was closed across page loads.
+  // Defaults to collapsed (closed) when no preference has been saved yet. ---
   const [isCollapsed, setIsCollapsed] = useState(() => {
-    return localStorage.getItem('superAdminSidebarCollapsed') === 'true';
+    const stored = localStorage.getItem('superAdminSidebarCollapsed');
+    return stored === null ? true : stored === 'true';
   });
   
   const [isProfileOpen, setIsProfileOpen] = useState(false);

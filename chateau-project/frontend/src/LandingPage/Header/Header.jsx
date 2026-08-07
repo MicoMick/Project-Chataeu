@@ -12,11 +12,16 @@ const Header = () => {
   }, []);
 
   const navLinks = [
-    { name: 'Our Team',     href: '#team'         },
-    { name: 'How it Works', href: '#how-it-works'  },
-    { name: 'About Us',     href: '#about'         },
-    { name: 'Download',     href: '#download'      },
+    { name: 'Our Team',     id: 'team'         },
+    { name: 'How it Works', id: 'how-it-works' },
+    { name: 'About Us',     id: 'about'        },
+    { name: 'Download',     id: 'download'     },
   ];
+
+  const scrollToSection = (id) => (e) => {
+    e.preventDefault();
+    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' });
+  };
 
   return (
     <>
@@ -46,12 +51,12 @@ const Header = () => {
             {/* Desktop */}
             <div className="hidden md:flex items-center gap-8">
               {navLinks.map(l => (
-                <a key={l.name} href={l.href}
+                <a key={l.name} href={`#${l.id}`} onClick={scrollToSection(l.id)}
                   className="nav-underline text-white/90 hover:text-[#FFF200] text-sm font-semibold tracking-wide transition-colors duration-200">
                   {l.name}
                 </a>
               ))}
-              <a href="#download"
+              <a href="#download" onClick={scrollToSection('download')}
                 className="ml-2 px-5 py-2.5 bg-[#006837] hover:bg-[#006837]-300 text-white rounded-xl text-sm font-black transition-all duration-200 shadow-lg shadow-[#006837]-400/20 hover:-translate-y-0.5">
                 Get the App
               </a>
@@ -71,12 +76,12 @@ const Header = () => {
         <div className={`md:hidden overflow-hidden transition-all duration-300 ${isOpen ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0'}`}>
           <div className="bg-[#004d25]/98 backdrop-blur-xl border-t border-white/10 px-6 py-5 space-y-1">
             {navLinks.map(l => (
-              <a key={l.name} href={l.href} onClick={() => setIsOpen(false)}
+              <a key={l.name} href={`#${l.id}`} onClick={(e) => { scrollToSection(l.id)(e); setIsOpen(false); }}
                 className="flex items-center px-3 py-3 text-white/90 hover:text-[#FFF200] hover:bg-white/5 rounded-xl text-base font-semibold transition-all">
                 {l.name}
               </a>
             ))}
-            <a href="#download" onClick={() => setIsOpen(false)}
+            <a href="#download" onClick={(e) => { scrollToSection('download')(e); setIsOpen(false); }}
               className="flex items-center justify-center mt-3 py-3 bg-[#FFF200] text-[#006837] rounded-xl font-black text-sm">
               Get the App
             </a>

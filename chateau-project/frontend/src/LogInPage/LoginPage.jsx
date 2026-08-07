@@ -72,6 +72,8 @@ const LoginPage = () => {
       if (!adminData) {
         navigate('/resident/home');
       } else if (adminData.role === 'super_admin') {
+        // Always start the Super Admin sidebar closed on a fresh login
+        localStorage.setItem('superAdminSidebarCollapsed', 'true');
         navigate('/super-admin/dashboard');
       } else {
         navigate('/hoa/dashboard');
